@@ -212,15 +212,13 @@ Production deployments are managed internally. Do NOT modify production deployme
 - **Don't leak process.env to subprocesses.** Dynamic tool handlers use buildSafeEnv() which passes only PATH, HOME, LANG, TERM, TOOL_INPUT. Never pass API keys to child processes.
 - **Don't modify docker-compose.yaml or Dockerfile from inside the agent.** That is infrastructure managed by the operator.
 
-## Research and Roadmap
+## Further Reading
 
-Deep context lives in `local/` (gitignored, available on dev machines):
-
-- `local/ROADMAP.md` - 2,004-line strategic roadmap. Priority order: security P0s (done), Docker packaging (done), GitHub/Linear MCP, reliability, browser access, workflows, breakthrough features.
-- `local/ARCHITECTURE.md` - 2,122-line technical architecture. The definitive design document.
-- `local/VISION.md` - Original product vision and principles.
-- `local/HANDOFFS.md` - 1,709 lines of builder handoff notes from every build phase.
-- `local/BUILDER-PERMISSIONS.md` - Standards, Cardinal Rule, quality bar.
-- `local/research/` - 24 research files (~30,000 lines). Covers self-evolution, memory, channels, MCP, competitors, security, packaging, reliability, workflows, integrations, browser access, skills, and breakthrough features.
-- `local/NEXT-3-PHASES.md` - Implementation plan for security, Docker, and reliability phases.
-- `local/SESSION-HANDOFF.md` - Complete project state snapshot for session recovery.
+- [Getting Started](docs/getting-started.md) - Full setup guide with Slack app creation and remote VM deployment
+- [Architecture](docs/architecture.md) - System design and component overview
+- [Channels](docs/channels.md) - Slack, Telegram, Email, Webhook configuration
+- [MCP](docs/mcp.md) - Connecting external clients to the MCP server
+- [Memory](docs/memory.md) - Three-tier vector memory architecture
+- [Self-Evolution](docs/self-evolution.md) - The 6-step reflection pipeline
+- [Security](docs/security.md) - Auth, secrets, permissions, and hardening
+- [Roles](docs/roles.md) - Customizing the agent's specialization
