@@ -1,6 +1,6 @@
 {
   "name": "phantom",
-  "version": "0.16.3",
+  "version": "0.17.0",
   "type": "module",
   "bin": {
     "phantom": "src/cli/main.ts"

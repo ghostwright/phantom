@@ -1,6 +1,6 @@
 # Phantom
 
-Phantom is an autonomous AI co-worker that runs as a persistent Bun process on a VM. It wraps the Claude Agent SDK (Opus 4.6), maintains vector-backed memory across sessions, rewrites its own configuration through a validated self-evolution engine, communicates via Slack/Telegram/Email/Webhook, and exposes all capabilities as an MCP server. 27,000+ lines of TypeScript, 770 tests, v0.16.3. Apache 2.0, repo at ghostwright/phantom.
+Phantom is an autonomous AI co-worker that runs as a persistent Bun process on a VM. It wraps the Claude Agent SDK (Opus 4.6), maintains vector-backed memory across sessions, rewrites its own configuration through a validated self-evolution engine, communicates via Slack/Telegram/Email/Webhook, and exposes all capabilities as an MCP server. 27,000+ lines of TypeScript, 770 tests, v0.17.0. Apache 2.0, repo at ghostwright/phantom.
 
 ## Tech Stack
 

@@ -9,7 +9,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License"></a>
   <img src="https://img.shields.io/badge/tests-770%20passed-brightgreen.svg" alt="Tests">
   <a href="https://hub.docker.com/r/ghostwright/phantom"><img src="https://img.shields.io/docker/pulls/ghostwright/phantom.svg" alt="Docker Pulls"></a>
-  <img src="https://img.shields.io/badge/version-0.16.3-orange.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.17.0-orange.svg" alt="Version">
 </p>
 
 <p align="center">

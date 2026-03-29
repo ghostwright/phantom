@@ -5,7 +5,7 @@ import type { PhantomMcpServer } from "../mcp/server.ts";
 import type { MemoryHealth } from "../memory/types.ts";
 import { handleUiRequest } from "../ui/serve.ts";
 
-const VERSION = "0.16.3";
+const VERSION = "0.17.0";
 
 type MemoryHealthProvider = () => Promise<MemoryHealth>;
 type EvolutionVersionProvider = () => number;
