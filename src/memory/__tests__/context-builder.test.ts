@@ -135,7 +135,7 @@ describe("MemoryContextBuilder", () => {
 	});
 
 	test("filters stale low-signal episodes from prompt context", async () => {
-		const memory = createMockMemorySystem({
+		const { memory } = createMockMemorySystem({
 			episodes: Promise.resolve([
 				{
 					id: "stale-ep",
