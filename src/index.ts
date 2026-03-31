@@ -180,13 +180,11 @@ async function main(): Promise<void> {
 		// Only the lightweight McpServer wrappers are recreated per query.
 		// This prevents "Already connected to a transport" crashes when the scheduler
 		// fires a query while a previous session's transport hasn't fully cleaned up.
-		const secretsBaseUrl = config.domain
-			? `https://${config.name}.${config.domain}`
-			: `http://localhost:${config.port}`;
+		const secretsBaseUrl = config.public_url ?? `http://localhost:${config.port}`;
 		runtime.setMcpServerFactories({
 			"phantom-dynamic-tools": () => createInProcessToolServer(registry),
 			"phantom-scheduler": () => createSchedulerToolServer(scheduler as Scheduler),
-			"phantom-web-ui": () => createWebUiToolServer(config.domain, config.name),
+			"phantom-web-ui": () => createWebUiToolServer(config.public_url),
 			"phantom-secrets": () => createSecretToolServer({ db, baseUrl: secretsBaseUrl }),
 			...(process.env.RESEND_API_KEY
 				? {

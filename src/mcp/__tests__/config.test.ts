@@ -30,6 +30,33 @@ describe("MCP Config", () => {
 		expect(existsSync(freshPath)).toBe(true);
 	});
 
+	test("generateDefaultConfig does not log raw tokens to stdout", () => {
+		const noTokenPath = join(tmpDir, "no-token-log.yaml");
+		const logs: string[] = [];
+		const origLog = console.log;
+		console.log = (...args: unknown[]) => {
+			logs.push(args.map(String).join(" "));
+		};
+		try {
+			loadMcpConfig(noTokenPath);
+		} finally {
+			console.log = origLog;
+		}
+
+		// Verify config was created with valid tokens
+		expect(existsSync(noTokenPath)).toBe(true);
+		const config = loadMcpConfig(noTokenPath);
+		expect(config.tokens.length).toBe(2);
+
+		// Verify no raw token values appear in stdout
+		const allLogs = logs.join("\n");
+		// The old log format included "Admin token" and "Read-only token:" with raw values
+		expect(allLogs).not.toContain("Admin token");
+		expect(allLogs).not.toContain("Read-only token:");
+		// The redacted message should appear instead
+		expect(allLogs).toContain("Tokens written to config");
+	});
+
 	test("loads existing config", () => {
 		const testConfig = {
 			tokens: [{ name: "test-client", hash: "sha256:abc123", scopes: ["read", "operator"] }],

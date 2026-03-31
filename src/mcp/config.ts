@@ -69,8 +69,7 @@ function generateDefaultConfig(path: string): McpConfig {
 	writeFileSync(path, yamlContent, "utf-8");
 
 	console.log("[mcp] Generated default MCP config at", path);
-	console.log("[mcp] Admin token (save this, it won't be shown again):", adminToken);
-	console.log("[mcp] Read-only token:", readToken);
+	console.log("[mcp] Tokens written to config. Run 'phantom token list' to manage tokens.");
 
 	return config;
 }

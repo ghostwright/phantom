@@ -65,4 +65,57 @@ describe("isSafeCallbackUrl", () => {
 		expect(isSafeCallbackUrl("http://127.0.0.2:8080")).toMatchObject({ safe: false });
 		expect(isSafeCallbackUrl("http://127.255.255.255")).toMatchObject({ safe: false });
 	});
+
+	test("blocks IPv4-mapped IPv6 loopback", () => {
+		expect(isSafeCallbackUrl("http://[::ffff:127.0.0.1]:6333")).toMatchObject({ safe: false });
+	});
+
+	test("blocks IPv4-mapped IPv6 cloud metadata", () => {
+		expect(isSafeCallbackUrl("http://[::ffff:169.254.169.254]/meta")).toMatchObject({ safe: false });
+	});
+
+	test("blocks IPv4-mapped IPv6 private 10.x.x.x", () => {
+		expect(isSafeCallbackUrl("http://[::ffff:10.0.0.1]/internal")).toMatchObject({ safe: false });
+	});
+
+	test("blocks IPv4-mapped IPv6 private 192.168.x.x", () => {
+		expect(isSafeCallbackUrl("http://[::ffff:192.168.1.1]/admin")).toMatchObject({ safe: false });
+	});
+
+	test("blocks bare IPv6 loopback", () => {
+		expect(isSafeCallbackUrl("http://[::1]")).toMatchObject({ safe: false });
+	});
+
+	test("allows IPv4-mapped IPv6 with public IP", () => {
+		expect(isSafeCallbackUrl("http://[::ffff:8.8.8.8]")).toEqual({ safe: true });
+	});
+
+	test("still allows regular public hostname", () => {
+		expect(isSafeCallbackUrl("http://example.com")).toEqual({ safe: true });
+	});
+
+	test("still allows regular public IPv4", () => {
+		expect(isSafeCallbackUrl("http://8.8.8.8")).toEqual({ safe: true });
+	});
+
+	// IPv4-compatible and ISATAP bypass forms (found during adversarial review)
+	test("blocks IPv4-compatible loopback (::7f00:1)", () => {
+		expect(isSafeCallbackUrl("http://[::7f00:1]:6333")).toMatchObject({ safe: false });
+	});
+
+	test("blocks IPv4-compatible private 10.x (::a00:1)", () => {
+		expect(isSafeCallbackUrl("http://[::a00:1]:6333")).toMatchObject({ safe: false });
+	});
+
+	test("blocks IPv4-compatible metadata (::a9fe:fea9)", () => {
+		expect(isSafeCallbackUrl("http://[::a9fe:fea9]:6333")).toMatchObject({ safe: false });
+	});
+
+	test("blocks ISATAP form loopback (::ffff:0:7f00:1)", () => {
+		expect(isSafeCallbackUrl("http://[::ffff:0:7f00:1]:6333")).toMatchObject({ safe: false });
+	});
+
+	test("allows IPv4-compatible with public IP", () => {
+		expect(isSafeCallbackUrl("http://[::ffff:8.8.8.8]")).toEqual({ safe: true });
+	});
 });

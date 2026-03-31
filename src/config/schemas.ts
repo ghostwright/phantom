@@ -10,6 +10,7 @@ export const PeerConfigSchema = z.object({
 export const PhantomConfigSchema = z.object({
 	name: z.string().min(1),
 	domain: z.string().optional(),
+	public_url: z.string().url().optional(),
 	port: z.number().int().min(1).max(65535).default(3100),
 	role: z.string().min(1).default("swe"),
 	model: z.string().min(1).default("claude-sonnet-4-6"),

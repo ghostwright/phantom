@@ -67,6 +67,13 @@ const TOOL_SCOPES: Record<string, McpScope> = {
 	phantom_register_tool: "admin",
 	phantom_unregister_tool: "admin",
 	phantom_list_dynamic_tools: "read",
+	// SWE tools that invoke the agent brain need operator scope
+	phantom_review_request: "operator",
+	phantom_codebase_query: "read",
+	phantom_pr_status: "read",
+	phantom_ci_status: "read",
+	phantom_deploy_status: "read",
+	phantom_repo_info: "read",
 };
 
 export function getRequiredScope(toolName: string): McpScope {

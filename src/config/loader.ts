@@ -52,6 +52,26 @@ export function loadConfig(path?: string): PhantomConfig {
 			config.port = port;
 		}
 	}
+	if (process.env.PHANTOM_PUBLIC_URL?.trim()) {
+		const candidate = process.env.PHANTOM_PUBLIC_URL.trim();
+		try {
+			new URL(candidate);
+			config.public_url = candidate;
+		} catch {
+			console.warn(`[config] PHANTOM_PUBLIC_URL is not a valid URL: ${candidate}`);
+		}
+	}
+
+	// Derive public_url from name + domain when not explicitly set
+	if (!config.public_url && config.domain) {
+		const derived = `https://${config.name}.${config.domain}`;
+		try {
+			new URL(derived);
+			config.public_url = derived;
+		} catch {
+			// Name or domain produced an invalid URL, skip derivation
+		}
+	}
 
 	return config;
 }

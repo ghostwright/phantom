@@ -10,6 +10,7 @@ type InitAnswers = {
 	port: number;
 	model: string;
 	domain?: string;
+	public_url?: string;
 	effort?: string;
 };
 
@@ -46,6 +47,9 @@ function generatePhantomYaml(answers: InitAnswers): string {
 	};
 	if (answers.domain) {
 		config.domain = answers.domain;
+	}
+	if (answers.public_url) {
+		config.public_url = answers.public_url;
 	}
 	return YAML.stringify(config);
 }
@@ -182,6 +186,7 @@ export async function runInit(args: string[]): Promise<void> {
 		const envPort = process.env.PORT;
 		const envModel = process.env.PHANTOM_MODEL;
 		const envDomain = process.env.PHANTOM_DOMAIN;
+		const envPublicUrl = process.env.PHANTOM_PUBLIC_URL;
 		const envEffort = process.env.PHANTOM_EFFORT;
 		const envSlackBot = process.env.SLACK_BOT_TOKEN;
 		const envSlackApp = process.env.SLACK_APP_TOKEN;
@@ -195,6 +200,7 @@ export async function runInit(args: string[]): Promise<void> {
 			port: values.port ? Number.parseInt(values.port, 10) : envPort ? Number.parseInt(envPort, 10) : 3100,
 			model: envModel ?? "claude-sonnet-4-6",
 			domain: envDomain,
+			public_url: envPublicUrl,
 			effort: envEffort,
 		};
 

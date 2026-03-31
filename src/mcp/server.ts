@@ -5,7 +5,7 @@ import type { PhantomConfig } from "../config/types.ts";
 import type { EvolutionEngine } from "../evolution/engine.ts";
 import type { MemorySystem } from "../memory/system.ts";
 import { AuditLogger } from "./audit.ts";
-import { AuthMiddleware } from "./auth.ts";
+import { AuthMiddleware, getRequiredScope } from "./auth.ts";
 import { loadMcpConfig } from "./config.ts";
 import { DynamicToolRegistry } from "./dynamic-tools.ts";
 import { RateLimiter } from "./rate-limiter.ts";
@@ -81,7 +81,7 @@ export class PhantomMcpServer {
 
 	private createMcpServer(): McpServer {
 		const server = new McpServer(
-			{ name: `phantom-${this.toolDeps.config.name}`, version: "0.18.1" },
+			{ name: `phantom-${this.toolDeps.config.name}`, version: "0.18.2" },
 			{ capabilities: { logging: {} } },
 		);
 
@@ -161,6 +161,44 @@ export class PhantomMcpServer {
 					},
 				},
 			);
+		}
+
+		// Enforce tool-level scope before the transport sees the request
+		if (req.method === "POST") {
+			try {
+				const scopeClone = req.clone();
+				const json = await scopeClone.json();
+				// Handle both single and batch JSON-RPC requests
+				const messages = Array.isArray(json) ? json : [json];
+				for (const msg of messages) {
+					if (msg?.method === "tools/call" && msg?.params?.name) {
+						const required = getRequiredScope(msg.params.name);
+						if (!this.auth.hasScope(auth, required)) {
+							this.audit.log({
+								client_name: auth.clientName,
+								method: "tools/call",
+								tool_name: msg.params.name,
+								resource_uri: null,
+								input_summary: null,
+								output_summary: `Blocked: ${required} scope required`,
+								cost_usd: 0,
+								duration_ms: Date.now() - startTime,
+								status: "error",
+							});
+							return Response.json(
+								{
+									jsonrpc: "2.0",
+									error: { code: -32001, message: `Insufficient scope: ${required} required` },
+									id: msg.id ?? null,
+								},
+								{ status: 403 },
+							);
+						}
+					}
+				}
+			} catch {
+				// Not JSON or not a tool call - let transport handle it
+			}
 		}
 
 		// Delegate to transport manager

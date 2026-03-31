@@ -15,8 +15,8 @@ function err(message: string): { content: Array<{ type: "text"; text: string }>;
 	return { content: [{ type: "text" as const, text: JSON.stringify({ error: message }) }], isError: true };
 }
 
-export function createWebUiToolServer(domain: string | undefined, agentName: string): McpSdkServerConfigWithInstance {
-	const baseUrl = domain ? `https://${agentName}.${domain}` : "";
+export function createWebUiToolServer(publicUrl: string | undefined): McpSdkServerConfigWithInstance {
+	const baseUrl = publicUrl ?? "";
 
 	const createPageTool = tool(
 		"phantom_create_page",
@@ -86,12 +86,12 @@ export function createWebUiToolServer(domain: string | undefined, agentName: str
 		{},
 		async () => {
 			try {
-				const { sessionToken, magicToken } = createSession();
+				const { magicToken } = createSession();
 				const loginUrl = baseUrl ? `${baseUrl}/ui/login?magic=${magicToken}` : `/ui/login?magic=${magicToken}`;
 
 				return ok({
 					magicLink: loginUrl,
-					sessionToken,
+					// sessionToken intentionally excluded - agent should only share the magic link
 					expiresIn: "10 minutes",
 					sessionDuration: "7 days",
 					note: "Send the magic link to the user via Slack. They click it and are authenticated instantly.",
