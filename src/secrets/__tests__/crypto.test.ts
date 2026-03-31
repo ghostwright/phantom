@@ -7,6 +7,11 @@ const TEST_KEY = randomBytes(32).toString("hex");
 const TEST_DATA_DIR = "data";
 const TEST_KEY_FILE = "data/secret-encryption-key";
 
+function tamperBase64(value: string): string {
+	const replacement = value.startsWith("X") ? "Y" : "X";
+	return `${replacement}${value.slice(1)}`;
+}
+
 beforeEach(() => {
 	resetKeyCache();
 	// Clean up any auto-generated key file from previous runs
@@ -108,14 +113,14 @@ describe("encrypt / decrypt round-trip", () => {
 	test("tampered ciphertext fails decryption", () => {
 		process.env.SECRET_ENCRYPTION_KEY = TEST_KEY;
 		const { encrypted, iv, authTag } = encryptSecret("sensitive-data");
-		const tampered = `X${encrypted.slice(1)}`;
+		const tampered = tamperBase64(encrypted);
 		expect(() => decryptSecret(tampered, iv, authTag)).toThrow();
 	});
 
 	test("tampered auth tag fails decryption", () => {
 		process.env.SECRET_ENCRYPTION_KEY = TEST_KEY;
 		const { encrypted, iv, authTag } = encryptSecret("sensitive-data");
-		const tampered = `X${authTag.slice(1)}`;
+		const tampered = tamperBase64(authTag);
 		expect(() => decryptSecret(encrypted, iv, tampered)).toThrow();
 	});
 
