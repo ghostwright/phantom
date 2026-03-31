@@ -43,7 +43,7 @@ export function calculateEpisodeContextScore(episode: Episode): number {
 		decayRate: episode.decay_rate,
 	});
 
-	return weightedAverage(signals.durability, signals.recency, 0, 0.6, 0.4, 0);
+	return weightedAverage2(signals.durability, signals.recency, 0.6, 0.4);
 }
 
 export function shouldIncludeEpisodeInContext(episode: Episode): boolean {
@@ -75,6 +75,10 @@ function weightedAverage(a: number, b: number, c: number, aWeight: number, bWeig
 	return a * aWeight + b * bWeight + c * cWeight;
 }
 
+function weightedAverage2(a: number, b: number, aWeight: number, bWeight: number): number {
+	return a * aWeight + b * bWeight;
+}
+
 function exponentialDecay(ageHours: number, halfLifeHours: number, decayRate: number): number {
 	if (!Number.isFinite(ageHours) || ageHours < 0) return 1;
 	return Math.exp(-((ageHours / halfLifeHours) * decayRate));
@@ -83,13 +87,7 @@ function exponentialDecay(ageHours: number, halfLifeHours: number, decayRate: nu
 function hoursSince(value?: number | string): number {
 	if (value == null) return Number.POSITIVE_INFINITY;
 
-	const timestamp =
-		typeof value === "number"
-			? value
-			: (() => {
-					const parsed = Date.parse(value);
-					return Number.isNaN(parsed) ? Number.NaN : parsed;
-				})();
+	const timestamp = typeof value === "number" ? value : Date.parse(value);
 
 	if (!Number.isFinite(timestamp)) return Number.POSITIVE_INFINITY;
 
