@@ -108,14 +108,14 @@ describe("encrypt / decrypt round-trip", () => {
 	test("tampered ciphertext fails decryption", () => {
 		process.env.SECRET_ENCRYPTION_KEY = TEST_KEY;
 		const { encrypted, iv, authTag } = encryptSecret("sensitive-data");
-		const tampered = `X${encrypted.slice(1)}`;
+		const tampered = replaceFirstBase64Char(encrypted);
 		expect(() => decryptSecret(tampered, iv, authTag)).toThrow();
 	});
 
 	test("tampered auth tag fails decryption", () => {
 		process.env.SECRET_ENCRYPTION_KEY = TEST_KEY;
 		const { encrypted, iv, authTag } = encryptSecret("sensitive-data");
-		const tampered = `X${authTag.slice(1)}`;
+		const tampered = replaceFirstBase64Char(authTag);
 		expect(() => decryptSecret(encrypted, iv, tampered)).toThrow();
 	});
 
@@ -128,3 +128,12 @@ describe("encrypt / decrypt round-trip", () => {
 		expect(() => decryptSecret(encrypted, iv, authTag)).toThrow();
 	});
 });
+
+function replaceFirstBase64Char(value: string): string {
+	if (value.length === 0) {
+		throw new Error("Cannot tamper with an empty encoded value");
+	}
+
+	const replacement = value[0] === "A" ? "B" : "A";
+	return `${replacement}${value.slice(1)}`;
+}
