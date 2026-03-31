@@ -1,6 +1,6 @@
-export const JUDGE_MODEL_SONNET = "claude-sonnet-4-6-20250514";
-export const JUDGE_MODEL_HAIKU = "claude-haiku-4-5-20250929";
-export const JUDGE_MODEL_OPUS = "claude-opus-4-6-20250918";
+export const JUDGE_MODEL_SONNET = "claude-sonnet-4-6";
+export const JUDGE_MODEL_HAIKU = "claude-haiku-4-5";
+export const JUDGE_MODEL_OPUS = "claude-opus-4-6";
 
 export const JUDGE_TIMEOUT_MS = 30_000;
 export const JUDGE_MAX_TOKENS = 4096;

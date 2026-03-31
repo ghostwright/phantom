@@ -18,6 +18,7 @@ function testConfig(): EvolutionConfig {
 		cadence: { reflection_interval: 1, consolidation_interval: 10, full_review_interval: 50, drift_check_interval: 20 },
 		gates: { drift_threshold: 0.7, max_file_lines: 200, auto_rollback_threshold: 0.1, auto_rollback_window: 5 },
 		reflection: { model: "claude-sonnet-4-20250514", effort: "high", max_budget_usd: 0.5 },
+		judges: { enabled: "auto", cost_cap_usd_per_day: 50.0, max_golden_suite_size: 50 },
 		paths: {
 			config_dir: TEST_DIR,
 			constitution: `${TEST_DIR}/constitution.md`,

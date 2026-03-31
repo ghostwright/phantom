@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import type { z } from "zod";
+// zod/v4 required: matches schemas.ts for zodOutputFormat compatibility
+import type { z } from "zod/v4";
 import {
 	JUDGE_MAX_TOKENS,
 	JUDGE_TEMPERATURE,
@@ -21,6 +22,10 @@ function getClient(): Anthropic {
 // Visible for testing - allows injecting a mock client
 export function setClient(client: Anthropic | null): void {
 	_client = client;
+}
+
+export function isJudgeAvailable(): boolean {
+	return !!process.env.ANTHROPIC_API_KEY;
 }
 
 /**
@@ -46,7 +51,9 @@ export async function callJudge<T>(options: {
 		system: options.systemPrompt,
 		messages: [{ role: "user", content: options.userMessage }],
 		output_config: {
-			format: zodOutputFormat(options.schema),
+			// Cast needed: SDK .d.ts references zod v3 types but runtime uses zod/v4
+			// biome-ignore lint/suspicious/noExplicitAny: bridging zod v3/v4 type mismatch
+			format: zodOutputFormat(options.schema as any),
 		},
 	});
 

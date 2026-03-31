@@ -28,6 +28,17 @@ reflection:
   effort: "high"
   max_budget_usd: 0.50
 
+# LLM Judge Configuration
+judges:
+  # "auto" enables when ANTHROPIC_API_KEY is available
+  # "always" enables unconditionally
+  # "never" disables unconditionally
+  enabled: "auto"
+  # Safety net against runaway costs (daily reset)
+  cost_cap_usd_per_day: 50.0
+  # Maximum golden suite entries (prune oldest when exceeded)
+  max_golden_suite_size: 50
+
 # Directory paths (relative to project root)
 paths:
   config_dir: "phantom-config"

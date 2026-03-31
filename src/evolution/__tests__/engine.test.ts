@@ -27,6 +27,8 @@ function setupTestEnvironment(): void {
 			"  auto_rollback_window: 5",
 			"reflection:",
 			'  model: "claude-sonnet-4-20250514"',
+			"judges:",
+			'  enabled: "never"',
 			"paths:",
 			`  config_dir: "${TEST_DIR}/phantom-config"`,
 			`  constitution: "${TEST_DIR}/phantom-config/constitution.md"`,

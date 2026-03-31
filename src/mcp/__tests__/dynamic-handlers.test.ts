@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { DynamicToolDef } from "../dynamic-tools.ts";
 import { buildSafeEnv, executeDynamicHandler } from "../dynamic-handlers.ts";
+import type { DynamicToolDef } from "../dynamic-tools.ts";
 
 describe("buildSafeEnv", () => {
 	test("includes only safe environment variables", () => {
@@ -24,7 +24,7 @@ describe("buildSafeEnv", () => {
 			if (origKey !== undefined) {
 				process.env.ANTHROPIC_API_KEY = origKey;
 			} else {
-				delete process.env.ANTHROPIC_API_KEY;
+				process.env.ANTHROPIC_API_KEY = undefined;
 			}
 		}
 	});
@@ -40,7 +40,7 @@ describe("buildSafeEnv", () => {
 			if (origToken !== undefined) {
 				process.env.SLACK_BOT_TOKEN = origToken;
 			} else {
-				delete process.env.SLACK_BOT_TOKEN;
+				process.env.SLACK_BOT_TOKEN = undefined;
 			}
 		}
 	});
@@ -82,7 +82,7 @@ describe("executeDynamicHandler", () => {
 			if (origKey !== undefined) {
 				process.env.ANTHROPIC_API_KEY = origKey;
 			} else {
-				delete process.env.ANTHROPIC_API_KEY;
+				process.env.ANTHROPIC_API_KEY = undefined;
 			}
 		}
 	});
@@ -154,7 +154,7 @@ describe("executeDynamicHandler", () => {
 			if (origKey !== undefined) {
 				process.env.ANTHROPIC_API_KEY = origKey;
 			} else {
-				delete process.env.ANTHROPIC_API_KEY;
+				process.env.ANTHROPIC_API_KEY = undefined;
 			}
 		}
 	});

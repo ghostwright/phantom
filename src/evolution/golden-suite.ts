@@ -46,6 +46,22 @@ export function addCase(config: EvolutionConfig, goldenCase: GoldenCase): void {
 }
 
 /**
+ * Prune the golden suite to the given max size, removing oldest entries.
+ * No-op if the suite is within the limit.
+ */
+export function pruneSuite(config: EvolutionConfig, maxSize: number): number {
+	const suite = loadSuite(config);
+	if (suite.length <= maxSize) return 0;
+
+	const sorted = suite.sort((a, b) => b.created_at.localeCompare(a.created_at));
+	const pruned = sorted.slice(0, maxSize);
+	const content = pruned.map((c) => JSON.stringify(c)).join("\n");
+	writeFileSync(config.paths.golden_suite, `${content}\n`, "utf-8");
+
+	return suite.length - maxSize;
+}
+
+/**
  * Run the golden suite against a proposed change description.
  * Returns cases that might be affected.
  */

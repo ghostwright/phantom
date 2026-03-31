@@ -4,8 +4,7 @@ import { applyApproved } from "./application.ts";
 import { type EvolutionConfig, loadEvolutionConfig } from "./config.ts";
 import { recordObservations, runConsolidation } from "./consolidation.ts";
 import { ConstitutionChecker } from "./constitution.ts";
-import { addCase } from "./golden-suite.ts";
-import { loadSuite } from "./golden-suite.ts";
+import { addCase, loadSuite, pruneSuite } from "./golden-suite.ts";
 import { runQualityJudge } from "./judges/quality-judge.ts";
 import { type JudgeCosts, emptyJudgeCosts } from "./judges/types.ts";
 import {
@@ -30,24 +29,45 @@ import { getHistory, readVersion, rollback as versionRollback } from "./versioni
 export class EvolutionEngine {
 	private config: EvolutionConfig;
 	private checker: ConstitutionChecker;
-	private useLLMJudges: boolean;
+	private llmJudgesEnabled: boolean;
+	private dailyCostUsd = 0;
+	private dailyCostResetDate = "";
 
-	constructor(configPath?: string, useLLMJudges = false) {
+	constructor(configPath?: string) {
 		this.config = loadEvolutionConfig(configPath);
 		this.checker = new ConstitutionChecker(this.config);
-		this.useLLMJudges = useLLMJudges;
+		this.llmJudgesEnabled = this.resolveJudgeMode();
+		if (this.llmJudgesEnabled) {
+			console.log("[evolution] LLM judges enabled (API key detected)");
+		} else {
+			console.log("[evolution] LLM judges disabled (no API key or config override)");
+		}
+	}
+
+	private resolveJudgeMode(): boolean {
+		const setting = this.config.judges?.enabled ?? "auto";
+		if (setting === "never") return false;
+		if (setting === "always") return true;
+		return !!process.env.ANTHROPIC_API_KEY;
+	}
+
+	usesLLMJudges(): boolean {
+		return this.llmJudgesEnabled;
+	}
+
+	/** Memory consolidation runs outside afterSession() but still needs to respect the daily cap. */
+	isWithinCostCap(): boolean {
+		return !this.isDailyCostCapReached();
+	}
+
+	/** Consolidation judge costs happen outside the evolution pipeline but count toward the daily cap. */
+	trackExternalJudgeCost(cost: { totalUsd: number }): void {
+		this.resetDailyCostIfNewDay();
+		this.dailyCostUsd += cost.totalUsd;
 	}
 
 	getEvolutionConfig(): EvolutionConfig {
 		return this.config;
-	}
-
-	enableLLMJudges(): void {
-		this.useLLMJudges = true;
-	}
-
-	disableLLMJudges(): void {
-		this.useLLMJudges = false;
 	}
 
 	/**
@@ -62,12 +82,13 @@ export class EvolutionEngine {
 
 		// Step 1: Observation Extraction (LLM or heuristic)
 		let observations: import("./types.ts").SessionObservation[];
-		if (this.useLLMJudges) {
+		if (this.llmJudgesEnabled && !this.isDailyCostCapReached()) {
 			const currentConfig = this.getConfig();
 			const result = await extractObservationsWithLLM(session, currentConfig);
 			observations = result.observations;
 			if (result.judgeCost) {
 				addCost(judgeCosts.observation_extraction, result.judgeCost);
+				this.incrementDailyCost(result.judgeCost.totalUsd);
 			}
 		} else {
 			observations = extractObservations(session);
@@ -98,10 +119,11 @@ export class EvolutionEngine {
 		const goldenSuite = loadSuite(this.config);
 		let validationResults: import("./types.ts").ValidationResult[];
 
-		if (this.useLLMJudges) {
+		if (this.llmJudgesEnabled && !this.isDailyCostCapReached()) {
 			const judgeResult = await validateAllWithJudges(deltas, this.checker, goldenSuite, this.config, currentConfig);
 			validationResults = judgeResult.results;
 			mergeCosts(judgeCosts, judgeResult.judgeCosts);
+			this.incrementDailyCost(totalCostFromJudgeCosts(judgeResult.judgeCosts));
 		} else {
 			validationResults = validateAll(deltas, this.checker, goldenSuite, this.config);
 		}
@@ -139,13 +161,14 @@ export class EvolutionEngine {
 		}
 
 		// Quality Assessment (LLM only, non-blocking)
-		if (this.useLLMJudges) {
+		if (this.llmJudgesEnabled && !this.isDailyCostCapReached()) {
 			try {
 				const qualityResult = await runQualityJudge(session, currentConfig);
 				judgeCosts.quality_assessment.calls++;
 				judgeCosts.quality_assessment.totalUsd += qualityResult.costUsd;
 				judgeCosts.quality_assessment.totalInputTokens += qualityResult.inputTokens;
 				judgeCosts.quality_assessment.totalOutputTokens += qualityResult.outputTokens;
+				this.incrementDailyCost(qualityResult.costUsd);
 
 				if (qualityResult.data.regression_signal) {
 					console.warn(
@@ -184,10 +207,13 @@ export class EvolutionEngine {
 			this.rollback(this.getCurrentVersion() - 1);
 		}
 
-		// Record judge costs
-		if (this.useLLMJudges) {
+		// Record judge costs to persistent metrics (daily tracking already done incrementally above)
+		if (this.llmJudgesEnabled) {
 			this.recordJudgeCosts(judgeCosts);
 		}
+
+		// Enforce golden suite cap
+		this.pruneGoldenSuite();
 
 		return {
 			version: this.getCurrentVersion(),
@@ -236,6 +262,39 @@ export class EvolutionEngine {
 		console.log(`[evolution] Rolled back to version ${toVersion}`);
 	}
 
+	private resetDailyCostIfNewDay(): void {
+		const today = new Date().toISOString().slice(0, 10);
+		if (this.dailyCostResetDate !== today) {
+			this.dailyCostUsd = 0;
+			this.dailyCostResetDate = today;
+		}
+	}
+
+	private isDailyCostCapReached(): boolean {
+		this.resetDailyCostIfNewDay();
+		const cap = this.config.judges?.cost_cap_usd_per_day ?? 50.0;
+		if (this.dailyCostUsd >= cap) {
+			console.warn(
+				`[evolution] Daily cost cap reached ($${this.dailyCostUsd.toFixed(2)} >= $${cap}), using heuristics`,
+			);
+			return true;
+		}
+		return false;
+	}
+
+	private incrementDailyCost(usd: number): void {
+		this.resetDailyCostIfNewDay();
+		this.dailyCostUsd += usd;
+	}
+
+	private pruneGoldenSuite(): void {
+		const maxSize = this.config.judges?.max_golden_suite_size ?? 50;
+		const removed = pruneSuite(this.config, maxSize);
+		if (removed > 0) {
+			console.log(`[evolution] Pruned ${removed} oldest golden suite entries (cap: ${maxSize})`);
+		}
+	}
+
 	private recordJudgeCosts(costs: JudgeCosts): void {
 		const metricsPath = this.config.paths.metrics_file;
 		try {
@@ -276,4 +335,12 @@ function mergeCosts(target: JudgeCosts, source: JudgeCosts): void {
 	for (const key of Object.keys(source) as Array<keyof JudgeCosts>) {
 		addCost(target[key], source[key]);
 	}
+}
+
+function totalCostFromJudgeCosts(costs: JudgeCosts): number {
+	let total = 0;
+	for (const key of Object.keys(costs) as Array<keyof JudgeCosts>) {
+		total += costs[key].totalUsd;
+	}
+	return total;
 }

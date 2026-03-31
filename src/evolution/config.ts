@@ -26,6 +26,13 @@ export const EvolutionConfigSchema = z.object({
 			max_budget_usd: z.number().positive().default(0.5),
 		})
 		.default({}),
+	judges: z
+		.object({
+			enabled: z.enum(["auto", "always", "never"]).default("auto"),
+			cost_cap_usd_per_day: z.number().positive().default(50.0),
+			max_golden_suite_size: z.number().int().positive().default(50),
+		})
+		.default({}),
 	paths: z
 		.object({
 			config_dir: z.string().default("phantom-config"),
