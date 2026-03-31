@@ -37,6 +37,10 @@ export type SemanticFact = {
 	valid_until: string | null;
 	version: number;
 	previous_version_id: string | null;
+	reinforcement_count?: number;
+	last_reinforced_at?: string | null;
+	superseded_by_fact_id?: string | null;
+	contradiction_note?: string | null;
 	category: FactCategory;
 	tags: string[];
 };
@@ -71,6 +75,7 @@ export type RecallOptions = {
 	limit?: number;
 	minScore?: number;
 	strategy?: "recency" | "similarity" | "temporal" | "metadata";
+	validity?: "current" | "superseded" | "all";
 	timeRange?: { from: Date; to: Date };
 	filters?: Record<string, unknown>;
 };

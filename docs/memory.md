@@ -26,7 +26,7 @@ Accumulated facts with contradiction detection and temporal validity:
 - User preferences ("prefers small PRs, conventional commits")
 - Team context ("@sarah is the main reviewer, she cares about test coverage")
 
-When a new fact contradicts an existing one, the old fact is marked superseded.
+When a new fact repeats an existing belief, Phantom reinforces the current fact instead of storing a near-duplicate. When a new fact contradicts an existing one, the old fact is marked superseded and the contradiction can be surfaced during later retrieval.
 
 ### Tier 3: Procedural Memory
 

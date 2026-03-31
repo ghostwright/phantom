@@ -69,7 +69,13 @@ export class MemoryContextBuilder {
 	}
 
 	private formatFacts(facts: SemanticFact[]): string {
-		const lines = facts.map((f) => `- ${f.natural_language} [confidence: ${f.confidence.toFixed(1)}]`);
+		const lines = facts.map((f) => {
+			const metadata = [`confidence: ${f.confidence.toFixed(1)}`];
+			const repetitionCount = (f.reinforcement_count ?? 0) + 1;
+			if (repetitionCount > 1) metadata.push(`repeated: ${repetitionCount}x`);
+			const contradictionNote = f.contradiction_note ? ` Recent contradictions: ${f.contradiction_note}` : "";
+			return `- ${f.natural_language} [${metadata.join(", ")}]${contradictionNote}`;
+		});
 		return `## Known Facts\n${lines.join("\n")}`;
 	}
 
