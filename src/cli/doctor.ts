@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
+import { createClawMemStore } from "../memory/clawmem-runtime.ts";
 
 type CheckResult = {
 	name: string;
@@ -39,47 +40,29 @@ async function checkDocker(): Promise<CheckResult> {
 	}
 }
 
-async function checkQdrant(): Promise<CheckResult> {
+async function checkClawMem(): Promise<CheckResult> {
 	try {
-		const resp = await fetch("http://localhost:6333/healthz", { signal: AbortSignal.timeout(3000) });
-		if (resp.ok) {
-			return { name: "Qdrant", status: "ok", message: "Healthy (port 6333)" };
-		}
-		return { name: "Qdrant", status: "fail", message: `HTTP ${resp.status}`, fix: "docker compose up -d qdrant" };
-	} catch {
-		return {
-			name: "Qdrant",
-			status: "fail",
-			message: "Not reachable at localhost:6333",
-			fix: "docker compose up -d qdrant",
-		};
-	}
-}
+		const [{ loadMemoryConfig }] = await Promise.all([import("../memory/config.ts")]);
+		const config = loadMemoryConfig();
+		const store = await createClawMemStore(config.clawmem.store_path, {
+			busyTimeout: config.clawmem.busy_timeout_ms,
+		});
+		const status = store.getStatus();
+		store.close();
 
-async function checkOllama(): Promise<CheckResult> {
-	try {
-		const resp = await fetch("http://localhost:11434/api/tags", { signal: AbortSignal.timeout(3000) });
-		if (!resp.ok) {
-			return { name: "Ollama", status: "fail", message: `HTTP ${resp.status}`, fix: "docker compose up -d ollama" };
-		}
-		const data = (await resp.json()) as { models?: Array<{ name: string }> };
-		const models = data.models ?? [];
-		const hasEmbed = models.some((m) => m.name.includes("nomic-embed-text"));
-		if (!hasEmbed) {
-			return {
-				name: "Ollama",
-				status: "warn",
-				message: "Running but nomic-embed-text model not pulled",
-				fix: "docker exec phantom-ollama ollama pull nomic-embed-text",
-			};
-		}
-		return { name: "Ollama", status: "ok", message: `Healthy, ${models.length} model(s) loaded` };
-	} catch {
+		const vectorState = status.hasVectorIndex ? "vectors ready" : "FTS-only until first embeddings";
 		return {
-			name: "Ollama",
+			name: "ClawMem",
+			status: "ok",
+			message: `${config.clawmem.store_path} (${status.totalDocuments} docs, ${vectorState})`,
+		};
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		return {
+			name: "ClawMem",
 			status: "fail",
-			message: "Not reachable at localhost:11434",
-			fix: "docker compose up -d ollama",
+			message: msg,
+			fix: "Check config/memory.yaml and ensure the local ClawMem dependency is installed",
 		};
 	}
 }
@@ -188,8 +171,7 @@ export async function runDoctor(args: string[]): Promise<void> {
 	const checks = await Promise.all([
 		checkBun(),
 		checkDocker(),
-		checkQdrant(),
-		checkOllama(),
+		checkClawMem(),
 		checkConfig(),
 		checkMcpConfig(),
 		checkDatabase(),

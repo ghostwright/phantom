@@ -17,9 +17,9 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.77",
-    "@anthropic-ai/sdk": "^0.80.0",
     "@modelcontextprotocol/sdk": "^1.28.0",
     "@slack/bolt": "^4.6.0",
+    "clawmem": "file:../ClawMem",
     "croner": "^10.0.1",
     "imapflow": "^1.2.18",
     "nodemailer": "^8.0.4",

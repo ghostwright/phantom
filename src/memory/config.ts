@@ -7,23 +7,22 @@ const DEFAULT_CONFIG_PATH = "config/memory.yaml";
 
 /**
  * Apply environment variable overrides for Docker and bare-metal compatibility.
- * QDRANT_URL, OLLAMA_URL, and EMBEDDING_MODEL env vars take precedence over YAML config.
+ * CLAWMEM_STORE_PATH, CLAWMEM_EMBED_MODEL, and CLAWMEM_BUSY_TIMEOUT_MS
+ * env vars take precedence over YAML config.
  */
 function applyEnvOverrides(config: MemoryConfig): MemoryConfig {
-	const qdrantUrl = process.env.QDRANT_URL;
-	const ollamaUrl = process.env.OLLAMA_URL;
-	const embeddingModel = process.env.EMBEDDING_MODEL;
+	const storePath = readEnv(process.env.CLAWMEM_STORE_PATH);
+	const embedModel = readEnv(process.env.CLAWMEM_EMBED_MODEL);
+	const busyTimeoutMs = readEnv(process.env.CLAWMEM_BUSY_TIMEOUT_MS);
+	const parsedBusyTimeout = busyTimeoutMs ? Number.parseInt(busyTimeoutMs, 10) : Number.NaN;
 
 	return {
 		...config,
-		qdrant: {
-			...config.qdrant,
-			...(qdrantUrl ? { url: qdrantUrl } : {}),
-		},
-		ollama: {
-			...config.ollama,
-			...(ollamaUrl ? { url: ollamaUrl } : {}),
-			...(embeddingModel ? { model: embeddingModel } : {}),
+		clawmem: {
+			...config.clawmem,
+			...(storePath ? { store_path: storePath } : {}),
+			...(embedModel ? { embed_model: embedModel } : {}),
+			...(Number.isFinite(parsedBusyTimeout) ? { busy_timeout_ms: parsedBusyTimeout } : {}),
 		},
 	};
 }
@@ -51,4 +50,10 @@ export function loadMemoryConfig(path?: string): MemoryConfig {
 	}
 
 	return applyEnvOverrides(result.data);
+}
+
+function readEnv(value: string | undefined): string | undefined {
+	if (!value) return undefined;
+	const normalized = value.trim();
+	return normalized === "" || normalized === "undefined" ? undefined : normalized;
 }

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { EvolutionEngine } from "../engine.ts";
 
@@ -78,64 +78,30 @@ function setupWithJudgeMode(enabled: "auto" | "always" | "never"): void {
 	writeFileSync(`${TEST_DIR}/phantom-config/meta/golden-suite.jsonl`, "", "utf-8");
 }
 
-let savedApiKey: string | undefined;
-
 describe("Judge Activation", () => {
-	beforeEach(() => {
-		savedApiKey = process.env.ANTHROPIC_API_KEY;
-	});
-
 	afterEach(() => {
-		if (savedApiKey !== undefined) {
-			process.env.ANTHROPIC_API_KEY = savedApiKey;
-		} else {
-			process.env.ANTHROPIC_API_KEY = undefined;
-		}
 		rmSync(TEST_DIR, { recursive: true, force: true });
 	});
 
-	test("auto mode enables judges when ANTHROPIC_API_KEY is set", () => {
-		process.env.ANTHROPIC_API_KEY = "sk-test-key";
+	test("auto mode enables judges (Agent SDK always available)", () => {
 		setupWithJudgeMode("auto");
 		const engine = new EvolutionEngine(CONFIG_PATH);
 		expect(engine.usesLLMJudges()).toBe(true);
 	});
 
-	test("auto mode disables judges when ANTHROPIC_API_KEY is missing", () => {
-		process.env.ANTHROPIC_API_KEY = undefined;
-		setupWithJudgeMode("auto");
-		const engine = new EvolutionEngine(CONFIG_PATH);
-		expect(engine.usesLLMJudges()).toBe(false);
-	});
-
-	test("never mode disables judges even when API key is set", () => {
-		process.env.ANTHROPIC_API_KEY = "sk-test-key";
+	test("never mode disables judges", () => {
 		setupWithJudgeMode("never");
 		const engine = new EvolutionEngine(CONFIG_PATH);
 		expect(engine.usesLLMJudges()).toBe(false);
 	});
 
-	test("always mode enables judges regardless of API key", () => {
-		process.env.ANTHROPIC_API_KEY = undefined;
+	test("always mode enables judges", () => {
 		setupWithJudgeMode("always");
 		const engine = new EvolutionEngine(CONFIG_PATH);
 		expect(engine.usesLLMJudges()).toBe(true);
 	});
 
-	test("usesLLMJudges accessor matches resolved state", () => {
-		process.env.ANTHROPIC_API_KEY = "sk-test-key";
-		setupWithJudgeMode("auto");
-		const engine = new EvolutionEngine(CONFIG_PATH);
-		expect(engine.usesLLMJudges()).toBe(true);
-
-		process.env.ANTHROPIC_API_KEY = undefined;
-		setupWithJudgeMode("auto");
-		const engine2 = new EvolutionEngine(CONFIG_PATH);
-		expect(engine2.usesLLMJudges()).toBe(false);
-	});
-
-	test("missing judges section defaults to auto mode", () => {
-		process.env.ANTHROPIC_API_KEY = undefined;
+	test("missing judges section defaults to auto (enabled)", () => {
 		mkdirSync(`${TEST_DIR}/config`, { recursive: true });
 		mkdirSync(`${TEST_DIR}/phantom-config/meta`, { recursive: true });
 		mkdirSync(`${TEST_DIR}/phantom-config/strategies`, { recursive: true });
@@ -147,6 +113,7 @@ describe("Judge Activation", () => {
 			[
 				"cadence:",
 				"  reflection_interval: 1",
+				"  consolidation_interval: 10",
 				"paths:",
 				`  config_dir: "${TEST_DIR}/phantom-config"`,
 				`  constitution: "${TEST_DIR}/phantom-config/constitution.md"`,
@@ -198,8 +165,8 @@ describe("Judge Activation", () => {
 		writeFileSync(`${TEST_DIR}/phantom-config/meta/evolution-log.jsonl`, "", "utf-8");
 		writeFileSync(`${TEST_DIR}/phantom-config/meta/golden-suite.jsonl`, "", "utf-8");
 
-		// No API key + auto = disabled
+		// Auto mode + Agent SDK = always enabled
 		const engine = new EvolutionEngine(CONFIG_PATH);
-		expect(engine.usesLLMJudges()).toBe(false);
+		expect(engine.usesLLMJudges()).toBe(true);
 	});
 });

@@ -1,5 +1,6 @@
 import { matchesCorrectionPattern, matchesDomainFactPattern, matchesPreferencePattern } from "../shared/patterns.ts";
 import type { EvolutionConfig } from "./config.ts";
+import { JudgeError } from "./judges/client.ts";
 import { extractObservationsWithJudge, toSessionObservations } from "./judges/observation-judge.ts";
 import type { JudgeCostEntry } from "./judges/types.ts";
 import type { ConfigDelta, CritiqueResult, EvolvedConfig, SessionObservation, SessionSummary } from "./types.ts";
@@ -28,7 +29,12 @@ export async function extractObservationsWithLLM(
 	} catch (error: unknown) {
 		const msg = error instanceof Error ? error.message : String(error);
 		console.warn(`[evolution] Observation judge failed, falling back to heuristic: ${msg}`);
-		return { observations: extractObservations(session), judgeCost: null };
+		// Record cost even on failure so daily cap tracks actual spend
+		const judgeCost =
+			error instanceof JudgeError
+				? { calls: 1, totalUsd: error.costUsd, totalInputTokens: error.inputTokens, totalOutputTokens: error.outputTokens }
+				: null;
+		return { observations: extractObservations(session), judgeCost };
 	}
 }
 

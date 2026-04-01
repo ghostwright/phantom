@@ -6,29 +6,19 @@ import type { MemoryHealth } from "../../memory/types.ts";
  * This must mirror the logic in startServer's /health handler exactly.
  */
 function computeHealthStatus(memory: MemoryHealth): string {
-	const allHealthy = memory.qdrant && memory.ollama;
-	const someHealthy = memory.qdrant || memory.ollama;
-	return allHealthy ? "ok" : someHealthy ? "degraded" : memory.configured ? "down" : "ok";
+	return memory.clawmem ? "ok" : memory.configured ? "down" : "ok";
 }
 
 describe("health status logic", () => {
-	test("both healthy and configured -> ok", () => {
-		expect(computeHealthStatus({ qdrant: true, ollama: true, configured: true })).toBe("ok");
+	test("clawmem healthy and configured -> ok", () => {
+		expect(computeHealthStatus({ clawmem: true, configured: true })).toBe("ok");
 	});
 
-	test("qdrant up, ollama down, configured -> degraded", () => {
-		expect(computeHealthStatus({ qdrant: true, ollama: false, configured: true })).toBe("degraded");
+	test("clawmem down when configured -> down", () => {
+		expect(computeHealthStatus({ clawmem: false, configured: true })).toBe("down");
 	});
 
-	test("qdrant down, ollama up, configured -> degraded", () => {
-		expect(computeHealthStatus({ qdrant: false, ollama: true, configured: true })).toBe("degraded");
-	});
-
-	test("both down when configured -> down (the bug fix)", () => {
-		expect(computeHealthStatus({ qdrant: false, ollama: false, configured: true })).toBe("down");
-	});
-
-	test("both down when not configured -> ok (memory intentionally not set up)", () => {
-		expect(computeHealthStatus({ qdrant: false, ollama: false, configured: false })).toBe("ok");
+	test("clawmem down when not configured -> ok", () => {
+		expect(computeHealthStatus({ clawmem: false, configured: false })).toBe("ok");
 	});
 });

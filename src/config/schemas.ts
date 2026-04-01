@@ -70,15 +70,11 @@ export const ChannelsConfigSchema = z.object({
 export type ChannelsConfig = z.infer<typeof ChannelsConfigSchema>;
 
 export const MemoryConfigSchema = z.object({
-	qdrant: z
+	clawmem: z
 		.object({
-			url: z.string().url().default("http://localhost:6333"),
-		})
-		.default({}),
-	ollama: z
-		.object({
-			url: z.string().url().default("http://localhost:11434"),
-			model: z.string().min(1).default("nomic-embed-text"),
+			store_path: z.string().min(1).default("data/clawmem.sqlite"),
+			embed_model: z.string().min(1).default("embedding"),
+			busy_timeout_ms: z.number().int().nonnegative().default(5000),
 		})
 		.default({}),
 	collections: z
@@ -86,12 +82,6 @@ export const MemoryConfigSchema = z.object({
 			episodes: z.string().min(1).default("episodes"),
 			semantic_facts: z.string().min(1).default("semantic_facts"),
 			procedures: z.string().min(1).default("procedures"),
-		})
-		.default({}),
-	embedding: z
-		.object({
-			dimensions: z.number().int().positive().default(768),
-			batch_size: z.number().int().positive().default(32),
 		})
 		.default({}),
 	context: z

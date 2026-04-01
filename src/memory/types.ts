@@ -82,25 +82,7 @@ export type ConsolidationResult = {
 	durationMs: number;
 };
 
-export type SparseVector = {
-	indices: number[];
-	values: number[];
-};
-
-export type QdrantPoint = {
-	id: string;
-	vector: Record<string, number[] | SparseVector>;
-	payload: Record<string, unknown>;
-};
-
-export type QdrantSearchResult = {
-	id: string;
-	score: number;
-	payload: Record<string, unknown>;
-};
-
 export type MemoryHealth = {
-	qdrant: boolean;
-	ollama: boolean;
+	clawmem: boolean;
 	configured: boolean;
 };

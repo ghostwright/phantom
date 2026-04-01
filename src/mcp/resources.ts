@@ -36,11 +36,11 @@ function registerHealthResource(server: McpServer, deps: ResourceDependencies): 
 		},
 		async (): Promise<ReadResourceResult> => {
 			const memoryHealth = deps.memory
-				? await deps.memory.healthCheck().catch(() => ({ qdrant: false, ollama: false }))
-				: { qdrant: false, ollama: false };
+				? await deps.memory.healthCheck().catch(() => ({ clawmem: false, configured: false }))
+				: { clawmem: false, configured: false };
 
 			const uptimeSeconds = Math.floor((Date.now() - deps.startedAt) / 1000);
-			const allHealthy = memoryHealth.qdrant && memoryHealth.ollama;
+			const status = memoryHealth.clawmem ? "ok" : memoryHealth.configured ? "down" : "ok";
 
 			return {
 				contents: [
@@ -48,7 +48,7 @@ function registerHealthResource(server: McpServer, deps: ResourceDependencies): 
 						uri: "phantom://health",
 						text: JSON.stringify(
 							{
-								status: allHealthy ? "ok" : "degraded",
+								status,
 								uptime: uptimeSeconds,
 								version: "0.4.0",
 								agent: deps.config.name,

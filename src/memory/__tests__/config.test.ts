@@ -2,60 +2,59 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { loadMemoryConfig } from "../config.ts";
 
 describe("loadMemoryConfig env overrides", () => {
-	const origQdrant = process.env.QDRANT_URL;
-	const origOllama = process.env.OLLAMA_URL;
-	const origModel = process.env.EMBEDDING_MODEL;
+	const origStorePath = process.env.CLAWMEM_STORE_PATH;
+	const origModel = process.env.CLAWMEM_EMBED_MODEL;
+	const origBusyTimeout = process.env.CLAWMEM_BUSY_TIMEOUT_MS;
 
 	beforeEach(() => {
-		process.env.QDRANT_URL = undefined;
-		process.env.OLLAMA_URL = undefined;
-		process.env.EMBEDDING_MODEL = undefined;
+		delete process.env.CLAWMEM_STORE_PATH;
+		delete process.env.CLAWMEM_EMBED_MODEL;
+		delete process.env.CLAWMEM_BUSY_TIMEOUT_MS;
 	});
 
 	afterEach(() => {
-		process.env.QDRANT_URL = origQdrant;
-		process.env.OLLAMA_URL = origOllama;
-		process.env.EMBEDDING_MODEL = origModel;
+		process.env.CLAWMEM_STORE_PATH = origStorePath;
+		process.env.CLAWMEM_EMBED_MODEL = origModel;
+		process.env.CLAWMEM_BUSY_TIMEOUT_MS = origBusyTimeout;
 	});
 
 	test("uses YAML defaults when no env vars set", () => {
 		const config = loadMemoryConfig();
-		expect(config.qdrant.url).toBe("http://localhost:6333");
-		expect(config.ollama.url).toBe("http://localhost:11434");
-		expect(config.ollama.model).toBe("nomic-embed-text");
+		expect(config.clawmem.store_path).toBe("data/clawmem.sqlite");
+		expect(config.clawmem.embed_model).toBe("embedding");
+		expect(config.clawmem.busy_timeout_ms).toBe(5000);
 	});
 
-	test("QDRANT_URL env var overrides YAML config", () => {
-		process.env.QDRANT_URL = "http://qdrant:6333";
+	test("CLAWMEM_STORE_PATH env var overrides YAML config", () => {
+		process.env.CLAWMEM_STORE_PATH = "tmp/test-memory.sqlite";
 		const config = loadMemoryConfig();
-		expect(config.qdrant.url).toBe("http://qdrant:6333");
+		expect(config.clawmem.store_path).toBe("tmp/test-memory.sqlite");
 	});
 
-	test("OLLAMA_URL env var overrides YAML config", () => {
-		process.env.OLLAMA_URL = "http://ollama:11434";
+	test("CLAWMEM_EMBED_MODEL env var overrides YAML config", () => {
+		process.env.CLAWMEM_EMBED_MODEL = "text-embedding-3-small";
 		const config = loadMemoryConfig();
-		expect(config.ollama.url).toBe("http://ollama:11434");
+		expect(config.clawmem.embed_model).toBe("text-embedding-3-small");
 	});
 
-	test("EMBEDDING_MODEL env var overrides YAML config", () => {
-		process.env.EMBEDDING_MODEL = "mxbai-embed-large";
+	test("CLAWMEM_BUSY_TIMEOUT_MS env var overrides YAML config", () => {
+		process.env.CLAWMEM_BUSY_TIMEOUT_MS = "9000";
 		const config = loadMemoryConfig();
-		expect(config.ollama.model).toBe("mxbai-embed-large");
+		expect(config.clawmem.busy_timeout_ms).toBe(9000);
 	});
 
 	test("env vars override for missing YAML file (defaults path)", () => {
-		process.env.QDRANT_URL = "http://qdrant:6333";
-		process.env.OLLAMA_URL = "http://ollama:11434";
+		process.env.CLAWMEM_STORE_PATH = "tmp/missing.sqlite";
+		process.env.CLAWMEM_EMBED_MODEL = "voyage-3-large";
 		const config = loadMemoryConfig("config/nonexistent.yaml");
-		expect(config.qdrant.url).toBe("http://qdrant:6333");
-		expect(config.ollama.url).toBe("http://ollama:11434");
+		expect(config.clawmem.store_path).toBe("tmp/missing.sqlite");
+		expect(config.clawmem.embed_model).toBe("voyage-3-large");
 	});
 
 	test("non-memory fields are preserved when env vars set", () => {
-		process.env.QDRANT_URL = "http://qdrant:6333";
+		process.env.CLAWMEM_STORE_PATH = "tmp/test-memory.sqlite";
 		const config = loadMemoryConfig();
 		expect(config.collections.episodes).toBe("episodes");
-		expect(config.embedding.dimensions).toBe(768);
 		expect(config.context.max_tokens).toBe(50000);
 	});
 });

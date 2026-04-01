@@ -100,7 +100,7 @@ If metrics degrade after an evolution (success rate drops, correction rate incre
 
 ## LLM Judges
 
-When the `ANTHROPIC_API_KEY` is available, 6 LLM judges provide higher-quality evolution:
+The Agent SDK powers 6 LLM judges that provide higher-quality evolution:
 
 | Judge | Model | Strategy | Purpose |
 |-------|-------|----------|---------|

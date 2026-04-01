@@ -1,20 +1,15 @@
-# Environment variables QDRANT_URL and OLLAMA_URL override these values.
-# In Docker, compose sets QDRANT_URL=http://qdrant:6333 and OLLAMA_URL=http://ollama:11434.
-qdrant:
-  url: "http://localhost:6333"
-
-ollama:
-  url: "http://localhost:11434"
-  model: "nomic-embed-text"
+# CLAWMEM_STORE_PATH and CLAWMEM_EMBED_MODEL override these values.
+# Optional remote embeddings are configured via CLAWMEM_EMBED_URL and
+# CLAWMEM_EMBED_API_KEY; ClawMem reads those directly from the environment.
+clawmem:
+  store_path: "data/clawmem.sqlite"
+  embed_model: "embedding"
+  busy_timeout_ms: 5000
 
 collections:
   episodes: "episodes"
   semantic_facts: "semantic_facts"
   procedures: "procedures"
-
-embedding:
-  dimensions: 768
-  batch_size: 32
 
 context:
   max_tokens: 50000

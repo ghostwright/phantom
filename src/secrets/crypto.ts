@@ -20,7 +20,7 @@ let cachedKey: Buffer | null = null;
 export function getEncryptionKey(): Buffer {
 	if (cachedKey) return cachedKey;
 
-	const envKey = process.env.SECRET_ENCRYPTION_KEY;
+	const envKey = readEnv(process.env.SECRET_ENCRYPTION_KEY);
 	if (envKey) {
 		const buf = Buffer.from(envKey, "hex");
 		if (buf.length !== KEY_LENGTH) {
@@ -81,4 +81,10 @@ export function decryptSecret(encrypted: string, iv: string, authTag: string): s
 /** Reset cached key. Used in tests only. */
 export function resetKeyCache(): void {
 	cachedKey = null;
+}
+
+function readEnv(value: string | undefined): string | undefined {
+	if (!value) return undefined;
+	const normalized = value.trim();
+	return normalized === "" || normalized === "undefined" ? undefined : normalized;
 }

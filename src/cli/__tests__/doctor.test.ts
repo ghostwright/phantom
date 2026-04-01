@@ -30,6 +30,7 @@ describe("phantom doctor", () => {
 		expect(logs.some((l) => l.includes("Phantom Doctor"))).toBe(true);
 		expect(logs.some((l) => l.includes("Bun"))).toBe(true);
 		expect(logs.some((l) => l.includes("Docker"))).toBe(true);
+		expect(logs.some((l) => l.includes("ClawMem"))).toBe(true);
 		expect(logs.some((l) => l.includes("Config"))).toBe(true);
 		expect(logs.some((l) => l.includes("SQLite"))).toBe(true);
 	});

@@ -4,10 +4,8 @@ import { MemoryContextBuilder } from "../context-builder.ts";
 import type { MemorySystem } from "../system.ts";
 
 const TEST_CONFIG: MemoryConfig = {
-	qdrant: { url: "http://localhost:6333" },
-	ollama: { url: "http://localhost:11434", model: "nomic-embed-text" },
+	clawmem: { store_path: "data/test-clawmem.sqlite", embed_model: "embedding", busy_timeout_ms: 5000 },
 	collections: { episodes: "episodes", semantic_facts: "semantic_facts", procedures: "procedures" },
-	embedding: { dimensions: 768, batch_size: 32 },
 	context: { max_tokens: 50000, episode_limit: 10, fact_limit: 20, procedure_limit: 5 },
 };
 
@@ -260,9 +258,9 @@ describe("MemoryContextBuilder", () => {
 
 	test("handles errors from memory system gracefully", async () => {
 		const memory = createMockMemorySystem({
-			episodes: Promise.reject(new Error("Qdrant down")),
-			facts: Promise.reject(new Error("Qdrant down")),
-			procedure: Promise.reject(new Error("Qdrant down")),
+			episodes: Promise.reject(new Error("ClawMem unavailable")),
+			facts: Promise.reject(new Error("ClawMem unavailable")),
+			procedure: Promise.reject(new Error("ClawMem unavailable")),
 		});
 
 		const builder = new MemoryContextBuilder(memory, TEST_CONFIG);

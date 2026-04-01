@@ -83,14 +83,11 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 			if (url.pathname === "/health") {
 				const memory: MemoryHealth = memoryHealthProvider
 					? await memoryHealthProvider()
-					: { qdrant: false, ollama: false, configured: false };
+					: { clawmem: false, configured: false };
 
 				const channels: Record<string, boolean> = channelHealthProvider ? channelHealthProvider() : {};
 
-				const allHealthy = memory.qdrant && memory.ollama;
-				const someHealthy = memory.qdrant || memory.ollama;
-				// Both up -> ok. One up -> degraded. Both down + configured -> down. Not configured -> ok.
-				const status = allHealthy ? "ok" : someHealthy ? "degraded" : memory.configured ? "down" : "ok";
+				const status = memory.clawmem ? "ok" : memory.configured ? "down" : "ok";
 				const evolutionGeneration = evolutionVersionProvider ? evolutionVersionProvider() : 0;
 
 				const roleInfo = roleInfoProvider ? roleInfoProvider() : null;

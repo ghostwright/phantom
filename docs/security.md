@@ -42,7 +42,7 @@ These are configured automatically by the [app manifest](../slack-app-manifest.y
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `ANTHROPIC_API_KEY` | Yes | Claude Opus 4.6 API access |
+| ~~`ANTHROPIC_API_KEY`~~ | No | Removed — auth handled by Claude Agent SDK (OAuth) |
 | `SLACK_BOT_TOKEN` | For Slack | Bot user OAuth token (`xoxb-`) |
 | `SLACK_APP_TOKEN` | For Slack | App-level token for Socket Mode (`xapp-`) |
 | `SLACK_CHANNEL_ID` | For Slack | Default channel for intro message on first start |

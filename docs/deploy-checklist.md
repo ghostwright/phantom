@@ -103,7 +103,6 @@ Format: `U` followed by alphanumeric characters (e.g., `UKWMQ41F0`)
 Create a file at `.env.<name>` in the Phantom repo root:
 
 ```
-ANTHROPIC_API_KEY=sk-ant-your-api-key
 SLACK_BOT_TOKEN=xoxb-their-bot-token
 SLACK_APP_TOKEN=xapp-their-app-token
 OWNER_SLACK_USER_ID=UTHEIR_USER_ID

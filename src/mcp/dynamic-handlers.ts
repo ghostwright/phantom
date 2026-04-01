@@ -82,19 +82,14 @@ async function executeScriptHandler(path: string, input: Record<string, unknown>
 }
 
 async function executeShellHandler(command: string, input: Record<string, unknown>): Promise<CallToolResult> {
-	const proc = Bun.spawn(["bash", "-c", command], {
-		stdout: "pipe",
-		stderr: "pipe",
-		env: buildSafeEnv(input),
-	});
+	const shell = new Bun.$.Shell().env(buildSafeEnv(input)).nothrow();
+	const result = await shell`${{ raw: command }}`;
+	const stdout = await result.text();
+	const stderr = result.stderr.toString();
 
-	const stdout = await new Response(proc.stdout).text();
-	const stderr = await new Response(proc.stderr).text();
-	await proc.exited;
-
-	if (proc.exitCode !== 0) {
+	if (result.exitCode !== 0) {
 		return {
-			content: [{ type: "text", text: `Shell error (exit ${proc.exitCode}): ${stderr || stdout}` }],
+			content: [{ type: "text", text: `Shell error (exit ${result.exitCode}): ${stderr || stdout}` }],
 			isError: true,
 		};
 	}

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { applyApproved } from "./application.ts";
 import { type EvolutionConfig, loadEvolutionConfig } from "./config.ts";
 import { recordObservations, runConsolidation } from "./consolidation.ts";
+import { JudgeError } from "./judges/client.ts";
 import { ConstitutionChecker } from "./constitution.ts";
 import { addCase, loadSuite, pruneSuite } from "./golden-suite.ts";
 import { runQualityJudge } from "./judges/quality-judge.ts";
@@ -38,17 +39,17 @@ export class EvolutionEngine {
 		this.checker = new ConstitutionChecker(this.config);
 		this.llmJudgesEnabled = this.resolveJudgeMode();
 		if (this.llmJudgesEnabled) {
-			console.log("[evolution] LLM judges enabled (API key detected)");
+			console.log("[evolution] LLM judges enabled (Agent SDK)");
 		} else {
-			console.log("[evolution] LLM judges disabled (no API key or config override)");
+			console.log("[evolution] LLM judges disabled (config override)");
 		}
 	}
 
 	private resolveJudgeMode(): boolean {
 		const setting = this.config.judges?.enabled ?? "auto";
 		if (setting === "never") return false;
-		if (setting === "always") return true;
-		return !!process.env.ANTHROPIC_API_KEY;
+		// Agent SDK uses Claude MAX OAuth — no API key needed, judges always available
+		return true;
 	}
 
 	usesLLMJudges(): boolean {
@@ -181,6 +182,14 @@ export class EvolutionEngine {
 			} catch (error: unknown) {
 				const msg = error instanceof Error ? error.message : String(error);
 				console.warn(`[evolution] Quality judge failed (non-blocking): ${msg}`);
+				// Record cost even on failure so daily cap tracks actual spend
+				if (error instanceof JudgeError) {
+					judgeCosts.quality_assessment.calls++;
+					judgeCosts.quality_assessment.totalUsd += error.costUsd;
+					judgeCosts.quality_assessment.totalInputTokens += error.inputTokens;
+					judgeCosts.quality_assessment.totalOutputTokens += error.outputTokens;
+					this.incrementDailyCost(error.costUsd);
+				}
 			}
 		}
 
