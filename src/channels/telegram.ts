@@ -1,13 +1,14 @@
 /**
  * Telegram channel using Telegraf (long polling).
  * Supports inline keyboards, persistent typing, message editing,
- * MarkdownV2 formatting, and command handling.
+ * HTML formatting, and command handling.
  */
 
+import { markdownToTelegramHtml, splitMessage, stripHtml } from "./telegram-utils.ts";
 import type { Channel, ChannelCapabilities, InboundMessage, OutboundMessage, SentMessage } from "./types.ts";
 
 type TelegrafBot = {
-	launch: () => Promise<void>;
+	launch: (onLaunch?: () => void) => Promise<void>;
 	stop: () => void;
 	command: (cmd: string, handler: (ctx: TelegrafContext) => Promise<void>) => void;
 	on: (event: string, handler: (ctx: TelegrafContext) => Promise<void>) => void;
@@ -49,6 +50,8 @@ type TelegrafContext = {
 
 export type TelegramChannelConfig = {
 	botToken: string;
+	/** Whitelist of Telegram user IDs allowed to interact with the bot. Empty = allow all. */
+	allowedUserIds?: number[];
 };
 
 type ConnectionState = "disconnected" | "connecting" | "connected" | "error";
@@ -86,7 +89,15 @@ export class TelegramChannel implements Channel {
 			this.bot = new Telegraf(this.config.botToken) as unknown as TelegrafBot;
 
 			this.registerHandlers();
-			await this.bot.launch();
+
+			// launch() blocks forever (polling loop). Use the onLaunch callback which fires
+			// after getMe() succeeds but before polling starts, so we can resolve connect()
+			// without waiting for the loop to end.
+			const bot = this.bot;
+			await new Promise<void>((resolve, reject) => {
+				bot.launch(resolve).catch(reject);
+			});
+
 			this.connectionState = "connected";
 			console.log("[telegram] Bot connected via long polling");
 		} catch (err: unknown) {
@@ -121,14 +132,33 @@ export class TelegramChannel implements Channel {
 		if (!this.bot) throw new Error("Telegram bot not connected");
 
 		const chatId = parseTelegramConversationId(conversationId);
-		const text = escapeMarkdownV2(message.text);
+		const text = markdownToTelegramHtml(message.text);
+		const chunks = splitMessage(text);
 
-		const result = await this.bot.telegram.sendMessage(chatId, text, {
-			parse_mode: "MarkdownV2",
-		});
+		let lastMessageId = 0;
+		for (const chunk of chunks) {
+			try {
+				const result = await this.bot.telegram.sendMessage(chatId, chunk, {
+					parse_mode: "HTML",
+				});
+				lastMessageId = result.message_id;
+			} catch (err: unknown) {
+				const errMsg = err instanceof Error ? err.message : String(err);
+				console.error(`[telegram] Failed to send message chunk: ${errMsg}`);
+				// Retry as plain text when HTML is malformed
+				try {
+					const result = await this.bot.telegram.sendMessage(chatId, stripHtml(chunk));
+					lastMessageId = result.message_id;
+				} catch (fallbackErr: unknown) {
+					const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+					console.error(`[telegram] Fallback send also failed: ${fallbackMsg}`);
+					throw fallbackErr;
+				}
+			}
+		}
 
 		return {
-			id: String(result.message_id),
+			id: String(lastMessageId),
 			channelId: this.id,
 			conversationId,
 			timestamp: new Date(),
@@ -175,8 +205,8 @@ export class TelegramChannel implements Channel {
 	): Promise<number> {
 		if (!this.bot) throw new Error("Telegram bot not connected");
 
-		const result = await this.bot.telegram.sendMessage(chatId, escapeMarkdownV2(text), {
-			parse_mode: "MarkdownV2",
+		const result = await this.bot.telegram.sendMessage(chatId, markdownToTelegramHtml(text), {
+			parse_mode: "HTML",
 			reply_markup: { inline_keyboard: buttons },
 		});
 		return result.message_id;
@@ -186,8 +216,8 @@ export class TelegramChannel implements Channel {
 	async editMessage(chatId: number, messageId: number, text: string): Promise<void> {
 		if (!this.bot) return;
 		try {
-			await this.bot.telegram.editMessageText(chatId, messageId, undefined, escapeMarkdownV2(text), {
-				parse_mode: "MarkdownV2",
+			await this.bot.telegram.editMessageText(chatId, messageId, undefined, markdownToTelegramHtml(text), {
+				parse_mode: "HTML",
 			});
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
@@ -198,21 +228,70 @@ export class TelegramChannel implements Channel {
 		}
 	}
 
+	private isAllowed(userId: number | undefined): boolean {
+		if (!userId) return false;
+		const { allowedUserIds } = this.config;
+		if (!allowedUserIds || allowedUserIds.length === 0) return true;
+		return allowedUserIds.includes(userId);
+	}
+
 	private registerHandlers(): void {
 		if (!this.bot) return;
 
 		this.bot.command("start", async (ctx) => {
-			await ctx.reply("Hello! I'm Phantom, your AI co-worker. Send me a message to get started.");
+			const userId = ctx.from?.id;
+			if (!this.isAllowed(userId)) {
+				console.warn(`[telegram] Unauthorized /start from user ${userId}`);
+				try {
+					await ctx.reply("Unauthorized.");
+				} catch {
+					/* ignore send errors */
+				}
+				return;
+			}
+			try {
+				await ctx.reply("Hello! I'm Phantom, your AI co-worker. Send me a message to get started.");
+			} catch {
+				/* ignore send errors */
+			}
 		});
 
 		this.bot.command("status", async (ctx) => {
-			await ctx.reply("Phantom is running and ready to help.");
+			const userId = ctx.from?.id;
+			if (!this.isAllowed(userId)) {
+				console.warn(`[telegram] Unauthorized /status from user ${userId}`);
+				try {
+					await ctx.reply("Unauthorized.");
+				} catch {
+					/* ignore send errors */
+				}
+				return;
+			}
+			try {
+				await ctx.reply("Phantom is running and ready to help.");
+			} catch {
+				/* ignore send errors */
+			}
 		});
 
 		this.bot.command("help", async (ctx) => {
-			await ctx.reply(
-				"Send me any message and I'll help you out.\n\nCommands:\n/start - Introduction\n/status - Check status\n/help - Show this message",
-			);
+			const userId = ctx.from?.id;
+			if (!this.isAllowed(userId)) {
+				console.warn(`[telegram] Unauthorized /help from user ${userId}`);
+				try {
+					await ctx.reply("Unauthorized.");
+				} catch {
+					/* ignore send errors */
+				}
+				return;
+			}
+			try {
+				await ctx.reply(
+					"Send me any message and I'll help you out.\n\nCommands:\n/start - Introduction\n/status - Check status\n/help - Show this message",
+				);
+			} catch {
+				/* ignore send errors */
+			}
 		});
 
 		this.bot.on("text", async (ctx) => {
@@ -224,6 +303,13 @@ export class TelegramChannel implements Channel {
 
 			const chatId = ctx.message.chat.id;
 			const from = ctx.message.from;
+
+			if (!this.isAllowed(from?.id)) {
+				console.warn(`[telegram] Unauthorized message from user ${from?.id} (${from?.username ?? "unknown"})`);
+				await ctx.reply("Unauthorized.");
+				return;
+			}
+
 			const conversationId = `telegram:${chatId}`;
 
 			const inbound: InboundMessage = {
@@ -254,13 +340,17 @@ export class TelegramChannel implements Channel {
 				await ctx.answerCbQuery();
 			}
 
+			const from = ctx.from;
+			if (!this.isAllowed(from?.id)) {
+				console.warn(`[telegram] Unauthorized callback from user ${from?.id} (${from?.username ?? "unknown"})`);
+				return;
+			}
+
 			const data = ctx.match?.[1];
 			if (!data || !this.messageHandler) return;
 
 			const chatId = ctx.callbackQuery?.message?.chat.id;
 			if (!chatId) return;
-
-			const from = ctx.from;
 			const conversationId = `telegram:${chatId}`;
 
 			const inbound: InboundMessage = {
@@ -292,37 +382,4 @@ function parseTelegramConversationId(conversationId: string): number {
 	// Format: "telegram:{chat_id}"
 	const chatId = conversationId.split(":")[1];
 	return Number(chatId);
-}
-
-/**
- * Escape special characters for Telegram MarkdownV2.
- * Characters that need escaping: _ * [ ] ( ) ~ ` > # + - = | { } . !
- */
-function escapeMarkdownV2(text: string): string {
-	// Preserve code blocks
-	const codeBlocks: string[] = [];
-	let result = text.replace(/```[\s\S]*?```/g, (match) => {
-		codeBlocks.push(match);
-		return `\x00CB${codeBlocks.length - 1}\x00`;
-	});
-
-	// Preserve inline code
-	const inlineCodes: string[] = [];
-	result = result.replace(/`[^`]+`/g, (match) => {
-		inlineCodes.push(match);
-		return `\x00IC${inlineCodes.length - 1}\x00`;
-	});
-
-	// Escape special characters outside of code
-	result = result.replace(/([_*\[\]()~>#+\-=|{}.!\\])/g, "\\$1");
-
-	// Restore inline code and code blocks
-	for (let i = 0; i < inlineCodes.length; i++) {
-		result = result.replace(`\x00IC${i}\x00`, inlineCodes[i]);
-	}
-	for (let i = 0; i < codeBlocks.length; i++) {
-		result = result.replace(`\x00CB${i}\x00`, codeBlocks[i]);
-	}
-
-	return result;
 }
