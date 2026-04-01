@@ -1,37 +1,45 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-// zod/v4 required: matches schemas.ts for zodOutputFormat compatibility
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import { zodToJsonSchema } from "zod-to-json-schema";
+// zod/v4 required: matches schemas.ts for judge output compatibility
 import type { z } from "zod/v4";
-import {
-	JUDGE_MAX_TOKENS,
-	JUDGE_TEMPERATURE,
-	type JudgeResult,
-	type MultiJudgeResult,
-	type VotingStrategy,
+import type {
+	JudgeResult,
+	MultiJudgeResult,
+	VotingStrategy,
 } from "./types.ts";
+// JUDGE_MAX_TOKENS not used — SDK manages token limits internally
 
-let _client: Anthropic | null = null;
+/**
+ * Error thrown when a judge call fails but still incurred cost.
+ * Callers should check for this to record spend toward the daily cap.
+ */
+export class JudgeError extends Error {
+	costUsd: number;
+	inputTokens: number;
+	outputTokens: number;
 
-function getClient(): Anthropic {
-	if (!_client) {
-		_client = new Anthropic();
+	constructor(message: string, cost: { costUsd: number; inputTokens: number; outputTokens: number }) {
+		super(message);
+		this.name = "JudgeError";
+		this.costUsd = cost.costUsd;
+		this.inputTokens = cost.inputTokens;
+		this.outputTokens = cost.outputTokens;
 	}
-	return _client;
-}
-
-// Visible for testing - allows injecting a mock client
-export function setClient(client: Anthropic | null): void {
-	_client = client;
-}
-
-export function isJudgeAvailable(): boolean {
-	return !!process.env.ANTHROPIC_API_KEY;
 }
 
 /**
- * Call a single LLM judge with structured output.
- * Uses the raw Anthropic SDK (not the Agent SDK).
- * Temperature 0 for deterministic judging.
+ * Judge availability check.
+ * With the Agent SDK (Claude MAX OAuth), judges are always available —
+ * no API key required.
+ */
+export function isJudgeAvailable(): boolean {
+	return true;
+}
+
+/**
+ * Call a single LLM judge with structured output via the Agent SDK.
+ * Uses the SDK's native outputFormat for schema-constrained generation,
+ * with tools disabled to prevent judges from executing code.
  */
 export async function callJudge<T>(options: {
 	model: string;
@@ -41,32 +49,112 @@ export async function callJudge<T>(options: {
 	schemaName?: string;
 	maxTokens?: number;
 }): Promise<JudgeResult<T>> {
-	const client = getClient();
 	const startTime = Date.now();
 
-	const message = await client.messages.parse({
-		model: options.model,
-		max_tokens: options.maxTokens ?? JUDGE_MAX_TOKENS,
-		temperature: JUDGE_TEMPERATURE,
-		system: options.systemPrompt,
-		messages: [{ role: "user", content: options.userMessage }],
-		output_config: {
-			// Cast needed: SDK .d.ts references zod v3 types but runtime uses zod/v4
-			// biome-ignore lint/suspicious/noExplicitAny: bridging zod v3/v4 type mismatch
-			format: zodOutputFormat(options.schema as any),
+	// Cast needed: zod-to-json-schema types reference zod v3 but runtime uses zod/v4
+	// biome-ignore lint/suspicious/noExplicitAny: bridging zod v3/v4 type mismatch
+	const jsonSchema = zodToJsonSchema(options.schema as any) as Record<string, unknown>;
+
+	let resultText = "";
+	let totalCostUsd = 0;
+	let inputTokens = 0;
+	let outputTokens = 0;
+	let isError = false;
+	let errorReason = "";
+	let structuredOutput: unknown = undefined;
+
+	const queryStream = query({
+		prompt: options.userMessage,
+		options: {
+			model: options.model,
+			permissionMode: "bypassPermissions",
+			allowDangerouslySkipPermissions: true,
+			systemPrompt: options.systemPrompt,
+			persistSession: false,
+			// Disable all tools — judges must only produce text/structured output
+			tools: [],
+			// Native structured output via the SDK
+			outputFormat: {
+				type: "json_schema" as const,
+				schema: jsonSchema,
+			},
+			// Limit to 1 turn — judges should produce output in a single pass
+			maxTurns: 1,
 		},
 	});
 
-	const parsed = message.parsed_output;
-	if (!parsed) {
-		throw new Error(`Judge returned no structured output (stop_reason: ${message.stop_reason})`);
+	for await (const message of queryStream) {
+		switch (message.type) {
+			case "assistant": {
+				const text = message.message.content
+					.filter((b: { type: string }) => b.type === "text")
+					.map((b: { type: string; text?: string }) => b.text ?? "")
+					.join("");
+				if (text) resultText = text;
+				break;
+			}
+			case "result": {
+				const result = message as unknown as {
+					subtype: string;
+					is_error: boolean;
+					total_cost_usd?: number;
+					structured_output?: unknown;
+					errors?: string[];
+					modelUsage?: Record<
+						string,
+						{
+							inputTokens: number;
+							outputTokens: number;
+							cacheReadInputTokens?: number;
+							cacheCreationInputTokens?: number;
+							costUSD: number;
+						}
+					>;
+				};
+
+				totalCostUsd = result.total_cost_usd ?? 0;
+				isError = result.is_error;
+				structuredOutput = result.structured_output;
+
+				if (result.is_error) {
+					errorReason = result.errors?.join("; ") ?? result.subtype;
+				}
+
+				if (result.modelUsage) {
+					for (const usage of Object.values(result.modelUsage)) {
+						inputTokens +=
+							usage.inputTokens + (usage.cacheReadInputTokens ?? 0) + (usage.cacheCreationInputTokens ?? 0);
+						outputTokens += usage.outputTokens;
+					}
+				}
+				break;
+			}
+		}
 	}
 
-	const inputTokens = message.usage.input_tokens;
-	const outputTokens = message.usage.output_tokens;
-	const costUsd = estimateCost(options.model, inputTokens, outputTokens);
+	const costInfo = { costUsd: totalCostUsd, inputTokens, outputTokens };
 
-	// Extract verdict and confidence from the parsed data if present
+	// Check for SDK-level errors before parsing
+	if (isError) {
+		throw new JudgeError(`Judge SDK error (${errorReason})`, costInfo);
+	}
+
+	// Prefer SDK structured_output, fall back to parsing assistant text
+	let parsed: T;
+	try {
+		if (structuredOutput != null) {
+			parsed = options.schema.parse(structuredOutput);
+		} else {
+			const cleaned = resultText.replace(/^```(?:json)?\s*\n?|\n?\s*```$/g, "").trim();
+			parsed = options.schema.parse(JSON.parse(cleaned));
+		}
+	} catch (parseErr) {
+		throw new JudgeError(
+			`Judge output parsing failed: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+			costInfo,
+		);
+	}
+
 	const data = parsed as Record<string, unknown>;
 	const verdict = (data.verdict as "pass" | "fail") ?? "pass";
 	const confidence = (data.confidence as number) ?? 1.0;
@@ -80,7 +168,7 @@ export async function callJudge<T>(options: {
 		model: options.model,
 		inputTokens,
 		outputTokens,
-		costUsd,
+		costUsd: totalCostUsd,
 		durationMs: Date.now() - startTime,
 	};
 }
@@ -159,27 +247,4 @@ export async function multiJudge<T>(
 			};
 		}
 	}
-}
-
-/**
- * Estimate USD cost from token counts.
- * Pricing as of March 2026.
- */
-function estimateCost(model: string, inputTokens: number, outputTokens: number): number {
-	let inputPer1M: number;
-	let outputPer1M: number;
-
-	if (model.includes("opus")) {
-		inputPer1M = 5.0;
-		outputPer1M = 25.0;
-	} else if (model.includes("haiku")) {
-		inputPer1M = 1.0;
-		outputPer1M = 5.0;
-	} else {
-		// Sonnet default
-		inputPer1M = 3.0;
-		outputPer1M = 15.0;
-	}
-
-	return (inputTokens / 1_000_000) * inputPer1M + (outputTokens / 1_000_000) * outputPer1M;
 }

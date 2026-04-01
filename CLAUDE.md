@@ -163,7 +163,7 @@ MCP flow: External client -> /mcp endpoint -> bearer auth -> MCP Server -> tool 
 **Docker (recommended for new installs):**
 ```bash
 git clone https://github.com/ghostwright/phantom.git && cd phantom
-cp .env.example .env   # add ANTHROPIC_API_KEY + Slack tokens
+cp .env.example .env   # add Slack tokens (auth handled by Agent SDK)
 docker compose up -d
 ```
 

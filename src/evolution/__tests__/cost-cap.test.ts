@@ -1,12 +1,10 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { EvolutionEngine } from "../engine.ts";
 import type { SessionSummary } from "../types.ts";
 
 const TEST_DIR = "/tmp/phantom-test-cost-cap";
 const CONFIG_PATH = `${TEST_DIR}/config/evolution.yaml`;
-
-let savedApiKey: string | undefined;
 
 function setupTestEnv(costCap: number): void {
 	mkdirSync(`${TEST_DIR}/config`, { recursive: true });
@@ -99,16 +97,7 @@ function makeSession(overrides: Partial<SessionSummary> = {}): SessionSummary {
 }
 
 describe("Cost Cap", () => {
-	beforeEach(() => {
-		savedApiKey = process.env.ANTHROPIC_API_KEY;
-	});
-
 	afterEach(() => {
-		if (savedApiKey !== undefined) {
-			process.env.ANTHROPIC_API_KEY = savedApiKey;
-		} else {
-			process.env.ANTHROPIC_API_KEY = undefined;
-		}
 		rmSync(TEST_DIR, { recursive: true, force: true });
 	});
 

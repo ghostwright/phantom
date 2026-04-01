@@ -68,13 +68,9 @@ curl -fsSL https://raw.githubusercontent.com/ghostwright/phantom/main/.env.examp
 
 Open `.env` in your editor and fill in these values:
 
-### Required
+### Authentication
 
-```
-ANTHROPIC_API_KEY=sk-ant-your-key-here
-```
-
-Your Anthropic API key. This is the only value you absolutely must set.
+Auth is handled automatically by the Claude Agent SDK (OAuth / Claude MAX). No API key is required.
 
 ### Slack (recommended)
 
@@ -105,13 +101,12 @@ Everything else in `.env.example` has sensible defaults. You can leave the rest 
 If you just want the shortest path to a running Phantom with Slack:
 
 ```
-ANTHROPIC_API_KEY=sk-ant-your-key-here
 SLACK_BOT_TOKEN=xoxb-your-bot-token
 SLACK_APP_TOKEN=xapp-your-app-token
 OWNER_SLACK_USER_ID=U04ABC123XY
 ```
 
-Four lines. That is all Phantom needs.
+Three lines. That is all Phantom needs. Auth is handled by the Agent SDK.
 
 ## Step 3: Start Phantom
 
@@ -209,7 +204,6 @@ Create your `.env` file:
 
 ```bash
 cat > .env << 'EOF'
-ANTHROPIC_API_KEY=sk-ant-your-key-here
 SLACK_BOT_TOKEN=xoxb-your-bot-token
 SLACK_APP_TOKEN=xapp-your-app-token
 OWNER_SLACK_USER_ID=U04ABC123XY

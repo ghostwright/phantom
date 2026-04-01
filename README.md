@@ -82,7 +82,7 @@ This is what happens when you give an AI its own computer.
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ghostwright/phantom/main/docker-compose.user.yaml -o docker-compose.yaml
 curl -fsSL https://raw.githubusercontent.com/ghostwright/phantom/main/.env.example -o .env
-# Edit .env - add your ANTHROPIC_API_KEY, Slack tokens, and OWNER_SLACK_USER_ID
+# Edit .env - add your Slack tokens and OWNER_SLACK_USER_ID
 docker compose up -d
 ```
 
@@ -294,7 +294,7 @@ docker exec phantom-ollama ollama pull nomic-embed-text
 bun run phantom init --yes
 
 # Set your API key
-export ANTHROPIC_API_KEY=sk-ant-...
+# Auth is handled by the Claude Agent SDK (OAuth/Claude MAX) — no API key needed
 
 # Start
 bun run phantom start
