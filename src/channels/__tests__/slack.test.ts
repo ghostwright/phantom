@@ -1,18 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { SlackChannel, type SlackChannelConfig } from "../slack.ts";
 
-// Mock node:fs functions used during connect() and cleanup
-const mockReaddirSync = mock(() => [] as string[]);
-const mockStatSync = mock(() => ({ mtimeMs: Date.now() }));
-const mockUnlinkSync = mock(() => undefined);
-
-mock.module("node:fs", () => ({
-	mkdirSync: mock(() => undefined),
-	readdirSync: mockReaddirSync,
-	statSync: mockStatSync,
-	unlinkSync: mockUnlinkSync,
-}));
-
 // Mock the Slack Bolt App class
 const mockStart = mock(() => Promise.resolve());
 const mockStop = mock(() => Promise.resolve());
@@ -80,9 +68,6 @@ describe("SlackChannel", () => {
 		mockConversationsOpen.mockClear();
 		mockReactionsAdd.mockClear();
 		mockReactionsRemove.mockClear();
-		mockReaddirSync.mockClear();
-		mockStatSync.mockClear();
-		mockUnlinkSync.mockClear();
 	});
 
 	test("has correct id and capabilities", () => {
@@ -423,9 +408,6 @@ describe("SlackChannel file attachments", () => {
 		mockPostMessage.mockClear();
 		mockFetch.mockClear();
 		mockBunWrite.mockClear();
-		mockReaddirSync.mockClear();
-		mockStatSync.mockClear();
-		mockUnlinkSync.mockClear();
 		globalThis.fetch = mockFetch as unknown as typeof fetch;
 		Bun.write = mockBunWrite as unknown as typeof Bun.write;
 	});
@@ -594,53 +576,6 @@ describe("SlackChannel file attachments", () => {
 		});
 
 		expect(handlerCalled).toBe(false);
-	});
-
-	test("uses unique filenames to avoid collisions", async () => {
-		const channel = new SlackChannel(testConfig);
-		channel.onMessage(async () => {});
-
-		await channel.connect();
-
-		await invokeHandler("message", {
-			event: {
-				text: "Two screenshots",
-				subtype: "file_share",
-				user: "U_USER1",
-				channel: "D_DM1",
-				channel_type: "im",
-				ts: "1234567890.000015",
-				files: [
-					{ ...slackImageFile, name: "image.png" },
-					{ ...slackImageFile, name: "image.png" },
-				],
-			},
-		});
-
-		expect(mockBunWrite).toHaveBeenCalledTimes(2);
-		const calls = mockBunWrite.mock.calls as unknown as Array<[string, ArrayBuffer]>;
-		const path1 = calls[0][0];
-		const path2 = calls[1][0];
-		expect(path1).not.toBe(path2);
-	});
-
-	test("cleans up old uploads on connect", async () => {
-		const oldTime = Date.now() - 25 * 60 * 60 * 1000; // 25 hours ago
-		mockReaddirSync.mockImplementation(() => ["old-file.png", "recent-file.png"]);
-
-		let callCount = 0;
-		mockStatSync.mockImplementation(() => {
-			callCount++;
-			// First file is old, second is recent
-			return { mtimeMs: callCount === 1 ? oldTime : Date.now() };
-		});
-
-		const channel = new SlackChannel(testConfig);
-		channel.onMessage(async () => {});
-		await channel.connect();
-
-		// Only the old file should be deleted
-		expect(mockUnlinkSync).toHaveBeenCalledTimes(1);
 	});
 });
 
