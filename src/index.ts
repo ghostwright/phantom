@@ -299,10 +299,13 @@ async function main(): Promise<void> {
 	// Register Webhook channel
 	let webhookChannel: WebhookChannel | null = null;
 	if (channelsConfig?.webhook?.enabled && channelsConfig.webhook.secret) {
-		webhookChannel = new WebhookChannel({
-			secret: channelsConfig.webhook.secret,
-			syncTimeoutMs: channelsConfig.webhook.sync_timeout_ms,
-		});
+		webhookChannel = new WebhookChannel(
+			{
+				secret: channelsConfig.webhook.secret,
+				syncTimeoutMs: channelsConfig.webhook.sync_timeout_ms,
+			},
+			db,
+		);
 		router.register(webhookChannel);
 		const wh = webhookChannel;
 		setWebhookHandler((req) => wh.handleRequest(req));

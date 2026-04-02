@@ -97,4 +97,17 @@ export const MIGRATIONS: string[] = [
 		expires_at TEXT NOT NULL,
 		completed_at TEXT
 	)`,
+
+	`CREATE TABLE IF NOT EXISTS webhook_responses (
+		id TEXT PRIMARY KEY,
+		conversation_id TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending',
+		request_text TEXT NOT NULL,
+		response_text TEXT,
+		error_message TEXT,
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		completed_at TEXT
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_webhook_responses_status ON webhook_responses(status) WHERE status = 'pending'`,
 ];

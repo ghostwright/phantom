@@ -1,10 +1,11 @@
 /**
  * Generic webhook channel with HMAC-SHA256 signature verification.
- * Supports synchronous (inline) and asynchronous (callback URL) response modes.
+ * Supports synchronous (inline) and asynchronous (callback URL or polling) response modes.
  * Compatible with Zapier, Make, n8n, and custom integrations.
  */
 
 import { randomUUID, timingSafeEqual } from "node:crypto";
+import type { Database } from "bun:sqlite";
 import { isSafeCallbackUrl } from "../utils/url-validator.ts";
 import type { Channel, ChannelCapabilities, InboundMessage, OutboundMessage, SentMessage } from "./types.ts";
 
@@ -12,6 +13,8 @@ export type WebhookChannelConfig = {
 	secret: string;
 	/** Max time in ms to wait for agent response in sync mode. Default 25000 (25s). */
 	syncTimeoutMs?: number;
+	/** How long to retain completed webhook responses, in ms. Default 7 days. */
+	responseRetentionMs?: number;
 };
 
 export type WebhookPayload = {
@@ -21,6 +24,8 @@ export type WebhookPayload = {
 	thread_id?: string;
 	metadata?: Record<string, unknown>;
 	callback_url?: string;
+	/** Set to true (or omit callback_url) to use polling mode instead of sync. */
+	async?: boolean;
 	timestamp: number;
 	signature: string;
 };
@@ -35,6 +40,15 @@ export type WebhookResponse = {
 		cost_usd?: number;
 		duration_ms?: number;
 	};
+};
+
+export type WebhookPollResponse = {
+	status: "pending" | "completed" | "failed" | "not_found";
+	task_id: string;
+	response?: string;
+	error?: string;
+	created_at?: string;
+	completed_at?: string;
 };
 
 type PendingResponse = {
@@ -53,19 +67,26 @@ export class WebhookChannel implements Channel {
 	};
 
 	private config: WebhookChannelConfig;
+	private db: Database | null;
 	private messageHandler: ((message: InboundMessage) => Promise<void>) | null = null;
 	private connected = false;
-	// Track pending sync responses: taskId -> resolver
+	// Track pending sync responses: conversationId -> resolver
 	private pendingResponses = new Map<string, PendingResponse>();
 	// Track async callback URLs: conversationId -> callbackUrl
 	private callbackUrls = new Map<string, string>();
+	// Track async polling tasks: conversationId -> taskId
+	private pollingTasks = new Map<string, string>();
 
-	constructor(config: WebhookChannelConfig) {
+	constructor(config: WebhookChannelConfig, db?: Database) {
 		this.config = config;
+		this.db = db ?? null;
 	}
 
 	async connect(): Promise<void> {
 		this.connected = true;
+		if (this.db) {
+			this.cleanupOldResponses();
+		}
 		console.log("[webhook] Channel ready");
 	}
 
@@ -77,6 +98,7 @@ export class WebhookChannel implements Channel {
 		}
 		this.pendingResponses.clear();
 		this.callbackUrls.clear();
+		this.pollingTasks.clear();
 		this.connected = false;
 		console.log("[webhook] Disconnected");
 	}
@@ -95,6 +117,16 @@ export class WebhookChannel implements Channel {
 		if (callbackUrl) {
 			await this.sendCallback(callbackUrl, conversationId, message.text);
 			this.callbackUrls.delete(conversationId);
+		}
+
+		// Check if there's a polling task waiting for this response
+		const taskId = this.pollingTasks.get(conversationId);
+		if (taskId && this.db) {
+			this.db.run(
+				"UPDATE webhook_responses SET status = 'completed', response_text = ?, completed_at = datetime('now') WHERE id = ?",
+				[message.text, taskId],
+			);
+			this.pollingTasks.delete(conversationId);
 		}
 
 		return {
@@ -118,6 +150,14 @@ export class WebhookChannel implements Channel {
 	 * Called from the HTTP server's /webhook route.
 	 */
 	async handleRequest(req: Request): Promise<Response> {
+		const url = new URL(req.url);
+
+		// GET /webhook/poll/:taskId - poll for async response
+		if (req.method === "GET" && url.pathname.startsWith("/webhook/poll/")) {
+			const taskId = url.pathname.slice("/webhook/poll/".length);
+			return this.handlePoll(taskId);
+		}
+
 		if (req.method !== "POST") {
 			return Response.json({ status: "error", message: "Method not allowed" }, { status: 405 });
 		}
@@ -189,7 +229,36 @@ export class WebhookChannel implements Channel {
 			return Response.json({ status: "accepted", task_id: taskId } satisfies WebhookResponse);
 		}
 
-		// Sync mode: wait for the response
+		// Polling mode: persist task in DB, return 202 with task_id
+		if (payload.async && this.db) {
+			const taskId = randomUUID();
+
+			this.db.run("INSERT INTO webhook_responses (id, conversation_id, status, request_text) VALUES (?, ?, 'pending', ?)", [
+				taskId,
+				conversationId,
+				payload.message,
+			]);
+
+			this.pollingTasks.set(conversationId, taskId);
+
+			// Fire and forget
+			void this.messageHandler(inbound).catch((err: unknown) => {
+				const errMsg = err instanceof Error ? err.message : String(err);
+				console.error(`[webhook] Error handling async message: ${errMsg}`);
+				// Mark the task as failed in the DB
+				if (this.db) {
+					this.db.run(
+						"UPDATE webhook_responses SET status = 'failed', error_message = ?, completed_at = datetime('now') WHERE id = ?",
+						[errMsg, taskId],
+					);
+				}
+				this.pollingTasks.delete(conversationId);
+			});
+
+			return Response.json({ status: "accepted", task_id: taskId } satisfies WebhookResponse, { status: 202 });
+		}
+
+		// Sync mode: wait for the response (original behavior)
 		const timeoutMs = this.config.syncTimeoutMs ?? 25_000;
 		const responseText = await this.waitForResponse(conversationId, inbound, timeoutMs);
 
@@ -201,6 +270,51 @@ export class WebhookChannel implements Channel {
 			status: "ok",
 			response: responseText,
 		} satisfies WebhookResponse);
+	}
+
+	private handlePoll(taskId: string): Response {
+		if (!this.db) {
+			return Response.json(
+				{ status: "error", message: "Polling not available: no database configured" } as WebhookResponse,
+				{ status: 503 },
+			);
+		}
+
+		if (!taskId) {
+			return Response.json({ status: "error", message: "Missing task_id" } as WebhookResponse, { status: 400 });
+		}
+
+		const row = this.db
+			.query("SELECT id, status, response_text, error_message, created_at, completed_at FROM webhook_responses WHERE id = ?")
+			.get(taskId) as {
+			id: string;
+			status: string;
+			response_text: string | null;
+			error_message: string | null;
+			created_at: string;
+			completed_at: string | null;
+		} | null;
+
+		if (!row) {
+			return Response.json({ status: "not_found", task_id: taskId } satisfies WebhookPollResponse, { status: 404 });
+		}
+
+		const response: WebhookPollResponse = {
+			status: row.status as WebhookPollResponse["status"],
+			task_id: row.id,
+			created_at: row.created_at,
+			completed_at: row.completed_at ?? undefined,
+		};
+
+		if (row.status === "completed" && row.response_text) {
+			response.response = row.response_text;
+		}
+
+		if (row.status === "failed" && row.error_message) {
+			response.error = row.error_message;
+		}
+
+		return Response.json(response);
 	}
 
 	private async waitForResponse(
@@ -257,6 +371,18 @@ export class WebhookChannel implements Channel {
 			return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
 		} catch {
 			return false;
+		}
+	}
+
+	private cleanupOldResponses(): void {
+		if (!this.db) return;
+		const retentionMs = this.config.responseRetentionMs ?? 7 * 24 * 60 * 60 * 1000;
+		const cutoff = new Date(Date.now() - retentionMs).toISOString();
+		const result = this.db.run("DELETE FROM webhook_responses WHERE completed_at IS NOT NULL AND completed_at < ?", [
+			cutoff,
+		]);
+		if (result.changes > 0) {
+			console.log(`[webhook] Cleaned up ${result.changes} old response(s)`);
 		}
 	}
 }

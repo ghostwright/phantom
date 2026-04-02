@@ -130,7 +130,7 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 				return handleTrigger(req);
 			}
 
-			if (url.pathname === "/webhook") {
+			if (url.pathname === "/webhook" || url.pathname.startsWith("/webhook/poll/")) {
 				if (!webhookHandler) {
 					return Response.json({ status: "error", message: "Webhook channel not configured" }, { status: 503 });
 				}
