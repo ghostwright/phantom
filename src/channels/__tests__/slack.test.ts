@@ -1,9 +1,16 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { SlackChannel, type SlackChannelConfig } from "../slack.ts";
 
-// mkdirSync is called during connect() to ensure uploads directory exists
+// Mock node:fs functions used during connect() and cleanup
+const mockReaddirSync = mock(() => [] as string[]);
+const mockStatSync = mock(() => ({ mtimeMs: Date.now() }));
+const mockUnlinkSync = mock(() => undefined);
+
 mock.module("node:fs", () => ({
 	mkdirSync: mock(() => undefined),
+	readdirSync: mockReaddirSync,
+	statSync: mockStatSync,
+	unlinkSync: mockUnlinkSync,
 }));
 
 // Mock the Slack Bolt App class
@@ -31,7 +38,6 @@ const MockApp = mock(() => ({
 		actionHandlers.set(key, handler);
 	},
 	client: {
-		token: "xoxb-test-token",
 		auth: { test: mockAuthTest },
 		chat: {
 			postMessage: mockPostMessage,
@@ -74,6 +80,9 @@ describe("SlackChannel", () => {
 		mockConversationsOpen.mockClear();
 		mockReactionsAdd.mockClear();
 		mockReactionsRemove.mockClear();
+		mockReaddirSync.mockClear();
+		mockStatSync.mockClear();
+		mockUnlinkSync.mockClear();
 	});
 
 	test("has correct id and capabilities", () => {
@@ -414,6 +423,9 @@ describe("SlackChannel file attachments", () => {
 		mockPostMessage.mockClear();
 		mockFetch.mockClear();
 		mockBunWrite.mockClear();
+		mockReaddirSync.mockClear();
+		mockStatSync.mockClear();
+		mockUnlinkSync.mockClear();
 		globalThis.fetch = mockFetch as unknown as typeof fetch;
 		Bun.write = mockBunWrite as unknown as typeof Bun.write;
 	});
@@ -482,14 +494,16 @@ describe("SlackChannel file attachments", () => {
 		expect(receivedText).toBe("[User sent attached files]");
 	});
 
-	test("skips non-image files in file_share", async () => {
+	test("skips non-image files and reports them in skippedFiles", async () => {
 		const channel = new SlackChannel(testConfig);
 		let receivedAttachments: unknown[] = [];
+		let receivedSkipped: unknown[] = [];
 		let receivedText = "";
 
 		channel.onMessage(async (msg) => {
 			receivedText = msg.text;
 			receivedAttachments = msg.attachments ?? [];
+			receivedSkipped = msg.skippedFiles ?? [];
 		});
 
 		await channel.connect();
@@ -511,6 +525,12 @@ describe("SlackChannel file attachments", () => {
 		// Text should still be processed even though the file was skipped
 		expect(receivedText).toBe("Here is a PDF");
 		expect(receivedAttachments).toHaveLength(0);
+		expect(receivedSkipped).toHaveLength(1);
+		expect(receivedSkipped[0]).toEqual({
+			filename: "doc.pdf",
+			reason: "unsupported_type",
+			mimetype: "application/pdf",
+		});
 		expect(mockFetch).not.toHaveBeenCalled();
 	});
 
@@ -521,10 +541,12 @@ describe("SlackChannel file attachments", () => {
 		const channel = new SlackChannel(testConfig);
 		let receivedText = "";
 		let receivedAttachments: unknown[] = [];
+		let receivedSkipped: unknown[] = [];
 
 		channel.onMessage(async (msg) => {
 			receivedText = msg.text;
 			receivedAttachments = msg.attachments ?? [];
+			receivedSkipped = msg.skippedFiles ?? [];
 		});
 
 		await channel.connect();
@@ -544,6 +566,11 @@ describe("SlackChannel file attachments", () => {
 		// Message delivered with text, but no attachments due to download failure
 		expect(receivedText).toBe("Check this");
 		expect(receivedAttachments).toHaveLength(0);
+		expect(receivedSkipped).toHaveLength(1);
+		expect(receivedSkipped[0]).toEqual({
+			filename: "screenshot.png",
+			reason: "download_failed",
+		});
 	});
 
 	test("still ignores message_changed subtype", async () => {
@@ -567,6 +594,53 @@ describe("SlackChannel file attachments", () => {
 		});
 
 		expect(handlerCalled).toBe(false);
+	});
+
+	test("uses unique filenames to avoid collisions", async () => {
+		const channel = new SlackChannel(testConfig);
+		channel.onMessage(async () => {});
+
+		await channel.connect();
+
+		await invokeHandler("message", {
+			event: {
+				text: "Two screenshots",
+				subtype: "file_share",
+				user: "U_USER1",
+				channel: "D_DM1",
+				channel_type: "im",
+				ts: "1234567890.000015",
+				files: [
+					{ ...slackImageFile, name: "image.png" },
+					{ ...slackImageFile, name: "image.png" },
+				],
+			},
+		});
+
+		expect(mockBunWrite).toHaveBeenCalledTimes(2);
+		const calls = mockBunWrite.mock.calls as unknown as Array<[string, ArrayBuffer]>;
+		const path1 = calls[0][0];
+		const path2 = calls[1][0];
+		expect(path1).not.toBe(path2);
+	});
+
+	test("cleans up old uploads on connect", async () => {
+		const oldTime = Date.now() - 25 * 60 * 60 * 1000; // 25 hours ago
+		mockReaddirSync.mockImplementation(() => ["old-file.png", "recent-file.png"]);
+
+		let callCount = 0;
+		mockStatSync.mockImplementation(() => {
+			callCount++;
+			// First file is old, second is recent
+			return { mtimeMs: callCount === 1 ? oldTime : Date.now() };
+		});
+
+		const channel = new SlackChannel(testConfig);
+		channel.onMessage(async () => {});
+		await channel.connect();
+
+		// Only the old file should be deleted
+		expect(mockUnlinkSync).toHaveBeenCalledTimes(1);
 	});
 });
 

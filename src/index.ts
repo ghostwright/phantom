@@ -354,8 +354,12 @@ async function main(): Promise<void> {
 		// Append image file paths so the agent can read them via its Read tool
 		let promptText = msg.text;
 		if (msg.attachments && msg.attachments.length > 0) {
-			const paths = msg.attachments.map((a) => a.path).join(", ");
-			promptText += `\n\n[Attached images: ${paths}]`;
+			const imageLines = msg.attachments.map((a) => `- ${a.filename}: ${a.path}`).join("\n");
+			promptText += `\n\n[Attached images - use the Read tool to view these files]\n${imageLines}`;
+		}
+		if (msg.skippedFiles && msg.skippedFiles.length > 0) {
+			const skippedDesc = msg.skippedFiles.map((s) => `${s.filename} (${s.reason.replace(/_/g, " ")})`).join(", ");
+			promptText += `\n\n[Skipped attachments: ${skippedDesc}. Only PNG, JPEG, GIF, and WebP images are supported.]`;
 		}
 
 		const existing = conversationMessages.get(convKey) ?? { user: [], assistant: [] };
