@@ -222,9 +222,9 @@ Because the agent that can only use pre-built tools hits a ceiling. Phantom buil
 
 </div>
 
-## Connect from Claude Code
+## Connect from Claude
 
-Generate a token, then add Phantom to your MCP config.
+First, generate a token. The command outputs a bearer token — save it for the next step.
 
 **Bare metal:**
 ```bash
@@ -238,13 +238,25 @@ docker exec phantom bun run phantom token create --client claude-code --scope op
 
 **Or just ask your Phantom in Slack:** "Create an MCP token for Claude Code." It will generate the token and give you the config snippet.
 
-Then add this to your Claude Code MCP config:
+Then use the token to connect. Replace `YOUR_TOKEN` below with the token from the command above. For local instances, use `http://localhost:3100/mcp` instead of the `ghostwright.dev` URL.
+
+### Claude Code (CLI)
+
+Add via the CLI:
+
+```bash
+claude mcp add phantom https://your-phantom.ghostwright.dev/mcp \
+  --transport http \
+  --header "Authorization: Bearer YOUR_TOKEN"
+```
+
+Or add directly to your project's `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "phantom": {
-      "type": "streamableHttp",
+      "type": "http",
       "url": "https://your-phantom.ghostwright.dev/mcp",
       "headers": {
         "Authorization": "Bearer YOUR_TOKEN"
@@ -254,7 +266,35 @@ Then add this to your Claude Code MCP config:
 }
 ```
 
-Now Claude Code can query your Phantom's memory, ask it questions, check status, and use any dynamic tools the agent has built.
+### Claude Desktop
+
+Claude Desktop only supports stdio transport, so you need [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) to bridge the connection.
+
+Add this to your `claude_desktop_config.json` (Settings → Developer → Edit Config):
+
+```json
+{
+  "mcpServers": {
+    "phantom": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "https://your-phantom.ghostwright.dev/mcp",
+        "--header",
+        "Authorization: Bearer YOUR_TOKEN"
+      ]
+    }
+  }
+}
+```
+
+Restart Claude Desktop after saving. The first connection may take a moment while `mcp-remote` is downloaded.
+
+Restart Claude Desktop after saving. The first connection may take a moment while `mcp-remote` is downloaded.
+
+### Verify
+
+Once connected, Claude can query your Phantom's memory, ask it questions, check status, and use any dynamic tools the agent has built.
 
 ## Self-Evolution
 
