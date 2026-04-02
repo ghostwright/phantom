@@ -1,8 +1,14 @@
 export type InboundAttachment = {
-	type: "image";
+	type: "image" | "document";
 	path: string;
 	filename: string;
 	mimetype: string;
+};
+
+export type SkippedFileInfo = {
+	filename: string;
+	reason: "unsupported_type" | "too_large" | "download_failed";
+	mimetype?: string;
 };
 
 export type InboundMessage = {
@@ -16,6 +22,7 @@ export type InboundMessage = {
 	timestamp: Date;
 	metadata?: Record<string, unknown>;
 	attachments?: InboundAttachment[];
+	skippedFiles?: SkippedFileInfo[];
 };
 
 export type OutboundMessage = {
