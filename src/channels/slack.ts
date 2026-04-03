@@ -288,6 +288,10 @@ export class SlackChannel implements Channel {
 		}
 	}
 
+	trackThreadParticipation(channelId: string, threadTs: string): void {
+		this.participatedThreads.add(`${channelId}:${threadTs}`);
+	}
+
 	private registerEventHandlers(): void {
 		this.app.event("app_mention", async ({ event, client: _client }) => {
 			if (!this.messageHandler) return;
