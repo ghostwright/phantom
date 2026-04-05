@@ -404,7 +404,7 @@ async function main(): Promise<void> {
 					updateMessage: (msgId, updatedText) => sc.updateMessage(ch, msgId, updatedText),
 				},
 				onFinish: async (messageId, text) => {
-					await sc.updateWithFeedback(ch, messageId, text);
+					await sc.updateWithFeedback(ch, messageId, text, tts);
 				},
 				onError: (err) => {
 					const errMsg = err instanceof Error ? err.message : String(err);
@@ -470,7 +470,7 @@ async function main(): Promise<void> {
 			// Slack fallback: send direct reply with feedback
 			const thinkingTs = await slackChannel.postThinking(slackChannelId, slackThreadTs);
 			if (thinkingTs) {
-				await slackChannel.updateWithFeedback(slackChannelId, thinkingTs, response.text);
+				await slackChannel.updateWithFeedback(slackChannelId, thinkingTs, response.text, slackThreadTs);
 			}
 		} else {
 			// All other channels: send via router

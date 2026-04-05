@@ -246,20 +246,55 @@ export class SlackChannel implements Channel {
 		}
 	}
 
-	/** Update a message with text + feedback buttons appended */
-	async updateWithFeedback(channel: string, ts: string, text: string): Promise<void> {
-		const formattedText = toSlackMarkdown(text);
-		const truncated = truncateForSlack(formattedText);
-		const feedbackBlocks = buildFeedbackBlocks(ts);
+	/**
+	 * Replace the placeholder message at `ts` with the final response + feedback
+	 * buttons. If the response is larger than a single Slack section block can
+	 * hold, it is split across multiple threaded messages and the feedback
+	 * buttons are attached to the last one.
+	 *
+	 * The id passed to buildFeedbackBlocks is only used as a block_id suffix;
+	 * the feedback handler in slack-actions.ts reads body.message.ts at click
+	 * time, so any stable value works.
+	 */
+	async updateWithFeedback(channel: string, ts: string, text: string, threadTs: string): Promise<void> {
+		const section = (t: string): SlackBlock => ({ type: "section", text: { type: "mrkdwn", text: t } });
+		const chunks = splitMessage(toSlackMarkdown(text));
+		const total = chunks.length;
 
-		const blocks: SlackBlock[] = [{ type: "section", text: { type: "mrkdwn", text: truncated } }, ...feedbackBlocks];
-
+		// First chunk replaces the placeholder. If it's also the only chunk,
+		// attach feedback buttons here (preserves the original short-response flow).
+		const firstBlocks: SlackBlock[] =
+			total === 1 ? [section(chunks[0]), ...buildFeedbackBlocks(ts)] : [section(chunks[0])];
 		try {
-			const updateArgs: Record<string, unknown> = { channel, ts, text: truncated, blocks };
-			await this.app.client.chat.update(updateArgs as unknown as Parameters<typeof this.app.client.chat.update>[0]);
+			await this.app.client.chat.update({
+				channel,
+				ts,
+				text: chunks[0],
+				blocks: firstBlocks,
+			} as unknown as Parameters<typeof this.app.client.chat.update>[0]);
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
-			console.warn(`[slack] Failed to update message with feedback: ${msg}`);
+			console.warn(`[slack] Failed to update message with feedback (chunk 1/${total}): ${msg}`);
+		}
+
+		// Remaining chunks are posted as new threaded messages. The feedback
+		// buttons attach to the final message so the user has one clear
+		// "rate this response" affordance.
+		for (let i = 1; i < total; i++) {
+			const isLast = i === total - 1;
+			const chunk = chunks[i];
+			const blocks: SlackBlock[] = isLast ? [section(chunk), ...buildFeedbackBlocks(ts)] : [section(chunk)];
+			try {
+				await this.app.client.chat.postMessage({
+					channel,
+					thread_ts: threadTs,
+					text: chunk,
+					blocks,
+				});
+			} catch (err: unknown) {
+				const msg = err instanceof Error ? err.message : String(err);
+				console.warn(`[slack] Failed to update message with feedback (chunk ${i + 1}/${total}): ${msg}`);
+			}
 		}
 	}
 
