@@ -78,6 +78,43 @@ fi
 # 5. Set Docker awareness flag
 export PHANTOM_DOCKER=true
 
-# 6. Start Phantom (exec replaces shell so signals reach Bun directly)
+# 6. Claude Max OAuth credentials (optional)
+#
+# Preferred path: set CLAUDE_CODE_OAUTH_TOKEN in .env (generated once via
+# `claude setup-token` inside the container). It is a long-lived token with
+# its own session, does not rotate, and will not conflict with any other
+# Claude Code sessions on the host or elsewhere.
+#
+# Fallback path: docker-compose.override.yml can bind-mount the host's
+# ~/.claude/.credentials.json read-only to /tmp/.credentials-mount.json, and
+# we copy it into place + keep it in sync via a background loop. WARNING:
+# this shares a rotating OAuth session between the host and the container,
+# which Anthropic's auth backend will reject as concurrent use. Only use the
+# mount fallback on machines where nothing else is running Claude Code.
+CLAUDE_CRED_SRC="/tmp/.credentials-mount.json"
+CLAUDE_CRED_DST="/home/phantom/.claude/.credentials.json"
+if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+  echo "[phantom] Using CLAUDE_CODE_OAUTH_TOKEN from environment (skipping credentials mount)"
+elif [ -f "$CLAUDE_CRED_SRC" ]; then
+  echo "[phantom] Installing Claude Max credentials from mount..."
+  mkdir -p "$(dirname "$CLAUDE_CRED_DST")"
+  cp "$CLAUDE_CRED_SRC" "$CLAUDE_CRED_DST"
+  chmod 600 "$CLAUDE_CRED_DST"
+
+  (
+    while sleep 60; do
+      if [ -f "$CLAUDE_CRED_SRC" ] && ! cmp -s "$CLAUDE_CRED_SRC" "$CLAUDE_CRED_DST" 2>/dev/null; then
+        if cp "$CLAUDE_CRED_SRC" "$CLAUDE_CRED_DST" 2>/dev/null; then
+          chmod 600 "$CLAUDE_CRED_DST" 2>/dev/null || true
+          echo "[phantom] Claude credentials refreshed from mount"
+        fi
+      fi
+    done
+  ) &
+else
+  echo "[phantom] No Claude Max credentials mount found at $CLAUDE_CRED_SRC (relying on ANTHROPIC_API_KEY)"
+fi
+
+# 7. Start Phantom (exec replaces shell so signals reach Bun directly)
 echo "[phantom] Starting Phantom..."
 exec bun run src/index.ts
