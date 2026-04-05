@@ -215,9 +215,11 @@ export class LoopRunner {
 	}
 
 	private async postStartNotice(loop: Loop): Promise<void> {
-		if (!this.slackChannel || !loop.channelId || !loop.conversationId) return;
+		if (!this.slackChannel || !loop.channelId) return;
 		const text = `:repeat: Starting loop \`${loop.id.slice(0, 8)}\` (max ${loop.maxIterations} iter, $${loop.maxCostUsd.toFixed(2)} budget)\n> ${truncate(loop.goal, 200)}`;
-		const ts = await this.slackChannel.postToChannel(loop.channelId, text);
+		// When conversationId (a Slack thread ts) is set, thread the updates into it;
+		// otherwise post a top-level message in the channel.
+		const ts = await this.slackChannel.postToChannel(loop.channelId, text, loop.conversationId ?? undefined);
 		if (!ts) return;
 		this.store.setStatusMessageTs(loop.id, ts);
 

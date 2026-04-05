@@ -76,6 +76,31 @@ body here`;
 		expect(parseFrontmatter("---\nloop_id: x\nstatus: done\n---\n")).toBeNull();
 	});
 
+	test("parseFrontmatter strips inline YAML comments from values", () => {
+		const fm = parseFrontmatter("---\nloop_id: abc\nstatus: done # all finished\niteration: 5\n---\n");
+		expect(fm).toEqual({ loopId: "abc", status: "done", iteration: 5 });
+	});
+
+	test("parseFrontmatter strips surrounding double quotes", () => {
+		const fm = parseFrontmatter('---\nloop_id: "abc"\nstatus: "done"\niteration: 5\n---\n');
+		expect(fm).toEqual({ loopId: "abc", status: "done", iteration: 5 });
+	});
+
+	test("parseFrontmatter strips surrounding single quotes", () => {
+		const fm = parseFrontmatter("---\nloop_id: 'abc'\nstatus: 'in-progress'\niteration: 2\n---\n");
+		expect(fm).toEqual({ loopId: "abc", status: "in-progress", iteration: 2 });
+	});
+
+	test("parseFrontmatter handles quoted value followed by inline comment", () => {
+		const fm = parseFrontmatter('---\nloop_id: x\nstatus: "done"   # yay\niteration: 3\n---\n');
+		expect(fm?.status).toBe("done");
+	});
+
+	test("parseFrontmatter tolerates unexpected extra fields", () => {
+		const fm = parseFrontmatter("---\nloop_id: x\nstatus: done\niteration: 1\nextra_field: whatever\n---\n");
+		expect(fm?.status).toBe("done");
+	});
+
 	test("readStateFile round-trips contents", () => {
 		const path = join(dir, "state.md");
 		writeFileSync(path, "hello\nworld", "utf-8");

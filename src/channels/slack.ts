@@ -174,7 +174,7 @@ export class SlackChannel implements Channel {
 		return this.connectionState;
 	}
 
-	async postToChannel(channelId: string, text: string): Promise<string | null> {
+	async postToChannel(channelId: string, text: string, threadTs?: string): Promise<string | null> {
 		const formattedText = toSlackMarkdown(text);
 		const chunks = splitMessage(formattedText);
 		let lastTs: string | null = null;
@@ -184,6 +184,7 @@ export class SlackChannel implements Channel {
 				const result = await this.app.client.chat.postMessage({
 					channel: channelId,
 					text: chunk,
+					...(threadTs ? { thread_ts: threadTs } : {}),
 				});
 				lastTs = result.ts ?? null;
 			} catch (err: unknown) {
