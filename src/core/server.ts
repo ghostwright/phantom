@@ -178,7 +178,7 @@ async function handleTrigger(req: Request): Promise<Response> {
 		return Response.json({ status: "error", message: "Missing required field: task" }, { status: 400 });
 	}
 
-	const conversationId = `trigger:${Date.now()}`;
+	const conversationId = `trigger:${crypto.randomUUID()}`;
 	const source = body.source ?? "http";
 
 	try {
