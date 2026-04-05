@@ -358,8 +358,19 @@ async function main(): Promise<void> {
 		const sessionStartedAt = new Date().toISOString();
 		const convKey = `${msg.channelId}:${msg.conversationId}`;
 
+		// Append image file paths so the agent can read them via its Read tool
+		let promptText = msg.text;
+		if (msg.attachments && msg.attachments.length > 0) {
+			const imageLines = msg.attachments.map((a) => `- ${a.filename}: ${a.path}`).join("\n");
+			promptText += `\n\n[Attached images - use the Read tool to view these files]\n${imageLines}`;
+		}
+		if (msg.skippedFiles && msg.skippedFiles.length > 0) {
+			const skippedDesc = msg.skippedFiles.map((s) => `${s.filename} (${s.reason.replace(/_/g, " ")})`).join(", ");
+			promptText += `\n\n[Skipped attachments: ${skippedDesc}. Only PNG, JPEG, GIF, and WebP images are supported.]`;
+		}
+
 		const existing = conversationMessages.get(convKey) ?? { user: [], assistant: [] };
-		existing.user.push(msg.text);
+		existing.user.push(promptText);
 		conversationMessages.set(convKey, existing);
 
 		const isSlack = msg.channelId === "slack" && slackChannel && msg.metadata;
@@ -400,7 +411,7 @@ async function main(): Promise<void> {
 					updateMessage: (msgId, updatedText) => sc.updateMessage(ch, msgId, updatedText),
 				},
 				onFinish: async (messageId, text) => {
-					await sc.updateWithFeedback(ch, messageId, text);
+					await sc.updateWithFeedback(ch, messageId, text, tts);
 				},
 				onError: (err) => {
 					const errMsg = err instanceof Error ? err.message : String(err);
@@ -415,26 +426,31 @@ async function main(): Promise<void> {
 			telegramChannel.startTyping(telegramChatId);
 		}
 
-		const response = await runtime.handleMessage(msg.channelId, msg.conversationId, msg.text, (event: RuntimeEvent) => {
-			switch (event.type) {
-				case "init":
-					console.log(`\n[phantom] Session: ${event.sessionId}`);
-					break;
-				case "thinking":
-					statusReactions?.setThinking();
-					break;
-				case "tool_use":
-					statusReactions?.setTool(event.tool);
-					if (progressStream) {
-						const summary = formatToolActivity(event.tool, event.input);
-						progressStream.addToolActivity(event.tool, summary);
-					}
-					break;
-				case "error":
-					statusReactions?.setError();
-					break;
-			}
-		});
+		const response = await runtime.handleMessage(
+			msg.channelId,
+			msg.conversationId,
+			promptText,
+			(event: RuntimeEvent) => {
+				switch (event.type) {
+					case "init":
+						console.log(`\n[phantom] Session: ${event.sessionId}`);
+						break;
+					case "thinking":
+						statusReactions?.setThinking();
+						break;
+					case "tool_use":
+						statusReactions?.setTool(event.tool);
+						if (progressStream) {
+							const summary = formatToolActivity(event.tool, event.input);
+							progressStream.addToolActivity(event.tool, summary);
+						}
+						break;
+					case "error":
+						statusReactions?.setError();
+						break;
+				}
+			},
+		);
 
 		// Track assistant messages
 		if (response.text) {
@@ -461,7 +477,7 @@ async function main(): Promise<void> {
 			// Slack fallback: send direct reply with feedback
 			const thinkingTs = await slackChannel.postThinking(slackChannelId, slackThreadTs);
 			if (thinkingTs) {
-				await slackChannel.updateWithFeedback(slackChannelId, thinkingTs, response.text);
+				await slackChannel.updateWithFeedback(slackChannelId, thinkingTs, response.text, slackThreadTs);
 			}
 		} else {
 			// All other channels: send via router
