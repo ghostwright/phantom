@@ -88,6 +88,17 @@ docker compose up -d
 
 Your Phantom is running. Qdrant starts for memory, Ollama pulls the embedding model, and the agent boots. Check health at `http://localhost:3100/health`. With Slack configured, it DMs you when it's ready. Add `RESEND_API_KEY` for email sending. See [Getting Started](docs/getting-started.md) for full setup.
 
+> **Security note — Docker socket mount:** `docker-compose.yaml` mounts
+> `/var/run/docker.sock` into the Phantom container so it can spawn sibling
+> containers (e.g. sandboxed code execution). This is an intentional
+> architectural trade-off: the socket grants the container **root-equivalent
+> access to the Docker daemon**, which means a compromised Phantom process
+> could create, modify, or destroy any container on the host. Mitigations:
+> run Phantom on a dedicated machine or VM (not your personal workstation),
+> and do not expose the host's Docker socket to untrusted workloads. See
+> [docs/security.md](docs/security.md) for the full threat model.
+
+
 ### Managed (free)
 
 Get a Phantom on a dedicated VM with nothing to install. Bring your Anthropic API key, we give you the machine.
@@ -222,9 +233,9 @@ Because the agent that can only use pre-built tools hits a ceiling. Phantom buil
 
 </div>
 
-## Connect from Claude Code
+## Connect from Claude
 
-Generate a token, then add Phantom to your MCP config.
+First, generate a token. The command outputs a bearer token — save it for the next step.
 
 **Bare metal:**
 ```bash
@@ -238,13 +249,25 @@ docker exec phantom bun run phantom token create --client claude-code --scope op
 
 **Or just ask your Phantom in Slack:** "Create an MCP token for Claude Code." It will generate the token and give you the config snippet.
 
-Then add this to your Claude Code MCP config:
+Then use the token to connect. Replace `YOUR_TOKEN` below with the token from the command above. For local instances, use `http://localhost:3100/mcp` instead of the `ghostwright.dev` URL.
+
+### Claude Code (CLI)
+
+Add via the CLI:
+
+```bash
+claude mcp add phantom https://your-phantom.ghostwright.dev/mcp \
+  --transport http \
+  --header "Authorization: Bearer YOUR_TOKEN"
+```
+
+Or add directly to your project's `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "phantom": {
-      "type": "streamableHttp",
+      "type": "http",
       "url": "https://your-phantom.ghostwright.dev/mcp",
       "headers": {
         "Authorization": "Bearer YOUR_TOKEN"
@@ -254,7 +277,33 @@ Then add this to your Claude Code MCP config:
 }
 ```
 
-Now Claude Code can query your Phantom's memory, ask it questions, check status, and use any dynamic tools the agent has built.
+### Claude Desktop
+
+Claude Desktop only supports stdio transport, so you need [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) to bridge the connection.
+
+Add this to your `claude_desktop_config.json` (Settings → Developer → Edit Config):
+
+```json
+{
+  "mcpServers": {
+    "phantom": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "https://your-phantom.ghostwright.dev/mcp",
+        "--header",
+        "Authorization: Bearer YOUR_TOKEN"
+      ]
+    }
+  }
+}
+```
+
+Restart Claude Desktop after saving. The first connection may take a moment while `mcp-remote` is downloaded.
+
+### Verify
+
+Once connected, Claude can query your Phantom's memory, ask it questions, check status, and use any dynamic tools the agent has built.
 
 ## Self-Evolution
 

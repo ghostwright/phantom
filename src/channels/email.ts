@@ -51,6 +51,7 @@ export class EmailChannel implements Channel {
 	private transporter: NodemailerTransport | null = null;
 	private threads = new Map<string, EmailThread>();
 	private idleAbort: AbortController | null = null;
+	private idleLoopPromise: Promise<void> | null = null;
 
 	constructor(config: EmailChannelConfig) {
 		this.config = config;
@@ -86,8 +87,8 @@ export class EmailChannel implements Channel {
 			this.connectionState = "connected";
 			console.log("[email] SMTP configured");
 
-			// Start IDLE listening
-			void this.startIdleLoop();
+			// Start IDLE listening (tracked so disconnect can await it)
+			this.idleLoopPromise = this.startIdleLoop();
 		} catch (err: unknown) {
 			this.connectionState = "error";
 			const msg = err instanceof Error ? err.message : String(err);
@@ -99,7 +100,15 @@ export class EmailChannel implements Channel {
 	async disconnect(): Promise<void> {
 		if (this.connectionState === "disconnected") return;
 
+		this.connectionState = "disconnected";
 		this.idleAbort?.abort();
+
+		// Wait for the IDLE loop to finish and release the mailbox lock
+		// before logging out, so a subsequent connect() won't race.
+		if (this.idleLoopPromise) {
+			await this.idleLoopPromise;
+			this.idleLoopPromise = null;
+		}
 
 		try {
 			await this.imapClient?.logout();
@@ -108,7 +117,6 @@ export class EmailChannel implements Channel {
 			console.warn(`[email] Error during IMAP disconnect: ${msg}`);
 		}
 
-		this.connectionState = "disconnected";
 		console.log("[email] Disconnected");
 	}
 
