@@ -88,6 +88,17 @@ docker compose up -d
 
 Your Phantom is running. Qdrant starts for memory, Ollama pulls the embedding model, and the agent boots. Check health at `http://localhost:3100/health`. With Slack configured, it DMs you when it's ready. Add `RESEND_API_KEY` for email sending. See [Getting Started](docs/getting-started.md) for full setup.
 
+> **Security note — Docker socket mount:** `docker-compose.yaml` mounts
+> `/var/run/docker.sock` into the Phantom container so it can spawn sibling
+> containers (e.g. sandboxed code execution). This is an intentional
+> architectural trade-off: the socket grants the container **root-equivalent
+> access to the Docker daemon**, which means a compromised Phantom process
+> could create, modify, or destroy any container on the host. Mitigations:
+> run Phantom on a dedicated machine or VM (not your personal workstation),
+> and do not expose the host's Docker socket to untrusted workloads. See
+> [docs/security.md](docs/security.md) for the full threat model.
+
+
 ### Managed (free)
 
 Get a Phantom on a dedicated VM with nothing to install. Bring your Anthropic API key, we give you the machine.

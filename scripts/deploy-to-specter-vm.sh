@@ -31,7 +31,7 @@ REPO_DIR="$(dirname "$SCRIPT_DIR")"
 COMPOSE_FILE="$REPO_DIR/docker-compose.user.yaml"
 REMOTE_DIR="/home/specter/phantom"
 
-SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
+SSH_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "Error: env file not found: $ENV_FILE"
