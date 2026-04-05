@@ -61,7 +61,7 @@ describe("LoopRunner", () => {
 
 	test("start creates a loop row and initializes state file", () => {
 		const runtime = createMockRuntime();
-		const runner = new LoopRunner({ db, runtime: runtime as never, dataDir, autoSchedule: false });
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
 
 		const loop = runner.start({ goal: "Write a haiku" });
 
@@ -79,21 +79,27 @@ describe("LoopRunner", () => {
 
 	test("start clamps max_iterations to hard ceiling", () => {
 		const runtime = createMockRuntime();
-		const runner = new LoopRunner({ db, runtime: runtime as never, dataDir, autoSchedule: false });
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
 		const loop = runner.start({ goal: "x", maxIterations: 10_000 });
 		expect(loop.maxIterations).toBe(200);
 	});
 
+	test("start throws when workspace escapes the data dir", () => {
+		const runtime = createMockRuntime();
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
+		expect(() => runner.start({ goal: "evil", workspace: "../evil" })).toThrow(/escapes data dir/);
+	});
+
 	test("start clamps max_cost_usd to hard ceiling", () => {
 		const runtime = createMockRuntime();
-		const runner = new LoopRunner({ db, runtime: runtime as never, dataDir, autoSchedule: false });
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
 		const loop = runner.start({ goal: "x", maxCostUsd: 9999 });
 		expect(loop.maxCostUsd).toBe(50);
 	});
 
 	test("tick invokes runtime with loop channel and rotating conversation ids", async () => {
 		const runtime = createMockRuntime();
-		const runner = new LoopRunner({ db, runtime: runtime as never, dataDir, autoSchedule: false });
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
 		const loop = runner.start({ goal: "Do the thing" });
 
 		runtime.handleMessage.mockImplementation(agentFinishes(loop.stateFile, loop.id));
@@ -113,7 +119,7 @@ describe("LoopRunner", () => {
 
 	test("conversation id rotates across ticks to force fresh sessions", async () => {
 		const runtime = createMockRuntime();
-		const runner = new LoopRunner({ db, runtime: runtime as never, dataDir, autoSchedule: false });
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
 		const loop = runner.start({ goal: "Rotate ids", maxIterations: 3 });
 
 		await runner.tick(loop.id);
@@ -129,7 +135,7 @@ describe("LoopRunner", () => {
 
 	test("budget: loop is finalized as budget_exceeded when iteration cap reached", async () => {
 		const runtime = createMockRuntime();
-		const runner = new LoopRunner({ db, runtime: runtime as never, dataDir, autoSchedule: false });
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
 		const loop = runner.start({ goal: "Never finishes", maxIterations: 3 });
 
 		await runner.tick(loop.id);
@@ -151,7 +157,7 @@ describe("LoopRunner", () => {
 			cost: { totalUsd: 0.6, inputTokens: 1, outputTokens: 1, modelUsage: {} },
 			durationMs: 1,
 		}));
-		const runner = new LoopRunner({ db, runtime: runtime as never, dataDir, autoSchedule: false });
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
 		const loop = runner.start({ goal: "Spend money", maxIterations: 100, maxCostUsd: 1.0 });
 
 		// Tick 1: spends 0.60 (under 1.00) - another tick allowed
@@ -168,7 +174,7 @@ describe("LoopRunner", () => {
 
 	test("tick is a no-op when loop already finished", async () => {
 		const runtime = createMockRuntime();
-		const runner = new LoopRunner({ db, runtime: runtime as never, dataDir, autoSchedule: false });
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
 		const loop = runner.start({ goal: "done already" });
 
 		runtime.handleMessage.mockImplementation(agentFinishes(loop.stateFile, loop.id));
@@ -181,7 +187,7 @@ describe("LoopRunner", () => {
 
 	test("requestStop + tick finalizes the loop as stopped without invoking runtime", async () => {
 		const runtime = createMockRuntime();
-		const runner = new LoopRunner({ db, runtime: runtime as never, dataDir, autoSchedule: false });
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
 		const loop = runner.start({ goal: "Keep going", maxIterations: 100 });
 
 		const ok = runner.requestStop(loop.id);
@@ -195,7 +201,7 @@ describe("LoopRunner", () => {
 
 	test("requestStop returns false for non-running loops", async () => {
 		const runtime = createMockRuntime();
-		const runner = new LoopRunner({ db, runtime: runtime as never, dataDir, autoSchedule: false });
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
 		const loop = runner.start({ goal: "x" });
 
 		runtime.handleMessage.mockImplementation(agentFinishes(loop.stateFile, loop.id));
@@ -206,7 +212,7 @@ describe("LoopRunner", () => {
 
 	test("list(false) returns only running loops; list(true) includes finished", async () => {
 		const runtime = createMockRuntime();
-		const runner = new LoopRunner({ db, runtime: runtime as never, dataDir, autoSchedule: false });
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
 
 		const a = runner.start({ goal: "A", maxIterations: 1 });
 		await runner.tick(a.id);
@@ -226,19 +232,19 @@ describe("LoopRunner", () => {
 
 	test("resumeRunning returns count of loops that were still running", () => {
 		const runtime = createMockRuntime();
-		const runner = new LoopRunner({ db, runtime: runtime as never, dataDir, autoSchedule: false });
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
 
 		runner.start({ goal: "Survive" });
 		runner.start({ goal: "Also survive" });
 
 		// Fresh runner on the same db, as if the process restarted.
-		const runner2 = new LoopRunner({ db, runtime: runtime as never, dataDir, autoSchedule: false });
+		const runner2 = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
 		expect(runner2.resumeRunning()).toBe(2);
 	});
 
 	test("after resume, the next tick re-reads state and continues from current iteration", async () => {
 		const runtime = createMockRuntime();
-		const runner = new LoopRunner({ db, runtime: runtime as never, dataDir, autoSchedule: false });
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
 		const loop = runner.start({ goal: "Resume me" });
 
 		// Simulate one tick before "restart"
@@ -259,7 +265,7 @@ describe("LoopRunner", () => {
 		await runner.tick(loop.id);
 
 		// Restart: fresh runner, state file is source of truth.
-		const runner2 = new LoopRunner({ db, runtime: runtime as never, dataDir, autoSchedule: false });
+		const runner2 = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
 		runtime.handleMessage.mockImplementation(agentFinishes(loop.stateFile, loop.id));
 		await runner2.tick(loop.id);
 
@@ -268,7 +274,7 @@ describe("LoopRunner", () => {
 
 	test("success_command exit 0 terminates loop as done", async () => {
 		const runtime = createMockRuntime();
-		const runner = new LoopRunner({ db, runtime: runtime as never, dataDir, autoSchedule: false });
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
 		const loop = runner.start({ goal: "Check", maxIterations: 10, successCommand: "true" });
 
 		await runner.tick(loop.id);
@@ -276,9 +282,28 @@ describe("LoopRunner", () => {
 		expect(runner.getLoop(loop.id)?.status).toBe("done");
 	});
 
+	test("autoSchedule: true drives ticks until the state file marks done", async () => {
+		const runtime = createMockRuntime();
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: true });
+		const loop = runner.start({ goal: "auto" });
+		runtime.handleMessage.mockImplementation(agentFinishes(loop.stateFile, loop.id));
+
+		// Poll up to ~1s (50 * 20ms). Generous for shared CI VMs.
+		let reached = false;
+		for (let i = 0; i < 50; i++) {
+			if (runner.getLoop(loop.id)?.status === "done") {
+				reached = true;
+				break;
+			}
+			await Bun.sleep(20);
+		}
+		expect(reached).toBe(true); // loop did not reach done within 1s
+		expect(runtime.handleMessage).toHaveBeenCalled();
+	});
+
 	test("success_command exit non-zero does not terminate the loop", async () => {
 		const runtime = createMockRuntime();
-		const runner = new LoopRunner({ db, runtime: runtime as never, dataDir, autoSchedule: false });
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
 		const loop = runner.start({ goal: "No success", maxIterations: 3, successCommand: "false" });
 
 		await runner.tick(loop.id);

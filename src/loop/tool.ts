@@ -5,6 +5,8 @@ import type { LoopRunner } from "./runner.ts";
 import { parseFrontmatter, readStateFile } from "./state-file.ts";
 import type { Loop } from "./types.ts";
 
+export const LOOP_TOOL_NAME = "phantom_loop";
+
 function ok(data: Record<string, unknown>): { content: Array<{ type: "text"; text: string }> } {
 	return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
 }
@@ -38,7 +40,7 @@ function serializeLoop(loop: Loop): Record<string, unknown> {
  */
 export function createLoopToolServer(runner: LoopRunner): McpSdkServerConfigWithInstance {
 	const loopTool = tool(
-		"phantom_loop",
+		LOOP_TOOL_NAME,
 		`Start, check, stop, or list "ralph loops" - autonomous iteration primitives.
 
 A ralph loop runs the agent against a goal repeatedly, each iteration in a fresh
@@ -52,7 +54,9 @@ ACTIONS:
     workspace (defaults to data/loops/<id>/),
     max_iterations (default 20, hard ceiling 200),
     max_cost_usd (default 5, hard ceiling 50),
-    success_command (shell command, exit 0 = goal achieved),
+    success_command (shell command run after each tick; exit 0 = goal
+      achieved. Runs under bash -c with a 5 minute timeout in a sanitized env
+      containing only PATH, HOME, LANG, TERM, loop_id, and workspace),
     channel_id + conversation_id (Slack channel/thread for status updates).
 - status: Inspect a loop. Returns row data + parsed state file frontmatter.
 - stop: Request graceful stop of a running loop (takes effect before next tick).

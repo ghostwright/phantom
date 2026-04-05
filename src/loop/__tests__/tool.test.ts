@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runMigrations } from "../../db/migrate.ts";
 import { LoopRunner } from "../runner.ts";
-import { createLoopToolServer } from "../tool.ts";
+import { LOOP_TOOL_NAME, createLoopToolServer } from "../tool.ts";
 
 function mockRuntime() {
 	return {
@@ -18,10 +18,10 @@ function mockRuntime() {
 	};
 }
 
-// The MCP SDK wraps tool definitions inside createSdkMcpServer. To exercise the
-// tool handlers directly we reach into the server instance that the factory
-// returns. The shape is internal to the SDK, so we type it loosely and only
-// read the fields we need for assertions.
+// NOTE: _registeredTools is internal to @anthropic-ai/claude-agent-sdk.
+// Verified against 0.2.77. If this breaks on SDK upgrade, check the SDK's
+// tool() + createSdkMcpServer() implementation. Using LOOP_TOOL_NAME (not
+// Object.keys()[0]) so a rename fails loudly here instead of silently.
 type LoopHandler = (
 	input: Record<string, unknown>,
 ) => Promise<{ content: Array<{ type: string; text: string }>; isError?: true }>;
@@ -29,9 +29,9 @@ type LoopHandler = (
 function getLoopToolHandler(server: ReturnType<typeof createLoopToolServer>): LoopHandler {
 	const instance = (server as unknown as { instance: { _registeredTools: Record<string, { handler: LoopHandler }> } })
 		.instance;
-	const registered = instance._registeredTools;
-	const name = Object.keys(registered)[0];
-	return registered[name].handler;
+	const registered = instance._registeredTools[LOOP_TOOL_NAME];
+	if (!registered) throw new Error(`SDK internals changed: tool "${LOOP_TOOL_NAME}" not found in _registeredTools`);
+	return registered.handler;
 }
 
 function parseResult(result: { content: Array<{ type: string; text: string }>; isError?: true }) {
@@ -50,7 +50,7 @@ describe("phantom_loop MCP tool", () => {
 		db.run("PRAGMA foreign_keys = ON");
 		runMigrations(db);
 		dataDir = mkdtempSync(join(tmpdir(), "phantom-loop-tool-"));
-		runner = new LoopRunner({ db, runtime: mockRuntime() as never, dataDir, autoSchedule: false });
+		runner = new LoopRunner({ db, runtime: mockRuntime(), dataDir, autoSchedule: false });
 		handler = getLoopToolHandler(createLoopToolServer(runner));
 	});
 

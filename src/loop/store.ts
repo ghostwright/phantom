@@ -75,11 +75,12 @@ export class LoopStore {
 		this.db.run("UPDATE loops SET status_message_ts = ? WHERE id = ?", [ts, id]);
 	}
 
-	finalize(id: string, status: LoopStatus, lastError: string | null): void {
+	finalize(id: string, status: LoopStatus, lastError: string | null): Loop | null {
 		this.db.run(`UPDATE loops SET status = ?, last_error = ?, finished_at = datetime('now') WHERE id = ?`, [
 			status,
 			lastError,
 			id,
 		]);
+		return this.findById(id);
 	}
 }

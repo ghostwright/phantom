@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import type { AgentRuntime } from "../agent/runtime.ts";
 import type { SlackChannel } from "../channels/slack.ts";
 import { buildSafeEnv } from "../mcp/dynamic-handlers.ts";
@@ -17,9 +17,16 @@ import {
 	type LoopStatus,
 } from "./types.ts";
 
+/**
+ * The runner only needs handleMessage from the AgentRuntime - narrowing the
+ * dependency keeps the runner honest (SRP) and lets tests pass a minimal mock
+ * without `as never` casts. A real AgentRuntime is assignable to this.
+ */
+type LoopRuntime = Pick<AgentRuntime, "handleMessage">;
+
 type RunnerDeps = {
 	db: Database;
-	runtime: AgentRuntime;
+	runtime: LoopRuntime;
 	slackChannel?: SlackChannel;
 	dataDir?: string;
 	/**
@@ -49,7 +56,7 @@ const SUCCESS_COMMAND_TIMEOUT_MS = 5 * 60 * 1000;
  */
 export class LoopRunner {
 	private store: LoopStore;
-	private runtime: AgentRuntime;
+	private runtime: LoopRuntime;
 	private slackChannel: SlackChannel | undefined;
 	private dataDir: string;
 	private autoSchedule: boolean;
@@ -67,9 +74,26 @@ export class LoopRunner {
 		this.slackChannel = channel;
 	}
 
+	/**
+	 * Reject operator-supplied workspace paths that escape the data dir. The
+	 * agent invokes start() via MCP, and a stray `..` could point the state
+	 * file outside the sandbox. Mirrors the isPathSafe idiom in src/ui/serve.ts.
+	 */
+	private assertWorkspaceInsideDataDir(workspace: string): string {
+		const base = resolve(this.dataDir);
+		const target = resolve(base, workspace);
+		const rel = relative(base, target);
+		if (rel.startsWith("..") || rel.includes("..")) {
+			throw new Error(`workspace path escapes data dir: ${workspace}`);
+		}
+		return target;
+	}
+
 	start(input: LoopStartInput): Loop {
 		const id = randomUUID();
-		const workspaceDir = input.workspace ?? join(this.dataDir, "loops", id);
+		const workspaceDir = input.workspace
+			? this.assertWorkspaceInsideDataDir(input.workspace)
+			: join(this.dataDir, "loops", id);
 		const stateFile = join(workspaceDir, "state.md");
 
 		const maxIterations = clamp(input.maxIterations ?? LOOP_DEFAULT_MAX_ITERATIONS, 1, LOOP_MAX_ITERATIONS_CEILING);
@@ -205,8 +229,7 @@ export class LoopRunner {
 	}
 
 	private finalize(id: string, status: LoopStatus, error: string | null): void {
-		this.store.finalize(id, status, error);
-		const loop = this.store.findById(id);
+		const loop = this.store.finalize(id, status, error);
 		if (!loop) return;
 		this.postFinalNotice(loop, status).catch((err: unknown) => {
 			const msg = err instanceof Error ? err.message : String(err);
