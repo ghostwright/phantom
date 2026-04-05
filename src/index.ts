@@ -9,7 +9,7 @@ import { emitFeedback, setFeedbackHandler } from "./channels/feedback.ts";
 import { formatToolActivity } from "./channels/progress-stream.ts";
 import { createProgressStream } from "./channels/progress-stream.ts";
 import { ChannelRouter } from "./channels/router.ts";
-import { setActionFollowUpHandler } from "./channels/slack-actions.ts";
+import { setActionFollowUpHandler, setLoopStopHandler } from "./channels/slack-actions.ts";
 import { SlackChannel } from "./channels/slack.ts";
 import { createStatusReactionController } from "./channels/status-reactions.ts";
 import { TelegramChannel } from "./channels/telegram.ts";
@@ -33,6 +33,8 @@ import { runMigrations } from "./db/migrate.ts";
 import { createEmailToolServer } from "./email/tool.ts";
 import { EvolutionEngine } from "./evolution/engine.ts";
 import type { SessionSummary } from "./evolution/types.ts";
+import { LoopRunner } from "./loop/runner.ts";
+import { createLoopToolServer } from "./loop/tool.ts";
 import { PeerHealthMonitor } from "./mcp/peer-health.ts";
 import { PeerManager } from "./mcp/peers.ts";
 import { PhantomMcpServer } from "./mcp/server.ts";
@@ -157,6 +159,7 @@ async function main(): Promise<void> {
 
 	let mcpServer: PhantomMcpServer | null = null;
 	let scheduler: Scheduler | null = null;
+	const loopRunner = new LoopRunner({ db, runtime });
 	try {
 		mcpServer = new PhantomMcpServer({
 			config,
@@ -184,6 +187,7 @@ async function main(): Promise<void> {
 		runtime.setMcpServerFactories({
 			"phantom-dynamic-tools": () => createInProcessToolServer(registry),
 			"phantom-scheduler": () => createSchedulerToolServer(scheduler as Scheduler),
+			"phantom-loop": () => createLoopToolServer(loopRunner),
 			"phantom-web-ui": () => createWebUiToolServer(config.public_url),
 			"phantom-secrets": () => createSecretToolServer({ db, baseUrl: secretsBaseUrl }),
 			...(process.env.RESEND_API_KEY
@@ -324,6 +328,9 @@ async function main(): Promise<void> {
 		if (webhookChannel) health.webhook = webhookChannel.isConnected();
 		return health;
 	});
+
+	// Wire loop stop button (Slack -> runner)
+	setLoopStopHandler((loopId) => loopRunner.requestStop(loopId));
 
 	// Wire action follow-up handler (button clicks -> agent)
 	setActionFollowUpHandler(async (params) => {
@@ -594,8 +601,19 @@ async function main(): Promise<void> {
 	if (scheduler && slackChannel && channelsConfig?.slack?.owner_user_id) {
 		scheduler.setSlackChannel(slackChannel, channelsConfig.slack.owner_user_id);
 	}
+	if (slackChannel) {
+		loopRunner.setSlackChannel(slackChannel);
+	}
 	if (scheduler) {
 		await scheduler.start();
+	}
+
+	// Resume any loops that were running when the process last exited.
+	// The state file on disk is the source of truth, so "resume" just means
+	// scheduling another tick against each loop still marked running.
+	const resumedLoops = loopRunner.resumeRunning();
+	if (resumedLoops > 0) {
+		console.log(`[loop] Resumed ${resumedLoops} loop(s)`);
 	}
 
 	// Wire /trigger endpoint

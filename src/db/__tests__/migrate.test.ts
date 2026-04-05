@@ -26,6 +26,7 @@ describe("runMigrations", () => {
 		expect(tables).toContain("scheduled_jobs");
 		expect(tables).toContain("secrets");
 		expect(tables).toContain("secret_requests");
+		expect(tables).toContain("loops");
 		expect(tables).toContain("_migrations");
 	});
 
@@ -35,7 +36,7 @@ describe("runMigrations", () => {
 		runMigrations(db);
 
 		const migrationCount = db.query("SELECT COUNT(*) as count FROM _migrations").get() as { count: number };
-		expect(migrationCount.count).toBe(9);
+		expect(migrationCount.count).toBe(11);
 	});
 
 	test("tracks applied migration indices", () => {
@@ -47,6 +48,6 @@ describe("runMigrations", () => {
 			.all()
 			.map((r) => (r as { index_num: number }).index_num);
 
-		expect(indices).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+		expect(indices).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 	});
 });

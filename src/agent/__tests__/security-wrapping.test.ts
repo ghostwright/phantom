@@ -29,6 +29,7 @@ describe("security message wrapping", () => {
 	test("internal channels are detected correctly", () => {
 		expect(proto.isExternalChannel("scheduler")).toBe(false);
 		expect(proto.isExternalChannel("trigger")).toBe(false);
+		expect(proto.isExternalChannel("loop")).toBe(false);
 	});
 
 	test("wrapper prepends security context", () => {

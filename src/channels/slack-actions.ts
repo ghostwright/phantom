@@ -22,6 +22,19 @@ export function setActionFollowUpHandler(handler: ActionFollowUpHandler): void {
 	actionFollowUpHandler = handler;
 }
 
+// Loop stop button handler. The `phantom:loop_stop:<id>` action_id is attached
+// to the initial loop status message, allowing an operator to interrupt a
+// running loop from Slack without invoking the MCP tool.
+type LoopStopHandler = (loopId: string) => boolean;
+
+let loopStopHandler: LoopStopHandler | null = null;
+
+export function setLoopStopHandler(handler: LoopStopHandler): void {
+	loopStopHandler = handler;
+}
+
+export const LOOP_STOP_ACTION_PREFIX = "phantom:loop_stop:";
+
 /** Extract a typed value from the Bolt body object */
 function bodyField<T>(body: unknown, ...keys: string[]): T | undefined {
 	let obj = body as Record<string, unknown> | undefined;
@@ -88,6 +101,43 @@ export function registerSlackActions(app: App): void {
 			}
 		});
 	}
+
+	// Register loop stop button handler
+	app.action(/^phantom:loop_stop:.+$/, async ({ ack, body, client }) => {
+		await ack();
+
+		const b = body as unknown as Record<string, unknown>;
+		const actions = b.actions as Array<{ action_id: string }> | undefined;
+		const actionId = actions?.[0]?.action_id;
+		if (!actionId?.startsWith(LOOP_STOP_ACTION_PREFIX)) return;
+
+		const loopId = actionId.slice(LOOP_STOP_ACTION_PREFIX.length);
+		const channelId = bodyField<string>(b, "channel", "id");
+		const messageTs = bodyField<string>(b, "message", "ts");
+		const userId = bodyField<string>(b, "user", "id");
+		const messageText = bodyField<string>(b, "message", "text") ?? "";
+		const existingBlocks = bodyField<Array<{ type: string; block_id?: string }>>(b, "message", "blocks") ?? [];
+
+		const stopped = loopStopHandler?.(loopId) ?? false;
+
+		if (channelId && messageTs) {
+			const nonActionBlocks = existingBlocks.filter((block) => block.block_id !== `phantom_loop_actions_${loopId}`);
+			const noteText = stopped
+				? `_<@${userId}> requested stop. The loop will halt before the next iteration._`
+				: `_<@${userId}> clicked stop, but the loop is already finished._`;
+			try {
+				await client.chat.update({
+					channel: channelId,
+					ts: messageTs,
+					text: messageText,
+					blocks: [...nonActionBlocks, { type: "context", elements: [{ type: "mrkdwn", text: noteText }] }],
+				} as unknown as Parameters<typeof client.chat.update>[0]);
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				console.warn(`[slack] Failed to update loop stop message: ${msg}`);
+			}
+		}
+	});
 
 	// Register agent action button handler
 	app.action(/^phantom:action:\d+$/, async ({ ack, body, client }) => {
