@@ -1,6 +1,7 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { slackContextStore } from "../agent/slack-context.ts";
 import type { LoopRunner } from "./runner.ts";
 import { parseFrontmatter, readStateFile } from "./state-file.ts";
 import type { Loop } from "./types.ts";
@@ -74,6 +75,7 @@ regression". Each iteration is fresh - all context must live in the state file.`
 			success_command: z.string().optional(),
 			channel_id: z.string().optional(),
 			conversation_id: z.string().optional(),
+			trigger_message_ts: z.string().optional(),
 			loop_id: z.string().optional().describe("Loop ID (required for status and stop)"),
 			include_finished: z.boolean().optional().describe("For list: include terminated loops"),
 		},
@@ -82,14 +84,19 @@ regression". Each iteration is fresh - all context must live in the state file.`
 				switch (input.action) {
 					case "start": {
 						if (!input.goal) return err("goal is required for start");
+						// Explicit tool arguments always win. When the agent omits
+						// channel/thread plumbing, fall back to the Slack context
+						// captured by the router for the current turn.
+						const ctx = slackContextStore.getStore();
 						const loop = runner.start({
 							goal: input.goal,
 							workspace: input.workspace,
 							maxIterations: input.max_iterations,
 							maxCostUsd: input.max_cost_usd,
 							successCommand: input.success_command,
-							channelId: input.channel_id,
-							conversationId: input.conversation_id,
+							channelId: input.channel_id ?? ctx?.slackChannelId,
+							conversationId: input.conversation_id ?? ctx?.slackThreadTs,
+							triggerMessageTs: input.trigger_message_ts ?? ctx?.slackMessageTs,
 						});
 						return ok({ started: true, loop: serializeLoop(loop) });
 					}

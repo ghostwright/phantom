@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { createInProcessToolServer } from "./agent/in-process-tools.ts";
 import { AgentRuntime } from "./agent/runtime.ts";
 import type { RuntimeEvent } from "./agent/runtime.ts";
+import { slackContextStore } from "./agent/slack-context.ts";
 import { CliChannel } from "./channels/cli.ts";
 import { EmailChannel } from "./channels/email.ts";
 import { emitFeedback, setFeedbackHandler } from "./channels/feedback.ts";
@@ -426,31 +427,37 @@ async function main(): Promise<void> {
 			telegramChannel.startTyping(telegramChatId);
 		}
 
-		const response = await runtime.handleMessage(
-			msg.channelId,
-			msg.conversationId,
-			promptText,
-			(event: RuntimeEvent) => {
-				switch (event.type) {
-					case "init":
-						console.log(`\n[phantom] Session: ${event.sessionId}`);
-						break;
-					case "thinking":
-						statusReactions?.setThinking();
-						break;
-					case "tool_use":
-						statusReactions?.setTool(event.tool);
-						if (progressStream) {
-							const summary = formatToolActivity(event.tool, event.input);
-							progressStream.addToolActivity(event.tool, summary);
-						}
-						break;
-					case "error":
-						statusReactions?.setError();
-						break;
-				}
-			},
-		);
+		const onEvent = (event: RuntimeEvent): void => {
+			switch (event.type) {
+				case "init":
+					console.log(`\n[phantom] Session: ${event.sessionId}`);
+					break;
+				case "thinking":
+					statusReactions?.setThinking();
+					break;
+				case "tool_use":
+					statusReactions?.setTool(event.tool);
+					if (progressStream) {
+						const summary = formatToolActivity(event.tool, event.input);
+						progressStream.addToolActivity(event.tool, summary);
+					}
+					break;
+				case "error":
+					statusReactions?.setError();
+					break;
+			}
+		};
+
+		const runHandle = (): ReturnType<typeof runtime.handleMessage> =>
+			runtime.handleMessage(msg.channelId, msg.conversationId, promptText, onEvent);
+
+		// Slack-origin turns run inside an AsyncLocalStorage scope so in-process
+		// MCP tools (phantom_loop, etc.) can auto-target the operator's thread
+		// and original message without relying on the agent to forward the IDs.
+		const response =
+			isSlack && slackChannelId && slackThreadTs && slackMessageTs
+				? await slackContextStore.run({ slackChannelId, slackThreadTs, slackMessageTs }, runHandle)
+				: await runHandle();
 
 		// Track assistant messages
 		if (response.text) {

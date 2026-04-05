@@ -4,6 +4,7 @@ import { join, relative, resolve } from "node:path";
 import type { AgentRuntime } from "../agent/runtime.ts";
 import type { SlackChannel } from "../channels/slack.ts";
 import { buildSafeEnv } from "../mcp/dynamic-handlers.ts";
+import { LoopNotifier } from "./notifications.ts";
 import { buildTickPrompt } from "./prompt.ts";
 import { initStateFile, parseFrontmatter, readStateFile } from "./state-file.ts";
 import { LoopStore } from "./store.ts";
@@ -61,6 +62,7 @@ export class LoopRunner {
 	private dataDir: string;
 	private autoSchedule: boolean;
 	private inFlight = new Set<string>();
+	private notifier: LoopNotifier;
 
 	constructor(deps: RunnerDeps) {
 		this.store = new LoopStore(deps.db);
@@ -68,10 +70,12 @@ export class LoopRunner {
 		this.slackChannel = deps.slackChannel;
 		this.dataDir = deps.dataDir ?? resolve(process.cwd(), "data");
 		this.autoSchedule = deps.autoSchedule ?? true;
+		this.notifier = new LoopNotifier(this.slackChannel ?? null, this.store);
 	}
 
 	setSlackChannel(channel: SlackChannel): void {
 		this.slackChannel = channel;
+		this.notifier = new LoopNotifier(channel, this.store);
 	}
 
 	/**
@@ -111,9 +115,10 @@ export class LoopRunner {
 			maxCostUsd,
 			channelId: input.channelId ?? null,
 			conversationId: input.conversationId ?? null,
+			triggerMessageTs: input.triggerMessageTs ?? null,
 		});
 
-		this.postStartNotice(loop).catch((err: unknown) => {
+		this.notifier.postStartNotice(loop).catch((err: unknown) => {
 			const msg = err instanceof Error ? err.message : String(err);
 			console.warn(`[loop] Failed to post start notice for ${id}: ${msg}`);
 		});
@@ -200,10 +205,17 @@ export class LoopRunner {
 				}
 			}
 
-			this.postTickUpdate(id, nextIteration, frontmatter?.status ?? "in-progress").catch((err: unknown) => {
+			// Await the tick update so its Slack write finishes before the next
+			// tick can start (and potentially finalize). Without this, a stop on
+			// tick N+1 can race: postFinalNotice strips the Stop button, then the
+			// fire-and-forget postTickUpdate from tick N resolves and re-sends the
+			// blocks, making the button reappear on a finalized message.
+			try {
+				await this.notifier.postTickUpdate(id, nextIteration, frontmatter?.status ?? "in-progress");
+			} catch (err: unknown) {
 				const msg = err instanceof Error ? err.message : String(err);
 				console.warn(`[loop] Failed to post tick update for ${id}: ${msg}`);
-			});
+			}
 
 			this.scheduleTick(id);
 		} finally {
@@ -231,73 +243,13 @@ export class LoopRunner {
 	private finalize(id: string, status: LoopStatus, error: string | null): void {
 		const loop = this.store.finalize(id, status, error);
 		if (!loop) return;
-		this.postFinalNotice(loop, status).catch((err: unknown) => {
+		this.notifier.postFinalNotice(loop, status).catch((err: unknown) => {
 			const msg = err instanceof Error ? err.message : String(err);
 			console.warn(`[loop] Failed to post final notice for ${id}: ${msg}`);
 		});
 	}
-
-	private async postStartNotice(loop: Loop): Promise<void> {
-		if (!this.slackChannel || !loop.channelId) return;
-		const text = `:repeat: Starting loop \`${loop.id.slice(0, 8)}\` (max ${loop.maxIterations} iter, $${loop.maxCostUsd.toFixed(2)} budget)\n> ${truncate(loop.goal, 200)}`;
-		// When conversationId (a Slack thread ts) is set, thread the updates into it;
-		// otherwise post a top-level message in the channel.
-		const ts = await this.slackChannel.postToChannel(loop.channelId, text, loop.conversationId ?? undefined);
-		if (!ts) return;
-		this.store.setStatusMessageTs(loop.id, ts);
-
-		// Attach a stop button so the operator can interrupt without using MCP.
-		// Routed via setLoopStopHandler in slack-actions.ts.
-		const blocks = [
-			{ type: "section", text: { type: "mrkdwn", text } },
-			{
-				type: "actions",
-				block_id: `phantom_loop_actions_${loop.id}`,
-				elements: [
-					{
-						type: "button",
-						text: { type: "plain_text", text: "Stop loop", emoji: true },
-						action_id: `phantom:loop_stop:${loop.id}`,
-						style: "danger",
-						value: loop.id,
-					},
-				],
-			},
-		];
-		await this.slackChannel.updateMessage(loop.channelId, ts, text, blocks);
-	}
-
-	private async postTickUpdate(id: string, iteration: number, status: string): Promise<void> {
-		const loop = this.store.findById(id);
-		if (!loop || !this.slackChannel || !loop.channelId || !loop.statusMessageTs) return;
-		const text = `:repeat: Loop \`${loop.id.slice(0, 8)}\` iteration ${iteration}/${loop.maxIterations} - ${status} ($${loop.totalCostUsd.toFixed(4)} of $${loop.maxCostUsd.toFixed(2)})`;
-		await this.slackChannel.updateMessage(loop.channelId, loop.statusMessageTs, text);
-	}
-
-	private async postFinalNotice(loop: Loop, status: LoopStatus): Promise<void> {
-		if (!this.slackChannel || !loop.channelId) return;
-		const emoji = FINAL_EMOJI[status] ?? ":grey_question:";
-		const text = `${emoji} Loop \`${loop.id.slice(0, 8)}\` finished (${status}) after ${loop.iterationCount} iterations, $${loop.totalCostUsd.toFixed(4)} spent`;
-		if (loop.statusMessageTs) {
-			await this.slackChannel.updateMessage(loop.channelId, loop.statusMessageTs, text);
-		} else {
-			await this.slackChannel.postToChannel(loop.channelId, text);
-		}
-	}
 }
-
-const FINAL_EMOJI: Record<LoopStatus, string> = {
-	running: ":repeat:",
-	done: ":white_check_mark:",
-	stopped: ":octagonal_sign:",
-	budget_exceeded: ":warning:",
-	failed: ":x:",
-};
 
 function clamp(value: number, min: number, max: number): number {
 	return Math.min(Math.max(value, min), max);
-}
-
-function truncate(text: string, max: number): string {
-	return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }

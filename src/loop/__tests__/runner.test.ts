@@ -97,6 +97,30 @@ describe("LoopRunner", () => {
 		expect(loop.maxCostUsd).toBe(50);
 	});
 
+	test("triggerMessageTs round-trips through start → store → findById", () => {
+		const runtime = createMockRuntime();
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
+		const loop = runner.start({
+			goal: "with trigger",
+			channelId: "C100",
+			conversationId: "1700000000.000100",
+			triggerMessageTs: "1700000000.000200",
+		});
+		expect(loop.triggerMessageTs).toBe("1700000000.000200");
+
+		const reloaded = runner.getLoop(loop.id);
+		expect(reloaded?.triggerMessageTs).toBe("1700000000.000200");
+		expect(reloaded?.channelId).toBe("C100");
+		expect(reloaded?.conversationId).toBe("1700000000.000100");
+	});
+
+	test("triggerMessageTs is null when omitted at start", () => {
+		const runtime = createMockRuntime();
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
+		const loop = runner.start({ goal: "no trigger" });
+		expect(loop.triggerMessageTs).toBeNull();
+	});
+
 	test("tick invokes runtime with loop channel and rotating conversation ids", async () => {
 		const runtime = createMockRuntime();
 		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });

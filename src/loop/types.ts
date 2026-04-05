@@ -16,6 +16,7 @@ export type Loop = {
 	channelId: string | null;
 	conversationId: string | null;
 	statusMessageTs: string | null;
+	triggerMessageTs: string | null;
 	interruptRequested: boolean;
 	lastError: string | null;
 	startedAt: string;
@@ -37,6 +38,7 @@ export type LoopRow = {
 	channel_id: string | null;
 	conversation_id: string | null;
 	status_message_ts: string | null;
+	trigger_message_ts: string | null;
 	interrupt_requested: number;
 	last_error: string | null;
 	started_at: string;
@@ -58,6 +60,7 @@ export type LoopStartInput = {
 	successCommand?: string;
 	channelId?: string;
 	conversationId?: string;
+	triggerMessageTs?: string;
 };
 
 // Hard ceilings the agent cannot raise. Caller-provided values are clamped.
@@ -74,6 +77,7 @@ export const LoopStartInputSchema = z.object({
 	success_command: z.string().optional(),
 	channel_id: z.string().optional(),
 	conversation_id: z.string().optional(),
+	trigger_message_ts: z.string().optional(),
 });
 
 export const LoopIdSchema = z.object({ loop_id: z.string().min(1) });
@@ -95,6 +99,7 @@ export function rowToLoop(row: LoopRow): Loop {
 		channelId: row.channel_id,
 		conversationId: row.conversation_id,
 		statusMessageTs: row.status_message_ts,
+		triggerMessageTs: row.trigger_message_ts,
 		interruptRequested: row.interrupt_requested === 1,
 		lastError: row.last_error,
 		startedAt: row.started_at,

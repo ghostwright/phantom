@@ -120,4 +120,10 @@ export const MIGRATIONS: string[] = [
 	)`,
 
 	"CREATE INDEX IF NOT EXISTS idx_loops_status ON loops(status)",
+
+	// Track the operator's originating Slack message so the loop runner can
+	// drive a reaction ladder on it (hourglass → cycle → terminal emoji).
+	// Appended, never inserted mid-array: existing deployments have already
+	// applied migrations 0–10, so the new column must land at index 11.
+	"ALTER TABLE loops ADD COLUMN trigger_message_ts TEXT",
 ];

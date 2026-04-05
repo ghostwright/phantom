@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { slackContextStore } from "../../agent/slack-context.ts";
 import { runMigrations } from "../../db/migrate.ts";
 import { LoopRunner } from "../runner.ts";
 import { LOOP_TOOL_NAME, createLoopToolServer } from "../tool.ts";
@@ -107,5 +108,72 @@ describe("phantom_loop MCP tool", () => {
 		const result = await handler({ action: "list" });
 		const body = parseResult(result);
 		expect(body.count).toBeGreaterThanOrEqual(2);
+	});
+
+	describe("slackContextStore fallback", () => {
+		test("start fills channel/thread/trigger from context when args omitted", async () => {
+			const result = await slackContextStore.run(
+				{
+					slackChannelId: "C42",
+					slackThreadTs: "1700000000.000100",
+					slackMessageTs: "1700000000.000200",
+				},
+				() => handler({ action: "start", goal: "from context" }),
+			);
+			const { loop } = parseResult(result);
+			// triggerMessageTs is intentionally not exposed in serializeLoop,
+			// so read back through the runner directly.
+			const stored = runner.getLoop(loop.id);
+			expect(stored?.channelId).toBe("C42");
+			expect(stored?.conversationId).toBe("1700000000.000100");
+			expect(stored?.triggerMessageTs).toBe("1700000000.000200");
+		});
+
+		test("explicit args override context", async () => {
+			const result = await slackContextStore.run(
+				{
+					slackChannelId: "C_CTX",
+					slackThreadTs: "1700000000.000100",
+					slackMessageTs: "1700000000.000200",
+				},
+				() =>
+					handler({
+						action: "start",
+						goal: "explicit wins",
+						channel_id: "C_EXPLICIT",
+						conversation_id: "1800000000.000100",
+						trigger_message_ts: "1800000000.000200",
+					}),
+			);
+			const { loop } = parseResult(result);
+			const stored = runner.getLoop(loop.id);
+			expect(stored?.channelId).toBe("C_EXPLICIT");
+			expect(stored?.conversationId).toBe("1800000000.000100");
+			expect(stored?.triggerMessageTs).toBe("1800000000.000200");
+		});
+
+		test("missing context leaves fields null without crashing", async () => {
+			// No slackContextStore.run wrapper here.
+			const result = await handler({ action: "start", goal: "no context" });
+			const { loop } = parseResult(result);
+			const stored = runner.getLoop(loop.id);
+			expect(stored?.channelId).toBeNull();
+			expect(stored?.conversationId).toBeNull();
+			expect(stored?.triggerMessageTs).toBeNull();
+		});
+
+		test("serializeLoop does not expose triggerMessageTs to the agent", async () => {
+			const result = await slackContextStore.run(
+				{
+					slackChannelId: "C42",
+					slackThreadTs: "1700000000.000100",
+					slackMessageTs: "1700000000.000200",
+				},
+				() => handler({ action: "start", goal: "hidden field" }),
+			);
+			const body = parseResult(result);
+			expect(body.loop.trigger_message_ts).toBeUndefined();
+			expect(body.loop.triggerMessageTs).toBeUndefined();
+		});
 	});
 });

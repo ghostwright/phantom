@@ -11,6 +11,7 @@ export type LoopInsertInput = {
 	maxCostUsd: number;
 	channelId: string | null;
 	conversationId: string | null;
+	triggerMessageTs: string | null;
 };
 
 /**
@@ -22,8 +23,8 @@ export class LoopStore {
 
 	insert(input: LoopInsertInput): Loop {
 		this.db.run(
-			`INSERT INTO loops (id, goal, workspace_dir, state_file, success_command, max_iterations, max_cost_usd, status, channel_id, conversation_id)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)`,
+			`INSERT INTO loops (id, goal, workspace_dir, state_file, success_command, max_iterations, max_cost_usd, status, channel_id, conversation_id, trigger_message_ts)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
 			[
 				input.id,
 				input.goal,
@@ -34,6 +35,7 @@ export class LoopStore {
 				input.maxCostUsd,
 				input.channelId,
 				input.conversationId,
+				input.triggerMessageTs,
 			],
 		);
 		const created = this.findById(input.id);
