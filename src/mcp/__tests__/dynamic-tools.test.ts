@@ -215,6 +215,57 @@ describe("DynamicToolRegistry", () => {
 		freshDb.close();
 	});
 
+	test("registerAllOnServer tolerates a failing tool registration", () => {
+		const freshDb = new Database(":memory:");
+		runMigrations(freshDb);
+
+		const registry = new DynamicToolRegistry(freshDb);
+		registry.register({
+			name: "good_tool",
+			description: "Good",
+			input_schema: {},
+			handler_type: "shell",
+			handler_code: "echo good",
+		});
+		registry.register({
+			name: "bad_tool",
+			description: "Bad",
+			input_schema: {},
+			handler_type: "shell",
+			handler_code: "echo bad",
+		});
+
+		const attempted: string[] = [];
+		const succeeded: string[] = [];
+		const mockServer = {
+			registerTool(name: string, _meta: unknown, _handler: unknown) {
+				attempted.push(name);
+				if (name === "bad_tool") {
+					throw new Error("simulated schema failure");
+				}
+				succeeded.push(name);
+			},
+		};
+
+		const origWarn = console.warn;
+		const warnings: string[] = [];
+		console.warn = (...args: unknown[]) => {
+			warnings.push(args.map((a) => String(a)).join(" "));
+		};
+
+		try {
+			expect(() => registry.registerAllOnServer(mockServer as never)).not.toThrow();
+		} finally {
+			console.warn = origWarn;
+		}
+
+		expect(attempted).toEqual(["good_tool", "bad_tool"]);
+		expect(succeeded).toEqual(["good_tool"]);
+		expect(warnings.some((w) => w.includes("bad_tool") && w.includes("simulated schema failure"))).toBe(true);
+
+		freshDb.close();
+	});
+
 	test("upserts on duplicate name", () => {
 		const freshDb = new Database(":memory:");
 		runMigrations(freshDb);
