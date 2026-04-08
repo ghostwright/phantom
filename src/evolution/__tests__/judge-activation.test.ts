@@ -81,15 +81,18 @@ function setupWithJudgeMode(enabled: "auto" | "always" | "never"): void {
 let savedApiKey: string | undefined;
 let savedAuthToken: string | undefined;
 let savedOauthToken: string | undefined;
+let savedJudgeKey: string | undefined;
 
 describe("Judge Activation", () => {
 	beforeEach(() => {
 		savedApiKey = process.env.ANTHROPIC_API_KEY;
 		savedAuthToken = process.env.ANTHROPIC_AUTH_TOKEN;
 		savedOauthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+		savedJudgeKey = process.env.JUDGE_API_KEY;
 		// Clear all auth env vars so tests control them explicitly
 		process.env.ANTHROPIC_AUTH_TOKEN = undefined;
 		process.env.CLAUDE_CODE_OAUTH_TOKEN = undefined;
+		process.env.JUDGE_API_KEY = undefined;
 	});
 
 	afterEach(() => {
@@ -107,6 +110,11 @@ describe("Judge Activation", () => {
 			process.env.CLAUDE_CODE_OAUTH_TOKEN = savedOauthToken;
 		} else {
 			process.env.CLAUDE_CODE_OAUTH_TOKEN = undefined;
+		}
+		if (savedJudgeKey !== undefined) {
+			process.env.JUDGE_API_KEY = savedJudgeKey;
+		} else {
+			process.env.JUDGE_API_KEY = undefined;
 		}
 		rmSync(TEST_DIR, { recursive: true, force: true });
 	});
@@ -136,6 +144,14 @@ describe("Judge Activation", () => {
 	test("auto mode enables judges with CLAUDE_CODE_OAUTH_TOKEN alone", () => {
 		process.env.ANTHROPIC_API_KEY = undefined;
 		process.env.CLAUDE_CODE_OAUTH_TOKEN = "oauth-token-test";
+		setupWithJudgeMode("auto");
+		const engine = new EvolutionEngine(CONFIG_PATH);
+		expect(engine.usesLLMJudges()).toBe(true);
+	});
+
+	test("auto mode enables judges with JUDGE_API_KEY alone", () => {
+		process.env.ANTHROPIC_API_KEY = undefined;
+		process.env.JUDGE_API_KEY = "sk-judge-test-key";
 		setupWithJudgeMode("auto");
 		const engine = new EvolutionEngine(CONFIG_PATH);
 		expect(engine.usesLLMJudges()).toBe(true);

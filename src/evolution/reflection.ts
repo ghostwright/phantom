@@ -168,6 +168,52 @@ export function buildCritiqueFromObservations(
 		});
 	}
 
+	// Domain facts become domain-knowledge changes
+	const domainFacts = observations.filter((o) => o.type === "domain_fact");
+	for (const fact of domainFacts) {
+		suggestedChanges.push({
+			file: sanitizeConfigFile(fact.affected_files?.[0]) ?? "domain-knowledge.md",
+			type: "append",
+			content: `- ${fact.content.slice(0, 200)}`,
+			rationale: `Domain fact from session ${session.session_id}: "${fact.content.slice(0, 100)}"`,
+			tier: "free",
+		});
+	}
+
+	// Errors become error-recovery strategy changes
+	for (const error of errors) {
+		suggestedChanges.push({
+			file: sanitizeConfigFile(error.affected_files?.[0]) ?? "strategies/error-recovery.md",
+			type: "append",
+			content: `- ${error.content.slice(0, 200)}`,
+			rationale: `Error pattern from session ${session.session_id}: "${error.content.slice(0, 100)}"`,
+			tier: "free",
+		});
+	}
+
+	// Tool patterns become tool-preferences strategy changes
+	const toolPatterns = observations.filter((o) => o.type === "tool_pattern");
+	for (const pattern of toolPatterns) {
+		suggestedChanges.push({
+			file: sanitizeConfigFile(pattern.affected_files?.[0]) ?? "strategies/tool-preferences.md",
+			type: "append",
+			content: `- ${pattern.content.slice(0, 200)}`,
+			rationale: `Tool pattern from session ${session.session_id}: "${pattern.content.slice(0, 100)}"`,
+			tier: "free",
+		});
+	}
+
+	// Successes become task-patterns strategy changes
+	for (const success of successes) {
+		suggestedChanges.push({
+			file: sanitizeConfigFile(success.affected_files?.[0]) ?? "strategies/task-patterns.md",
+			type: "append",
+			content: `- ${success.content.slice(0, 200)}`,
+			rationale: `Success pattern from session ${session.session_id}: "${success.content.slice(0, 100)}"`,
+			tier: "free",
+		});
+	}
+
 	return {
 		overall_assessment: session.outcome === "success" ? "Session completed successfully." : "Session had issues.",
 		what_worked: successes.map((s) => s.content),
@@ -283,6 +329,23 @@ export function getCritiqueJsonSchema(): Record<string, unknown> {
 		},
 		required: ["overall_assessment", "what_worked", "what_failed", "corrections_detected", "suggested_changes"],
 	};
+}
+
+const ALLOWED_CONFIG_FILES = new Set([
+	"persona.md",
+	"user-profile.md",
+	"domain-knowledge.md",
+	"strategies/task-patterns.md",
+	"strategies/tool-preferences.md",
+	"strategies/error-recovery.md",
+]);
+
+/** Validate affected_files values to prevent path traversal from judge output. */
+function sanitizeConfigFile(file: string | undefined): string | undefined {
+	if (!file) return undefined;
+	if (file.includes("..") || file.startsWith("/")) return undefined;
+	if (!ALLOWED_CONFIG_FILES.has(file)) return undefined;
+	return file;
 }
 
 function distillCorrection(message: string): string {

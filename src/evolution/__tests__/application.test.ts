@@ -62,8 +62,11 @@ describe("Application", () => {
 
 			const content = readFileSync(`${TEST_DIR}/user-profile.md`, "utf-8");
 			expect(content).toContain("Prefers TypeScript");
-			expect(change.file).toBe("user-profile.md");
-			expect(change.content).toBe("- Prefers TypeScript");
+			expect(change).not.toBeNull();
+			if (change) {
+				expect(change.file).toBe("user-profile.md");
+				expect(change.content).toBe("- Prefers TypeScript");
+			}
 		});
 
 		test("replaces content in file", () => {
@@ -97,6 +100,73 @@ describe("Application", () => {
 
 			const content = readFileSync(`${TEST_DIR}/user-profile.md`, "utf-8");
 			expect(content).not.toContain("Preferences go here.");
+		});
+
+		test("skips append when all content lines already exist", () => {
+			writeFileSync(`${TEST_DIR}/user-profile.md`, "# User Profile\n\n- Prefers TypeScript\n", "utf-8");
+			const delta: ConfigDelta = {
+				file: "user-profile.md",
+				type: "append",
+				content: "- Prefers TypeScript",
+				rationale: "User said so",
+				session_ids: ["s1"],
+				tier: "free",
+			};
+			applyDelta(delta, testConfig());
+
+			const content = readFileSync(`${TEST_DIR}/user-profile.md`, "utf-8");
+			// Should not have duplicated the line
+			const matches = content.match(/Prefers TypeScript/g);
+			expect(matches).toHaveLength(1);
+		});
+
+		test("appends only new lines from partial overlap", () => {
+			writeFileSync(`${TEST_DIR}/user-profile.md`, "# User Profile\n\n- Prefers TypeScript\n", "utf-8");
+			const delta: ConfigDelta = {
+				file: "user-profile.md",
+				type: "append",
+				content: "- Prefers TypeScript\n- Uses Bun runtime",
+				rationale: "Mixed new and existing",
+				session_ids: ["s1"],
+				tier: "free",
+			};
+			applyDelta(delta, testConfig());
+
+			const content = readFileSync(`${TEST_DIR}/user-profile.md`, "utf-8");
+			const tsMatches = content.match(/Prefers TypeScript/g);
+			expect(tsMatches).toHaveLength(1);
+			expect(content).toContain("Uses Bun runtime");
+		});
+
+		test("returns null for no-op append", () => {
+			writeFileSync(`${TEST_DIR}/user-profile.md`, "# User Profile\n\n- Prefers TypeScript\n", "utf-8");
+			const delta: ConfigDelta = {
+				file: "user-profile.md",
+				type: "append",
+				content: "- Prefers TypeScript",
+				rationale: "Duplicate",
+				session_ids: ["s1"],
+				tier: "free",
+			};
+			const result = applyDelta(delta, testConfig());
+			expect(result).toBeNull();
+		});
+
+		test("appends when content is genuinely new", () => {
+			writeFileSync(`${TEST_DIR}/user-profile.md`, "# User Profile\n\n- Prefers TypeScript\n", "utf-8");
+			const delta: ConfigDelta = {
+				file: "user-profile.md",
+				type: "append",
+				content: "- Uses Bun runtime",
+				rationale: "New preference",
+				session_ids: ["s1"],
+				tier: "free",
+			};
+			applyDelta(delta, testConfig());
+
+			const content = readFileSync(`${TEST_DIR}/user-profile.md`, "utf-8");
+			expect(content).toContain("Prefers TypeScript");
+			expect(content).toContain("Uses Bun runtime");
 		});
 
 		test("creates new file if it does not exist", () => {
