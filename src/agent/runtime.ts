@@ -89,9 +89,9 @@ export class AgentRuntime {
 		}
 	}
 
-	// Scheduler and trigger are internal sources; all other channels are external user input
+	// Scheduler, trigger, and loop are internal sources; all other channels are external user input
 	private isExternalChannel(channelId: string): boolean {
-		return channelId !== "scheduler" && channelId !== "trigger";
+		return channelId !== "scheduler" && channelId !== "trigger" && channelId !== "loop";
 	}
 
 	// Per-message security context so the LLM has safety guidance adjacent to user input

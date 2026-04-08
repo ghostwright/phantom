@@ -79,10 +79,17 @@ function setupWithJudgeMode(enabled: "auto" | "always" | "never"): void {
 }
 
 let savedApiKey: string | undefined;
+let savedAuthToken: string | undefined;
+let savedOauthToken: string | undefined;
 
 describe("Judge Activation", () => {
 	beforeEach(() => {
 		savedApiKey = process.env.ANTHROPIC_API_KEY;
+		savedAuthToken = process.env.ANTHROPIC_AUTH_TOKEN;
+		savedOauthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+		// Clear all auth env vars so tests control them explicitly
+		process.env.ANTHROPIC_AUTH_TOKEN = undefined;
+		process.env.CLAUDE_CODE_OAUTH_TOKEN = undefined;
 	});
 
 	afterEach(() => {
@@ -90,6 +97,16 @@ describe("Judge Activation", () => {
 			process.env.ANTHROPIC_API_KEY = savedApiKey;
 		} else {
 			process.env.ANTHROPIC_API_KEY = undefined;
+		}
+		if (savedAuthToken !== undefined) {
+			process.env.ANTHROPIC_AUTH_TOKEN = savedAuthToken;
+		} else {
+			process.env.ANTHROPIC_AUTH_TOKEN = undefined;
+		}
+		if (savedOauthToken !== undefined) {
+			process.env.CLAUDE_CODE_OAUTH_TOKEN = savedOauthToken;
+		} else {
+			process.env.CLAUDE_CODE_OAUTH_TOKEN = undefined;
 		}
 		rmSync(TEST_DIR, { recursive: true, force: true });
 	});
@@ -106,6 +123,22 @@ describe("Judge Activation", () => {
 		setupWithJudgeMode("auto");
 		const engine = new EvolutionEngine(CONFIG_PATH);
 		expect(engine.usesLLMJudges()).toBe(false);
+	});
+
+	test("auto mode enables judges with ANTHROPIC_AUTH_TOKEN alone", () => {
+		process.env.ANTHROPIC_API_KEY = undefined;
+		process.env.ANTHROPIC_AUTH_TOKEN = "auth-token-test";
+		setupWithJudgeMode("auto");
+		const engine = new EvolutionEngine(CONFIG_PATH);
+		expect(engine.usesLLMJudges()).toBe(true);
+	});
+
+	test("auto mode enables judges with CLAUDE_CODE_OAUTH_TOKEN alone", () => {
+		process.env.ANTHROPIC_API_KEY = undefined;
+		process.env.CLAUDE_CODE_OAUTH_TOKEN = "oauth-token-test";
+		setupWithJudgeMode("auto");
+		const engine = new EvolutionEngine(CONFIG_PATH);
+		expect(engine.usesLLMJudges()).toBe(true);
 	});
 
 	test("never mode disables judges even when API key is set", () => {

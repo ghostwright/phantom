@@ -97,4 +97,35 @@ export const MIGRATIONS: string[] = [
 		expires_at TEXT NOT NULL,
 		completed_at TEXT
 	)`,
+
+	`CREATE TABLE IF NOT EXISTS loops (
+		id TEXT PRIMARY KEY,
+		goal TEXT NOT NULL,
+		workspace_dir TEXT NOT NULL,
+		state_file TEXT NOT NULL,
+		success_command TEXT,
+		max_iterations INTEGER NOT NULL,
+		max_cost_usd REAL NOT NULL,
+		status TEXT NOT NULL,
+		iteration_count INTEGER NOT NULL DEFAULT 0,
+		total_cost_usd REAL NOT NULL DEFAULT 0,
+		channel_id TEXT,
+		conversation_id TEXT,
+		status_message_ts TEXT,
+		interrupt_requested INTEGER NOT NULL DEFAULT 0,
+		last_error TEXT,
+		started_at TEXT NOT NULL DEFAULT (datetime('now')),
+		last_tick_at TEXT,
+		finished_at TEXT
+	)`,
+
+	"CREATE INDEX IF NOT EXISTS idx_loops_status ON loops(status)",
+
+	// Track the operator's originating Slack message so the loop runner can
+	// drive a reaction ladder on it (hourglass → cycle → terminal emoji).
+	// Appended, never inserted mid-array: existing deployments have already
+	// applied migrations 0–10, so the new column must land at index 11.
+	"ALTER TABLE loops ADD COLUMN trigger_message_ts TEXT",
+
+	"ALTER TABLE loops ADD COLUMN checkpoint_interval INTEGER",
 ];

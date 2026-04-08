@@ -48,7 +48,7 @@ export class EvolutionEngine {
 		const setting = this.config.judges?.enabled ?? "auto";
 		if (setting === "never") return false;
 		if (setting === "always") return true;
-		return !!process.env.ANTHROPIC_API_KEY;
+		return !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.CLAUDE_CODE_OAUTH_TOKEN);
 	}
 
 	usesLLMJudges(): boolean {

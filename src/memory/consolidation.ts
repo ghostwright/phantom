@@ -1,3 +1,4 @@
+import { JudgeParseError } from "../evolution/judges/client.ts";
 import { runConsolidationJudge } from "../evolution/judges/consolidation-judge.ts";
 import type { JudgeCostEntry } from "../evolution/judges/types.ts";
 import type { SessionSummary } from "../evolution/types.ts";
@@ -66,11 +67,21 @@ export async function consolidateSessionWithLLM(
 		const msg = error instanceof Error ? error.message : String(error);
 		console.warn(`[memory] Consolidation judge failed, falling back to heuristic: ${msg}`);
 		const result = await consolidateSession(memory, sessionData);
-		return { result, judgeCost: null };
+		// Track cost from successful API calls that failed parsing (tokens were consumed)
+		const judgeCost =
+			error instanceof JudgeParseError
+				? {
+						calls: 1,
+						totalUsd: error.costUsd,
+						totalInputTokens: error.inputTokens,
+						totalOutputTokens: error.outputTokens,
+					}
+				: null;
+		return { result, judgeCost };
 	}
 }
 
-function sessionDataToSummary(data: SessionData): SessionSummary {
+export function sessionDataToSummary(data: SessionData): SessionSummary {
 	return {
 		session_id: data.sessionId,
 		session_key: data.sessionKey,

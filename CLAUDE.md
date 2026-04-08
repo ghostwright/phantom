@@ -222,3 +222,4 @@ Production deployments are managed internally. Do NOT modify production deployme
 - [Self-Evolution](docs/self-evolution.md) - The 6-step reflection pipeline
 - [Security](docs/security.md) - Auth, secrets, permissions, and hardening
 - [Roles](docs/roles.md) - Customizing the agent's specialization
+- [Loop](docs/loop.md) - Autonomous iteration primitive (phantom_loop)

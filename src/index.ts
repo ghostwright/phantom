@@ -3,13 +3,14 @@ import { join, resolve } from "node:path";
 import { createInProcessToolServer } from "./agent/in-process-tools.ts";
 import { AgentRuntime } from "./agent/runtime.ts";
 import type { RuntimeEvent } from "./agent/runtime.ts";
+import { slackContextStore } from "./agent/slack-context.ts";
 import { CliChannel } from "./channels/cli.ts";
 import { EmailChannel } from "./channels/email.ts";
 import { emitFeedback, setFeedbackHandler } from "./channels/feedback.ts";
 import { formatToolActivity } from "./channels/progress-stream.ts";
 import { createProgressStream } from "./channels/progress-stream.ts";
 import { ChannelRouter } from "./channels/router.ts";
-import { setActionFollowUpHandler } from "./channels/slack-actions.ts";
+import { setActionFollowUpHandler, setLoopStopHandler } from "./channels/slack-actions.ts";
 import { SlackChannel } from "./channels/slack.ts";
 import { createStatusReactionController } from "./channels/status-reactions.ts";
 import { TelegramChannel } from "./channels/telegram.ts";
@@ -33,6 +34,8 @@ import { runMigrations } from "./db/migrate.ts";
 import { createEmailToolServer } from "./email/tool.ts";
 import { EvolutionEngine } from "./evolution/engine.ts";
 import type { SessionSummary } from "./evolution/types.ts";
+import { LoopRunner } from "./loop/runner.ts";
+import { createLoopToolServer } from "./loop/tool.ts";
 import { PeerHealthMonitor } from "./mcp/peer-health.ts";
 import { PeerManager } from "./mcp/peers.ts";
 import { PhantomMcpServer } from "./mcp/server.ts";
@@ -113,8 +116,9 @@ async function main(): Promise<void> {
 		runtime.setRoleTemplate(activeRole);
 	}
 
+	let contextBuilder: MemoryContextBuilder | undefined;
 	if (memory.isReady()) {
-		const contextBuilder = new MemoryContextBuilder(memory, memoryConfig);
+		contextBuilder = new MemoryContextBuilder(memory, memoryConfig);
 		runtime.setMemoryContextBuilder(contextBuilder);
 	}
 
@@ -157,6 +161,17 @@ async function main(): Promise<void> {
 
 	let mcpServer: PhantomMcpServer | null = null;
 	let scheduler: Scheduler | null = null;
+	const postLoopDeps =
+		evolution || memory.isReady()
+			? {
+					evolution: evolution ?? undefined,
+					memory: memory.isReady() ? memory : undefined,
+					onEvolvedConfigUpdate: evolution
+						? (config: ReturnType<EvolutionEngine["getConfig"]>) => runtime.setEvolvedConfig(config)
+						: undefined,
+				}
+			: undefined;
+	const loopRunner = new LoopRunner({ db, runtime, memoryContextBuilder: contextBuilder, postLoopDeps });
 	try {
 		mcpServer = new PhantomMcpServer({
 			config,
@@ -184,6 +199,7 @@ async function main(): Promise<void> {
 		runtime.setMcpServerFactories({
 			"phantom-dynamic-tools": () => createInProcessToolServer(registry),
 			"phantom-scheduler": () => createSchedulerToolServer(scheduler as Scheduler),
+			"phantom-loop": () => createLoopToolServer(loopRunner),
 			"phantom-web-ui": () => createWebUiToolServer(config.public_url),
 			"phantom-secrets": () => createSecretToolServer({ db, baseUrl: secretsBaseUrl }),
 			...(process.env.RESEND_API_KEY
@@ -325,6 +341,9 @@ async function main(): Promise<void> {
 		return health;
 	});
 
+	// Wire loop stop button (Slack -> runner)
+	setLoopStopHandler((loopId) => loopRunner.requestStop(loopId));
+
 	// Wire action follow-up handler (button clicks -> agent)
 	setActionFollowUpHandler(async (params) => {
 		const followUpText = params.actionPayload
@@ -408,7 +427,7 @@ async function main(): Promise<void> {
 			telegramChannel.startTyping(telegramChatId);
 		}
 
-		const response = await runtime.handleMessage(msg.channelId, msg.conversationId, msg.text, (event: RuntimeEvent) => {
+		const onEvent = (event: RuntimeEvent): void => {
 			switch (event.type) {
 				case "init":
 					console.log(`\n[phantom] Session: ${event.sessionId}`);
@@ -427,7 +446,18 @@ async function main(): Promise<void> {
 					statusReactions?.setError();
 					break;
 			}
-		});
+		};
+
+		const runHandle = (): ReturnType<typeof runtime.handleMessage> =>
+			runtime.handleMessage(msg.channelId, msg.conversationId, promptText, onEvent);
+
+		// Slack-origin turns run inside an AsyncLocalStorage scope so in-process
+		// MCP tools (phantom_loop, etc.) can auto-target the operator's thread
+		// and original message without relying on the agent to forward the IDs.
+		const response =
+			isSlack && slackChannelId && slackThreadTs && slackMessageTs
+				? await slackContextStore.run({ slackChannelId, slackThreadTs, slackMessageTs }, runHandle)
+				: await runHandle();
 
 		// Track assistant messages
 		if (response.text) {
@@ -594,8 +624,19 @@ async function main(): Promise<void> {
 	if (scheduler && slackChannel && channelsConfig?.slack?.owner_user_id) {
 		scheduler.setSlackChannel(slackChannel, channelsConfig.slack.owner_user_id);
 	}
+	if (slackChannel) {
+		loopRunner.setSlackChannel(slackChannel);
+	}
 	if (scheduler) {
 		await scheduler.start();
+	}
+
+	// Resume any loops that were running when the process last exited.
+	// The state file on disk is the source of truth, so "resume" just means
+	// scheduling another tick against each loop still marked running.
+	const resumedLoops = loopRunner.resumeRunning();
+	if (resumedLoops > 0) {
+		console.log(`[loop] Resumed ${resumedLoops} loop(s)`);
 	}
 
 	// Wire /trigger endpoint
