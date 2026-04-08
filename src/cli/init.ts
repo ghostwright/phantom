@@ -198,7 +198,7 @@ export async function runInit(args: string[]): Promise<void> {
 			name: values.name ?? envName ?? "phantom",
 			role: values.role ?? envRole ?? "swe",
 			port: values.port ? Number.parseInt(values.port, 10) : envPort ? Number.parseInt(envPort, 10) : 3100,
-			model: envModel ?? "claude-sonnet-4-6",
+			model: envModel ?? "claude-opus-4-6",
 			domain: envDomain,
 			public_url: envPublicUrl,
 			effort: envEffort,
@@ -224,7 +224,7 @@ export async function runInit(args: string[]): Promise<void> {
 				port: values.port
 					? Number.parseInt(values.port, 10)
 					: Number.parseInt(await prompt(rl, "HTTP port", "3100"), 10),
-				model: await prompt(rl, "Model (claude-sonnet-4-6, claude-opus-4-6)", "claude-sonnet-4-6"),
+				model: await prompt(rl, "Model (claude-opus-4-6, claude-sonnet-4-6)", "claude-opus-4-6"),
 			};
 
 			console.log("\nSlack setup (optional, press Enter to skip):");

@@ -134,6 +134,7 @@ describe("MCP scope enforcement", () => {
 					port: 3100,
 					role: "swe",
 					model: "claude-opus-4-6",
+					model_source: "config" as const,
 					effort: "max" as const,
 					max_budget_usd: 0,
 					timeout_minutes: 240,

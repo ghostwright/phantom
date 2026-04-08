@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { constants, accessSync, existsSync, readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 
 type CheckResult = {
@@ -148,6 +148,52 @@ async function checkEvolvedConfig(): Promise<CheckResult> {
 	return { name: "Evolved Config", status: "ok", message: "All config files present" };
 }
 
+async function checkEvolutionPipeline(): Promise<CheckResult> {
+	const sessionLog = "phantom-config/memory/session-log.jsonl";
+	const metricsFile = "phantom-config/meta/metrics.json";
+
+	if (!existsSync("phantom-config")) {
+		return { name: "Evolution Pipeline", status: "warn", message: "phantom-config/ not found", fix: "phantom init" };
+	}
+
+	// Check session-log.jsonl is writable
+	if (!existsSync(sessionLog)) {
+		return {
+			name: "Evolution Pipeline",
+			status: "warn",
+			message: "session-log.jsonl not found",
+			fix: "Run a session to generate it, or run phantom init",
+		};
+	}
+
+	try {
+		accessSync(sessionLog, constants.R_OK | constants.W_OK);
+	} catch {
+		return { name: "Evolution Pipeline", status: "fail", message: "session-log.jsonl not writable" };
+	}
+
+	// Check metrics.json shows pipeline activity
+	if (!existsSync(metricsFile)) {
+		return { name: "Evolution Pipeline", status: "warn", message: "metrics.json not found", fix: "phantom init" };
+	}
+
+	try {
+		const raw = readFileSync(metricsFile, "utf-8");
+		const metrics = JSON.parse(raw) as { session_count?: number };
+		const count = metrics.session_count ?? 0;
+		if (count === 0) {
+			return {
+				name: "Evolution Pipeline",
+				status: "warn",
+				message: "No sessions recorded yet (pipeline not yet active)",
+			};
+		}
+		return { name: "Evolution Pipeline", status: "ok", message: `${count} sessions processed` };
+	} catch {
+		return { name: "Evolution Pipeline", status: "fail", message: "metrics.json not parseable" };
+	}
+}
+
 async function checkPhantomHealth(port: number): Promise<CheckResult> {
 	try {
 		const resp = await fetch(`http://localhost:${port}/health`, { signal: AbortSignal.timeout(3000) });
@@ -194,6 +240,7 @@ export async function runDoctor(args: string[]): Promise<void> {
 		checkMcpConfig(),
 		checkDatabase(),
 		checkEvolvedConfig(),
+		checkEvolutionPipeline(),
 		checkPhantomHealth(port),
 	]);
 

@@ -10,12 +10,20 @@ import { handleUiRequest } from "../ui/serve.ts";
 const VERSION = "0.18.2";
 
 type MemoryHealthProvider = () => Promise<MemoryHealth>;
+type EvolutionInfo = {
+	generation: number;
+	session_count: number;
+	sessions_since_consolidation: number;
+	session_log_depth: number;
+};
 type EvolutionVersionProvider = () => number;
+type EvolutionInfoProvider = () => EvolutionInfo;
 type McpServerProvider = () => PhantomMcpServer | null;
 type ChannelHealthProvider = () => Record<string, boolean>;
 type RoleInfoProvider = () => { id: string; name: string } | null;
 type OnboardingStatusProvider = () => string;
 type WebhookHandler = (req: Request) => Promise<Response>;
+type ModelInfoProvider = () => { model: string; model_source: "config" | "env" };
 type PeerHealthProvider = () => Record<string, { healthy: boolean; latencyMs: number; error?: string }>;
 type TriggerDeps = {
 	runtime: AgentRuntime;
@@ -25,11 +33,13 @@ type TriggerDeps = {
 
 let memoryHealthProvider: MemoryHealthProvider | null = null;
 let evolutionVersionProvider: EvolutionVersionProvider | null = null;
+let evolutionInfoProvider: EvolutionInfoProvider | null = null;
 let mcpServerProvider: McpServerProvider | null = null;
 let channelHealthProvider: ChannelHealthProvider | null = null;
 let roleInfoProvider: RoleInfoProvider | null = null;
 let onboardingStatusProvider: OnboardingStatusProvider | null = null;
 let webhookHandler: WebhookHandler | null = null;
+let modelInfoProvider: ModelInfoProvider | null = null;
 let peerHealthProvider: PeerHealthProvider | null = null;
 let triggerDeps: TriggerDeps | null = null;
 
@@ -39,6 +49,10 @@ export function setMemoryHealthProvider(provider: MemoryHealthProvider): void {
 
 export function setEvolutionVersionProvider(provider: EvolutionVersionProvider): void {
 	evolutionVersionProvider = provider;
+}
+
+export function setEvolutionInfoProvider(provider: EvolutionInfoProvider): void {
+	evolutionInfoProvider = provider;
 }
 
 export function setMcpServerProvider(provider: McpServerProvider): void {
@@ -59,6 +73,10 @@ export function setOnboardingStatusProvider(provider: OnboardingStatusProvider):
 
 export function setWebhookHandler(handler: WebhookHandler): void {
 	webhookHandler = handler;
+}
+
+export function setModelInfoProvider(provider: ModelInfoProvider): void {
+	modelInfoProvider = provider;
 }
 
 export function setPeerHealthProvider(provider: PeerHealthProvider): void {
@@ -92,11 +110,13 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 				// Both up -> ok. One up -> degraded. Both down + configured -> down. Not configured -> ok.
 				const status = allHealthy ? "ok" : someHealthy ? "degraded" : memory.configured ? "down" : "ok";
 				const evolutionGeneration = evolutionVersionProvider ? evolutionVersionProvider() : 0;
+				const evolutionInfo = evolutionInfoProvider ? evolutionInfoProvider() : null;
 
 				const roleInfo = roleInfoProvider ? roleInfoProvider() : null;
 
 				const onboardingStatus = onboardingStatusProvider ? onboardingStatusProvider() : null;
 				const peers = peerHealthProvider ? peerHealthProvider() : null;
+				const modelInfo = modelInfoProvider ? modelInfoProvider() : null;
 
 				return Response.json({
 					status,
@@ -105,9 +125,10 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 					agent: config.name,
 					...(config.public_url ? { public_url: config.public_url } : {}),
 					role: roleInfo ?? { id: config.role, name: config.role },
+					...(modelInfo ? { model: modelInfo.model, model_source: modelInfo.model_source } : {}),
 					channels,
 					memory,
-					evolution: {
+					evolution: evolutionInfo ?? {
 						generation: evolutionGeneration,
 					},
 					...(onboardingStatus ? { onboarding: onboardingStatus } : {}),

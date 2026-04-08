@@ -34,6 +34,9 @@ export function runConsolidation(config: EvolutionConfig): ConsolidationReport {
 	// Compress corrections.md if it has duplicates
 	const correctionsCompressed = compressCorrections(config);
 
+	// Compress user-profile.md if it has duplicates
+	const profileCompressed = compressUserProfile(config);
+
 	// Prune the session log of entries that have been processed
 	const prunedCount = pruneSessionLog(config, sessionLog.length);
 
@@ -43,7 +46,7 @@ export function runConsolidation(config: EvolutionConfig): ConsolidationReport {
 	return {
 		principlesExtracted: principles.length,
 		observationsPruned: prunedCount,
-		filesCompressed: filesCompressed + (correctionsCompressed ? 1 : 0),
+		filesCompressed: filesCompressed + (correctionsCompressed ? 1 : 0) + (profileCompressed ? 1 : 0),
 	};
 }
 
@@ -218,6 +221,35 @@ function compressCorrections(config: EvolutionConfig): boolean {
 	return deduplicated.length < lines.length;
 }
 
+export function compressUserProfile(config: EvolutionConfig): boolean {
+	const profilePath = join(config.paths.config_dir, "user-profile.md");
+
+	let content: string;
+	try {
+		content = readFileSync(profilePath, "utf-8");
+	} catch {
+		return false;
+	}
+
+	const lines = content.split("\n");
+	if (lines.length <= config.gates.max_file_lines) return false;
+
+	const seen = new Set<string>();
+	const deduplicated = lines.filter((line) => {
+		const trimmed = line.trim().toLowerCase();
+		if (trimmed === "" || trimmed.startsWith("#")) return true;
+		if (seen.has(trimmed)) return false;
+		seen.add(trimmed);
+		return true;
+	});
+
+	if (deduplicated.length < lines.length) {
+		writeFileSync(profilePath, deduplicated.join("\n"), "utf-8");
+		return true;
+	}
+	return false;
+}
+
 function pruneSessionLog(config: EvolutionConfig, processedCount: number): number {
 	const logPath = config.paths.session_log;
 
@@ -236,7 +268,15 @@ function pruneSessionLog(config: EvolutionConfig, processedCount: number): numbe
 
 function compressOversizedFiles(config: EvolutionConfig): number {
 	const maxLines = config.gates.max_file_lines;
-	const filesToCheck = ["user-profile.md", "domain-knowledge.md", "memory/corrections.md", "memory/principles.md"];
+	const filesToCheck = [
+		"user-profile.md",
+		"domain-knowledge.md",
+		"memory/corrections.md",
+		"memory/principles.md",
+		"strategies/task-patterns.md",
+		"strategies/tool-preferences.md",
+		"strategies/error-recovery.md",
+	];
 	let compressed = 0;
 
 	for (const file of filesToCheck) {

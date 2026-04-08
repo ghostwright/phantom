@@ -29,7 +29,12 @@ export function loadConfig(path?: string): PhantomConfig {
 	// Environment variable overrides for runtime flexibility.
 	// These let operators change settings via env without editing YAML.
 	if (process.env.PHANTOM_MODEL) {
-		config.model = process.env.PHANTOM_MODEL;
+		const envModel = process.env.PHANTOM_MODEL;
+		if (envModel !== config.model) {
+			console.warn(`[config] Model override: ${config.model} (yaml) -> ${envModel} (env)`);
+		}
+		config.model = envModel;
+		config.model_source = "env";
 	}
 	if (process.env.PHANTOM_DOMAIN) {
 		config.domain = process.env.PHANTOM_DOMAIN;

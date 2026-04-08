@@ -7,6 +7,7 @@ const baseConfig: PhantomConfig = {
 	port: 3100,
 	role: "swe",
 	model: "claude-opus-4-6",
+	model_source: "config",
 	effort: "max",
 	max_budget_usd: 0,
 	timeout_minutes: 240,

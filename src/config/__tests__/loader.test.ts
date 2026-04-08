@@ -106,11 +106,33 @@ model: claude-opus-4-6
 			process.env.PHANTOM_MODEL = "claude-sonnet-4-6";
 			const config = loadConfig(path);
 			expect(config.model).toBe("claude-sonnet-4-6");
+			expect(config.model_source).toBe("env");
 		} finally {
 			if (saved !== undefined) {
 				process.env.PHANTOM_MODEL = saved;
 			} else {
 				process.env.PHANTOM_MODEL = undefined;
+			}
+			cleanup();
+		}
+	});
+
+	test("model_source defaults to config when no env override", () => {
+		const path = writeYaml(
+			"model-source-default.yaml",
+			`
+name: test-phantom
+model: claude-opus-4-6
+`,
+		);
+		const saved = process.env.PHANTOM_MODEL;
+		try {
+			process.env.PHANTOM_MODEL = undefined;
+			const config = loadConfig(path);
+			expect(config.model_source).toBe("config");
+		} finally {
+			if (saved !== undefined) {
+				process.env.PHANTOM_MODEL = saved;
 			}
 			cleanup();
 		}

@@ -6,9 +6,16 @@ type HealthResponse = {
 	version: string;
 	agent: string;
 	role: { id: string; name: string };
+	model?: string;
+	model_source?: "config" | "env";
 	channels: Record<string, boolean>;
 	memory: { qdrant: boolean; ollama: boolean };
-	evolution: { generation: number };
+	evolution: {
+		generation: number;
+		session_count?: number;
+		sessions_since_consolidation?: number;
+		session_log_depth?: number;
+	};
 	onboarding?: string;
 	peers?: Record<string, { healthy: boolean; latencyMs: number; error?: string }>;
 };
@@ -74,9 +81,18 @@ export async function runStatus(args: string[]): Promise<void> {
 	const memoryStr =
 		data.memory.qdrant && data.memory.ollama ? "ok" : data.memory.qdrant || data.memory.ollama ? "degraded" : "offline";
 
+	const modelStr = data.model ? `${data.model}${data.model_source === "env" ? " (env override)" : ""}` : "unknown";
+
+	const evo = data.evolution;
+	const evoDetail =
+		evo.session_count != null
+			? `gen ${evo.generation} (${evo.session_count} sessions, ${evo.sessions_since_consolidation ?? 0} since consolidation, ${evo.session_log_depth ?? 0} queued)`
+			: `gen ${evo.generation}`;
+
 	console.log(
 		`${data.agent} | ${data.role.name} | v${data.version} | ` +
-			`gen ${data.evolution.generation} | ` +
+			`${evoDetail} | ` +
+			`model: ${modelStr} | ` +
 			`up ${formatUptime(data.uptime)} | ` +
 			`channels: ${channelStr} | ` +
 			`memory: ${memoryStr}`,

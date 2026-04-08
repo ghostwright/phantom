@@ -1,5 +1,5 @@
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { applyApproved } from "./application.ts";
 import { type EvolutionConfig, loadEvolutionConfig } from "./config.ts";
 import { recordObservations, runConsolidation } from "./consolidation.ts";
@@ -48,7 +48,12 @@ export class EvolutionEngine {
 		const setting = this.config.judges?.enabled ?? "auto";
 		if (setting === "never") return false;
 		if (setting === "always") return true;
-		return !!process.env.ANTHROPIC_API_KEY;
+		return !!(
+			process.env.JUDGE_API_KEY ||
+			process.env.ANTHROPIC_API_KEY ||
+			process.env.ANTHROPIC_AUTH_TOKEN ||
+			process.env.CLAUDE_CODE_OAUTH_TOKEN
+		);
 	}
 
 	usesLLMJudges(): boolean {
@@ -137,6 +142,8 @@ export class EvolutionEngine {
 			console.log(
 				`[evolution] Applied ${applied.length} changes (v${this.getCurrentVersion()}) in ${Date.now() - startTime}ms`,
 			);
+
+			this.backupConfig();
 
 			// Promote successful corrections to golden suite
 			if (session.outcome === "success" && hadCorrections) {
@@ -292,6 +299,26 @@ export class EvolutionEngine {
 		const removed = pruneSuite(this.config, maxSize);
 		if (removed > 0) {
 			console.log(`[evolution] Pruned ${removed} oldest golden suite entries (cap: ${maxSize})`);
+		}
+	}
+
+	private backupConfig(): void {
+		const backupDir = join(dirname(this.config.paths.config_dir), "data", "config-backups");
+		const version = this.getCurrentVersion();
+		const dest = join(backupDir, `v${version}`);
+		try {
+			mkdirSync(backupDir, { recursive: true });
+			cpSync(this.config.paths.config_dir, dest, { recursive: true });
+			// Retain only the last 5 backups
+			const entries = readdirSync(backupDir)
+				.filter((e) => e.startsWith("v"))
+				.sort((a, b) => Number.parseInt(a.slice(1), 10) - Number.parseInt(b.slice(1), 10));
+			for (const old of entries.slice(0, -5)) {
+				rmSync(join(backupDir, old), { recursive: true, force: true });
+			}
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`[evolution] Config backup failed: ${msg}`);
 		}
 	}
 

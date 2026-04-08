@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { EvolutionEngine } from "../engine.ts";
 import type { SessionSummary } from "../types.ts";
 
@@ -148,7 +148,7 @@ describe("EvolutionEngine", () => {
 
 	test("afterSession with no signals returns current version", async () => {
 		const engine = new EvolutionEngine(CONFIG_PATH);
-		const session = makeSession({ user_messages: ["What time is it?"] });
+		const session = makeSession({ user_messages: ["What time is it?"], outcome: "abandoned", tools_used: [] });
 		const result = await engine.afterSession(session);
 		expect(result.changes_applied).toHaveLength(0);
 	});
@@ -263,5 +263,41 @@ describe("EvolutionEngine", () => {
 		const config = engine.getConfig();
 		expect(config.userProfile).toContain("TypeScript");
 		expect(config.meta.version).toBeGreaterThan(0);
+	});
+
+	test("backupConfig creates versioned backup directory", async () => {
+		const engine = new EvolutionEngine(CONFIG_PATH);
+		const session = makeSession({
+			user_messages: ["No, use TypeScript not JavaScript"],
+		});
+		await engine.afterSession(session);
+
+		const backupDir = `${TEST_DIR}/data/config-backups`;
+		expect(existsSync(backupDir)).toBe(true);
+
+		const version = engine.getCurrentVersion();
+		const versionDir = `${backupDir}/v${version}`;
+		expect(existsSync(versionDir)).toBe(true);
+		expect(existsSync(`${versionDir}/constitution.md`)).toBe(true);
+		expect(existsSync(`${versionDir}/persona.md`)).toBe(true);
+	});
+
+	test("backupConfig retains only last 5 versions", async () => {
+		const engine = new EvolutionEngine(CONFIG_PATH);
+
+		// Run 7 sessions that each produce a change
+		for (let i = 0; i < 7; i++) {
+			const session = makeSession({
+				session_id: `session-backup-${i}`,
+				user_messages: [`No, prefer tool-${i} over the old one`],
+			});
+			await engine.afterSession(session);
+		}
+
+		const backupDir = `${TEST_DIR}/data/config-backups`;
+		if (existsSync(backupDir)) {
+			const entries = readdirSync(backupDir).filter((e) => e.startsWith("v"));
+			expect(entries.length).toBeLessThanOrEqual(5);
+		}
 	});
 });

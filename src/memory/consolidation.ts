@@ -48,6 +48,33 @@ export async function consolidateSessionWithLLM(
 			factsExtracted++;
 		}
 
+		// Store detected procedures
+		for (const procedure of judgeResult.data.detected_procedures) {
+			await memory.storeProcedure({
+				id: crypto.randomUUID(),
+				name: procedure.name,
+				description: procedure.description,
+				trigger: procedure.trigger,
+				steps: procedure.steps.map((step, i) => ({
+					order: i + 1,
+					action: step,
+					tool: null,
+					expected_outcome: "",
+					error_handling: null,
+					decision_point: false,
+				})),
+				preconditions: [],
+				postconditions: [],
+				parameters: {},
+				source_episode_ids: [episode.id],
+				success_count: session.outcome === "success" ? 1 : 0,
+				failure_count: session.outcome === "failure" ? 1 : 0,
+				last_used_at: now,
+				confidence: procedure.confidence,
+				version: 1,
+			});
+		}
+
 		return {
 			result: {
 				episodesCreated: 1,

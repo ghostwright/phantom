@@ -14,7 +14,15 @@ let _client: Anthropic | null = null;
 
 function getClient(): Anthropic {
 	if (!_client) {
-		_client = new Anthropic();
+		// Prefer dedicated JUDGE_API_KEY for cost isolation and independent rate limits.
+		// Falls back to ANTHROPIC_API_KEY, then OAuth tokens.
+		const judgeKey = process.env.JUDGE_API_KEY || process.env.ANTHROPIC_API_KEY;
+		if (judgeKey) {
+			_client = new Anthropic({ apiKey: judgeKey });
+		} else {
+			const authToken = process.env.ANTHROPIC_AUTH_TOKEN || process.env.CLAUDE_CODE_OAUTH_TOKEN || undefined;
+			_client = authToken ? new Anthropic({ authToken }) : new Anthropic();
+		}
 	}
 	return _client;
 }
@@ -25,7 +33,12 @@ export function setClient(client: Anthropic | null): void {
 }
 
 export function isJudgeAvailable(): boolean {
-	return !!process.env.ANTHROPIC_API_KEY;
+	return !!(
+		process.env.JUDGE_API_KEY ||
+		process.env.ANTHROPIC_API_KEY ||
+		process.env.ANTHROPIC_AUTH_TOKEN ||
+		process.env.CLAUDE_CODE_OAUTH_TOKEN
+	);
 }
 
 /**
