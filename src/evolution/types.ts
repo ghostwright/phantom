@@ -70,6 +70,7 @@ export type SessionObservation = {
 	context: string;
 	confidence: number;
 	source_messages: string[];
+	affected_files?: string[];
 };
 
 export type SessionSummary = {

@@ -6,9 +6,9 @@ import { createNextVersion, readVersion, writeVersion } from "./versioning.ts";
 
 /**
  * Apply a validated delta to the config file.
- * Returns the change record for version tracking.
+ * Returns the change record for version tracking, or null if the delta was a no-op (content already present).
  */
-export function applyDelta(delta: ConfigDelta, config: EvolutionConfig): VersionChange {
+export function applyDelta(delta: ConfigDelta, config: EvolutionConfig): VersionChange | null {
 	const filePath = join(config.paths.config_dir, delta.file);
 
 	// Ensure directory exists
@@ -27,9 +27,28 @@ export function applyDelta(delta: ConfigDelta, config: EvolutionConfig): Version
 	let newContent: string;
 
 	switch (delta.type) {
-		case "append":
-			newContent = currentContent ? `${currentContent}\n${delta.content}` : delta.content;
+		case "append": {
+			const existingLines = new Set(
+				currentContent
+					.split("\n")
+					.map((l) => l.trim().toLowerCase())
+					.filter(Boolean),
+			);
+			const uniqueLines = delta.content
+				.split("\n")
+				.filter((l) => {
+					const trimmed = l.trim();
+					return !trimmed || !existingLines.has(trimmed.toLowerCase());
+				})
+				.join("\n")
+				.trim();
+			if (!uniqueLines) {
+				newContent = currentContent;
+			} else {
+				newContent = currentContent ? `${currentContent}\n${uniqueLines}` : uniqueLines;
+			}
 			break;
+		}
 		case "replace":
 			if (delta.target && currentContent.includes(delta.target)) {
 				newContent = currentContent.replace(delta.target, delta.content);
@@ -47,6 +66,10 @@ export function applyDelta(delta: ConfigDelta, config: EvolutionConfig): Version
 			break;
 		default:
 			newContent = currentContent;
+	}
+
+	if (newContent === currentContent) {
+		return null;
 	}
 
 	writeFileSync(filePath, newContent, "utf-8");
@@ -83,11 +106,24 @@ export function applyApproved(
 		};
 	}
 
-	// Apply all approved deltas
+	// Apply all approved deltas (skip no-ops where content already exists)
 	const appliedChanges: VersionChange[] = [];
 	for (const result of approved) {
 		const change = applyDelta(result.delta, config);
-		appliedChanges.push(change);
+		if (change) {
+			appliedChanges.push(change);
+		}
+	}
+
+	// All approved deltas were no-ops (content already existed)
+	if (appliedChanges.length === 0) {
+		return {
+			applied: [],
+			rejected: rejected.map((r) => ({
+				change: r.delta,
+				reasons: r.gates.filter((g) => !g.passed).map((g) => `${g.gate}: ${g.reason}`),
+			})),
+		};
 	}
 
 	// Update version

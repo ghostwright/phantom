@@ -36,6 +36,7 @@ export function toSessionObservations(result: ObservationExtractionResultType): 
 		context: obs.detail,
 		confidence: obs.importance,
 		source_messages: [obs.evidence],
+		affected_files: obs.affected_config_files.length > 0 ? obs.affected_config_files : undefined,
 	}));
 }
 

@@ -148,7 +148,7 @@ describe("EvolutionEngine", () => {
 
 	test("afterSession with no signals returns current version", async () => {
 		const engine = new EvolutionEngine(CONFIG_PATH);
-		const session = makeSession({ user_messages: ["What time is it?"] });
+		const session = makeSession({ user_messages: ["What time is it?"], outcome: "abandoned", tools_used: [] });
 		const result = await engine.afterSession(session);
 		expect(result.changes_applied).toHaveLength(0);
 	});

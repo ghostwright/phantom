@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { buildCritiqueFromObservations, extractObservations, generateDeltas } from "../reflection.ts";
-import type { EvolvedConfig, SessionSummary } from "../types.ts";
+import type { EvolvedConfig, SessionObservation, SessionSummary } from "../types.ts";
 
 function makeSession(overrides: Partial<SessionSummary> = {}): SessionSummary {
 	return {
@@ -111,12 +111,92 @@ describe("buildCritiqueFromObservations", () => {
 		expect(critique.suggested_changes[0].file).toBe("user-profile.md");
 	});
 
-	test("produces no changes for simple successful sessions", () => {
+	test("routes domain_fact observations to domain-knowledge.md", () => {
+		const session = makeSession({ user_messages: ["Our team uses PostgreSQL for all databases"] });
+		const observations = extractObservations(session);
+		const critique = buildCritiqueFromObservations(observations, session, makeEvolvedConfig());
+
+		const domainChanges = critique.suggested_changes.filter((c) => c.file === "domain-knowledge.md");
+		expect(domainChanges.length).toBeGreaterThan(0);
+		expect(domainChanges[0].type).toBe("append");
+	});
+
+	test("routes error observations to strategies/error-recovery.md", () => {
+		const session = makeSession({ outcome: "failure" });
+		const observations = extractObservations(session);
+		const critique = buildCritiqueFromObservations(observations, session, makeEvolvedConfig());
+
+		const errorChanges = critique.suggested_changes.filter((c) => c.file === "strategies/error-recovery.md");
+		expect(errorChanges.length).toBeGreaterThan(0);
+	});
+
+	test("routes tool_pattern observations to strategies/tool-preferences.md", () => {
+		const session = makeSession({ tools_used: ["Read", "Write", "Bash"] });
+		const observations = extractObservations(session);
+		const critique = buildCritiqueFromObservations(observations, session, makeEvolvedConfig());
+
+		const toolChanges = critique.suggested_changes.filter((c) => c.file === "strategies/tool-preferences.md");
+		expect(toolChanges.length).toBeGreaterThan(0);
+	});
+
+	test("routes success observations to strategies/task-patterns.md", () => {
+		const session = makeSession({ outcome: "success" });
+		const observations = extractObservations(session);
+		const critique = buildCritiqueFromObservations(observations, session, makeEvolvedConfig());
+
+		const successChanges = critique.suggested_changes.filter((c) => c.file === "strategies/task-patterns.md");
+		expect(successChanges.length).toBeGreaterThan(0);
+	});
+
+	test("rejects path traversal in affected_files", () => {
+		const observations: SessionObservation[] = [
+			{
+				type: "domain_fact",
+				content: "Malicious content",
+				context: "Attacker-controlled",
+				confidence: 0.8,
+				source_messages: ["test"],
+				affected_files: ["../../.env"],
+			},
+		];
+		const session = makeSession();
+		const critique = buildCritiqueFromObservations(observations, session, makeEvolvedConfig());
+
+		// Should fall back to default, not use the traversal path
+		const changes = critique.suggested_changes.filter((c) => c.file === "domain-knowledge.md");
+		expect(changes.length).toBe(1);
+		expect(critique.suggested_changes.every((c) => !c.file.includes(".."))).toBe(true);
+	});
+
+	test("uses affected_files override when present", () => {
+		const observations: SessionObservation[] = [
+			{
+				type: "domain_fact",
+				content: "API runs on port 8080",
+				context: "User shared domain knowledge",
+				confidence: 0.8,
+				source_messages: ["Our API runs on port 8080"],
+				affected_files: ["strategies/task-patterns.md"],
+			},
+		];
+		const session = makeSession();
+		const critique = buildCritiqueFromObservations(observations, session, makeEvolvedConfig());
+
+		const changes = critique.suggested_changes.filter((c) => c.file === "strategies/task-patterns.md");
+		expect(changes.length).toBeGreaterThan(0);
+		expect(changes[0].content).toContain("API runs on port 8080");
+	});
+
+	test("produces only success/tool changes for simple successful sessions", () => {
 		const session = makeSession({ user_messages: ["What is 2+2?"] });
 		const observations = extractObservations(session);
 		const critique = buildCritiqueFromObservations(observations, session, makeEvolvedConfig());
 
-		expect(critique.suggested_changes.length).toBe(0);
+		// No correction or preference changes, but success routes to task-patterns
+		const correctionChanges = critique.suggested_changes.filter((c) => c.file === "user-profile.md");
+		expect(correctionChanges.length).toBe(0);
+		const successChanges = critique.suggested_changes.filter((c) => c.file === "strategies/task-patterns.md");
+		expect(successChanges.length).toBeGreaterThan(0);
 	});
 
 	test("critique format has all required fields", () => {
@@ -151,12 +231,14 @@ describe("generateDeltas", () => {
 		}
 	});
 
-	test("returns empty for critiques with no suggestions", () => {
+	test("returns only success/tool deltas for simple sessions", () => {
 		const session = makeSession({ user_messages: ["What is 2+2?"] });
 		const observations = extractObservations(session);
 		const critique = buildCritiqueFromObservations(observations, session, makeEvolvedConfig());
 		const deltas = generateDeltas(critique, session.session_id);
 
-		expect(deltas.length).toBe(0);
+		// Success observation generates a delta for task-patterns
+		const userProfileDeltas = deltas.filter((d) => d.file === "user-profile.md");
+		expect(userProfileDeltas.length).toBe(0);
 	});
 });

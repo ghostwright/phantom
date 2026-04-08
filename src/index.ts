@@ -43,7 +43,7 @@ import { MemorySystem } from "./memory/system.ts";
 import { isFirstRun, isOnboardingInProgress } from "./onboarding/detection.ts";
 import { type OnboardingTarget, startOnboarding } from "./onboarding/flow.ts";
 import { buildOnboardingPrompt } from "./onboarding/prompt.ts";
-import { getOnboardingStatus } from "./onboarding/state.ts";
+import { getOnboardingStatus, markOnboardingComplete } from "./onboarding/state.ts";
 import { createRoleRegistry } from "./roles/registry.ts";
 import type { RoleTemplate } from "./roles/types.ts";
 import { Scheduler } from "./scheduler/service.ts";
@@ -551,6 +551,12 @@ async function main(): Promise<void> {
 						if (updatedConfig) {
 							runtime.setEvolvedConfig(updatedConfig);
 						}
+					}
+					// >= 2 means at least two evolution cycles with applied changes, not just two sessions
+					if (evolution && evolution.getCurrentVersion() >= 2 && isOnboardingInProgress(db)) {
+						markOnboardingComplete(db);
+						runtime.setOnboardingPrompt(null);
+						console.log("[onboarding] Completed after evolution version >= 2");
 					}
 				})
 				.catch((err: unknown) => {
