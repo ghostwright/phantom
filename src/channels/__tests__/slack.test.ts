@@ -10,6 +10,7 @@ const mockChatUpdate = mock(() => Promise.resolve({ ok: true }));
 const mockReactionsAdd = mock(() => Promise.resolve({ ok: true }));
 const mockReactionsRemove = mock(() => Promise.resolve({ ok: true }));
 const mockConversationsOpen = mock(() => Promise.resolve({ channel: { id: "D_REJECT_DM" } }));
+const mockFilesUploadV2 = mock(() => Promise.resolve({ ok: true }));
 
 type EventHandler = (...args: unknown[]) => Promise<void>;
 const eventHandlers = new Map<string, EventHandler>();
@@ -37,6 +38,9 @@ const MockApp = mock(() => ({
 		reactions: {
 			add: mockReactionsAdd,
 			remove: mockReactionsRemove,
+		},
+		files: {
+			uploadV2: mockFilesUploadV2,
 		},
 	},
 }));
@@ -68,6 +72,7 @@ describe("SlackChannel", () => {
 		mockConversationsOpen.mockClear();
 		mockReactionsAdd.mockClear();
 		mockReactionsRemove.mockClear();
+		mockFilesUploadV2.mockClear();
 	});
 
 	test("has correct id and capabilities", () => {
@@ -597,6 +602,7 @@ describe("SlackChannel owner access control", () => {
 		mockConversationsOpen.mockClear();
 		mockReactionsAdd.mockClear();
 		mockReactionsRemove.mockClear();
+		mockFilesUploadV2.mockClear();
 	});
 
 	test("allows owner DMs through", async () => {
@@ -808,5 +814,264 @@ describe("SlackChannel owner access control", () => {
 		const calls = mockPostMessage.mock.calls as unknown as Array<[Record<string, unknown>]>;
 		const postCall = calls[0][0];
 		expect(postCall.text).toContain("Scout");
+	});
+});
+
+describe("SlackChannel inbound text files", () => {
+	beforeEach(() => {
+		eventHandlers.clear();
+		actionHandlers.clear();
+		mockStart.mockClear();
+		mockAuthTest.mockClear();
+		mockPostMessage.mockClear();
+		mockFilesUploadV2.mockClear();
+	});
+
+	test(".md file content injected into message text", async () => {
+		const textContent = "# Plan\nDo the thing.";
+		const textEncoder = new TextEncoder();
+		const mockTextFetch = mock(() =>
+			Promise.resolve({
+				ok: true,
+				arrayBuffer: () => Promise.resolve(textEncoder.encode(textContent).buffer),
+			}),
+		);
+		globalThis.fetch = mockTextFetch as unknown as typeof fetch;
+
+		const channel = new SlackChannel(testConfig);
+		let receivedText = "";
+
+		channel.onMessage(async (msg) => {
+			receivedText = msg.text;
+		});
+
+		await channel.connect();
+
+		await invokeHandler("message", {
+			event: {
+				text: "Check this plan",
+				subtype: "file_share",
+				user: "U_USER1",
+				channel: "D_DM1",
+				channel_type: "im",
+				ts: "1234567890.000020",
+				files: [
+					{
+						url_private: "https://files.slack.com/files/plan.md",
+						mimetype: "text/markdown",
+						name: "plan.md",
+						size: 100,
+					},
+				],
+			},
+		});
+
+		expect(receivedText).toContain("Check this plan");
+		expect(receivedText).toContain("# Plan");
+		expect(receivedText).toContain("Do the thing.");
+		expect(receivedText).toContain("--- Content of plan.md ---");
+	});
+
+	test("text + .md file combined with double-newline separator", async () => {
+		const textContent = "File content here";
+		const textEncoder = new TextEncoder();
+		const mockCombinedFetch = mock(() =>
+			Promise.resolve({
+				ok: true,
+				arrayBuffer: () => Promise.resolve(textEncoder.encode(textContent).buffer),
+			}),
+		);
+		globalThis.fetch = mockCombinedFetch as unknown as typeof fetch;
+
+		const channel = new SlackChannel(testConfig);
+		let receivedText = "";
+
+		channel.onMessage(async (msg) => {
+			receivedText = msg.text;
+		});
+
+		await channel.connect();
+
+		await invokeHandler("message", {
+			event: {
+				text: "User typed this",
+				subtype: "file_share",
+				user: "U_USER1",
+				channel: "D_DM1",
+				channel_type: "im",
+				ts: "1234567890.000025",
+				files: [
+					{
+						url_private: "https://files.slack.com/files/doc.md",
+						mimetype: "text/markdown",
+						name: "doc.md",
+						size: 50,
+					},
+				],
+			},
+		});
+
+		// User text and file content joined with double-newline separator
+		expect(receivedText).toBe("User typed this\n\n--- Content of doc.md ---\nFile content here");
+	});
+
+	test("empty .md file does not leak into nonTextAttachments", async () => {
+		const textEncoder = new TextEncoder();
+		const mockEmptyFetch = mock(() =>
+			Promise.resolve({
+				ok: true,
+				arrayBuffer: () => Promise.resolve(textEncoder.encode("").buffer),
+			}),
+		);
+		globalThis.fetch = mockEmptyFetch as unknown as typeof fetch;
+
+		const channel = new SlackChannel(testConfig);
+		let receivedAttachments: unknown[] = [];
+		let receivedText = "";
+
+		channel.onMessage(async (msg) => {
+			receivedText = msg.text;
+			receivedAttachments = msg.attachments ?? [];
+		});
+
+		await channel.connect();
+
+		await invokeHandler("message", {
+			event: {
+				text: "Here is an empty file",
+				subtype: "file_share",
+				user: "U_USER1",
+				channel: "D_DM1",
+				channel_type: "im",
+				ts: "1234567890.000026",
+				files: [
+					{
+						url_private: "https://files.slack.com/files/empty.md",
+						mimetype: "text/markdown",
+						name: "empty.md",
+						size: 0,
+					},
+				],
+			},
+		});
+
+		// Empty text file should not appear in attachments
+		expect(receivedAttachments).toHaveLength(0);
+		expect(receivedText).toBe("Here is an empty file");
+	});
+
+	test("only non-text attachments remain on InboundMessage", async () => {
+		const textEncoder = new TextEncoder();
+		const mockMixedFetch = mock(() =>
+			Promise.resolve({
+				ok: true,
+				arrayBuffer: () => Promise.resolve(textEncoder.encode("text content").buffer),
+			}),
+		);
+		globalThis.fetch = mockMixedFetch as unknown as typeof fetch;
+		Bun.write = mock(() => Promise.resolve(0)) as unknown as typeof Bun.write;
+
+		const channel = new SlackChannel(testConfig);
+		let receivedAttachments: unknown[] = [];
+
+		channel.onMessage(async (msg) => {
+			receivedAttachments = msg.attachments ?? [];
+		});
+
+		await channel.connect();
+
+		await invokeHandler("message", {
+			event: {
+				text: "Mixed files",
+				subtype: "file_share",
+				user: "U_USER1",
+				channel: "D_DM1",
+				channel_type: "im",
+				ts: "1234567890.000021",
+				files: [
+					{
+						url_private: "https://files.slack.com/files/img.png",
+						mimetype: "image/png",
+						name: "img.png",
+						size: 500,
+					},
+					{
+						url_private: "https://files.slack.com/files/notes.md",
+						mimetype: "text/markdown",
+						name: "notes.md",
+						size: 100,
+					},
+				],
+			},
+		});
+
+		expect(receivedAttachments).toHaveLength(1);
+		expect((receivedAttachments[0] as { type: string }).type).toBe("image");
+	});
+});
+
+describe("SlackChannel outbound file upload", () => {
+	beforeEach(() => {
+		eventHandlers.clear();
+		actionHandlers.clear();
+		mockStart.mockClear();
+		mockAuthTest.mockClear();
+		mockPostMessage.mockClear();
+		mockChatUpdate.mockClear();
+		mockFilesUploadV2.mockClear();
+	});
+
+	test("multi-chunk response triggers file upload + summary message", async () => {
+		mockFilesUploadV2.mockImplementation(() => Promise.resolve({ ok: true }));
+
+		const channel = new SlackChannel(testConfig);
+		await channel.connect();
+
+		const longText = "a".repeat(5000);
+		await channel.send("slack:C_CHAN:1234.5678", { text: longText });
+
+		expect(mockFilesUploadV2).toHaveBeenCalledTimes(1);
+		// Summary message posted (single postMessage, not chunked)
+		expect(mockPostMessage).toHaveBeenCalledTimes(1);
+	});
+
+	test("upload failure falls back to chunked messages", async () => {
+		mockFilesUploadV2.mockImplementation(() => Promise.reject(new Error("not_allowed")));
+
+		const channel = new SlackChannel(testConfig);
+		await channel.connect();
+
+		const longText = "a".repeat(5000);
+		await channel.send("slack:C_CHAN:1234.5678", { text: longText });
+
+		expect(mockFilesUploadV2).toHaveBeenCalledTimes(1);
+		// Falls back to chunked: multiple postMessage calls
+		expect(mockPostMessage.mock.calls.length).toBeGreaterThan(1);
+	});
+
+	test("single-chunk responses use normal path (no upload)", async () => {
+		const channel = new SlackChannel(testConfig);
+		await channel.connect();
+
+		await channel.send("slack:C_CHAN:1234.5678", { text: "Short response" });
+
+		expect(mockFilesUploadV2).not.toHaveBeenCalled();
+		expect(mockPostMessage).toHaveBeenCalledTimes(1);
+	});
+
+	test("uploaded file contains original markdown (not Slack-formatted)", async () => {
+		mockFilesUploadV2.mockImplementation(() => Promise.resolve({ ok: true }));
+
+		const channel = new SlackChannel(testConfig);
+		await channel.connect();
+
+		const longText = `## Header\n\n${"paragraph ".repeat(500)}`;
+		await channel.send("slack:C_CHAN:1234.5678", { text: longText });
+
+		const uploadCalls = mockFilesUploadV2.mock.calls as unknown as Array<[Record<string, unknown>]>;
+		const uploadArg = uploadCalls[0][0];
+		// The content should be the original markdown, not Slack-formatted
+		expect(uploadArg.content).toContain("## Header");
+		expect(uploadArg.filename).toBe("response.md");
 	});
 });

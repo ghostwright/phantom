@@ -1,8 +1,9 @@
 export type InboundAttachment = {
-	type: "image" | "document";
+	type: "image" | "document" | "text";
 	path: string;
 	filename: string;
 	mimetype: string;
+	textContent?: string; // populated for type: "text" only (Slack channel)
 };
 
 export type SkippedFileInfo = {

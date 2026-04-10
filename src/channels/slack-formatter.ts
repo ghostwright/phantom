@@ -74,6 +74,29 @@ export function truncateForSlack(text: string, limit = SLACK_BLOCK_TEXT_MAX): st
 	return `${text.slice(0, limit)}\n\n_(Response truncated. Full response was ${text.length} characters.)_`;
 }
 
+export const SUMMARY_LENGTH = 2000;
+
+/**
+ * Generate a summary for a long response that will be uploaded as a file.
+ * Truncates at a clean boundary and appends a notice.
+ */
+export function generateSummary(text: string, limit = SUMMARY_LENGTH): string {
+	if (text.length <= limit) return text;
+
+	let splitAt = text.lastIndexOf("\n\n", limit);
+	if (splitAt < limit * 0.5) {
+		splitAt = text.lastIndexOf("\n", limit);
+	}
+	if (splitAt < limit * 0.3) {
+		splitAt = text.lastIndexOf(" ", limit);
+	}
+	if (splitAt < limit * 0.2) {
+		splitAt = limit;
+	}
+
+	return `${text.slice(0, splitAt)}\n\n_Full response attached as a file below._`;
+}
+
 /**
  * Split a long message into multiple chunks at safe boundaries.
  * Each chunk fits inside a single Slack mrkdwn section block.

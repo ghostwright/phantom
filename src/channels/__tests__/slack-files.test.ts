@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { SUPPORTED_IMAGE_TYPES, cleanupOldUploads, downloadSlackFiles, sanitizeFilename } from "../slack-files.ts";
+import {
+	SUPPORTED_IMAGE_TYPES,
+	cleanupOldUploads,
+	downloadSlackFiles,
+	hasNulBytes,
+	isTextFile,
+	sanitizeFilename,
+	uploadSlackFile,
+} from "../slack-files.ts";
 
 const mockFetch = mock(() =>
 	Promise.resolve({
@@ -247,6 +255,187 @@ describe("SUPPORTED_IMAGE_TYPES", () => {
 		expect(SUPPORTED_IMAGE_TYPES.has("application/pdf")).toBe(false);
 		expect(SUPPORTED_IMAGE_TYPES.has("text/plain")).toBe(false);
 		expect(SUPPORTED_IMAGE_TYPES.has("video/mp4")).toBe(false);
+	});
+});
+
+describe("isTextFile", () => {
+	test("accepts text/markdown MIME type", () => {
+		expect(isTextFile("text/markdown", "notes.md")).toBe(true);
+	});
+
+	test("accepts text/plain MIME type", () => {
+		expect(isTextFile("text/plain", "readme.txt")).toBe(true);
+	});
+
+	test("accepts .md extension with wrong MIME", () => {
+		expect(isTextFile("application/octet-stream", "notes.md")).toBe(true);
+	});
+
+	test("accepts .markdown extension with wrong MIME", () => {
+		expect(isTextFile("application/octet-stream", "notes.markdown")).toBe(true);
+	});
+
+	test("accepts .txt extension with wrong MIME", () => {
+		expect(isTextFile("application/octet-stream", "data.txt")).toBe(true);
+	});
+
+	test("rejects non-text files", () => {
+		expect(isTextFile("application/pdf", "doc.pdf")).toBe(false);
+	});
+
+	test("rejects files with no extension and wrong MIME", () => {
+		expect(isTextFile("application/octet-stream", "binary")).toBe(false);
+	});
+});
+
+describe("hasNulBytes", () => {
+	test("returns false for clean text", () => {
+		const buf = new TextEncoder().encode("Hello world").buffer as ArrayBuffer;
+		expect(hasNulBytes(buf)).toBe(false);
+	});
+
+	test("returns true for buffer with NUL bytes", () => {
+		const arr = new Uint8Array([72, 101, 0, 108, 111]);
+		expect(hasNulBytes(arr.buffer as ArrayBuffer)).toBe(true);
+	});
+
+	test("returns false for empty buffer", () => {
+		expect(hasNulBytes(new ArrayBuffer(0))).toBe(false);
+	});
+});
+
+describe("uploadSlackFile", () => {
+	test("returns true on success", async () => {
+		const mockClient = { files: { uploadV2: mock(() => Promise.resolve({ ok: true })) } };
+		const result = await uploadSlackFile(
+			mockClient as unknown as Parameters<typeof uploadSlackFile>[0],
+			"C_CHAN",
+			"1234.5678",
+			"# Response\nHello",
+			"response.md",
+		);
+		expect(result).toBe(true);
+		expect(mockClient.files.uploadV2).toHaveBeenCalledTimes(1);
+	});
+
+	test("returns false on API error", async () => {
+		const mockClient = { files: { uploadV2: mock(() => Promise.reject(new Error("not_allowed"))) } };
+		const result = await uploadSlackFile(
+			mockClient as unknown as Parameters<typeof uploadSlackFile>[0],
+			"C_CHAN",
+			"1234.5678",
+			"content",
+			"response.md",
+		);
+		expect(result).toBe(false);
+	});
+});
+
+describe("downloadSlackFiles text file support", () => {
+	const mockTextFetch = mock(() => {
+		const content = new TextEncoder().encode("# Hello\nWorld");
+		return Promise.resolve({
+			ok: true,
+			arrayBuffer: () => Promise.resolve(content.buffer),
+		});
+	});
+	const mockBunWriteLocal = mock(() => Promise.resolve(0));
+
+	beforeEach(() => {
+		mockTextFetch.mockClear();
+		mockBunWriteLocal.mockClear();
+		globalThis.fetch = mockTextFetch as unknown as typeof fetch;
+		Bun.write = mockBunWriteLocal as unknown as typeof Bun.write;
+	});
+
+	const validTextFile = {
+		url_private: "https://files.slack.com/files-pri/T00/notes.md",
+		mimetype: "text/markdown",
+		name: "notes.md",
+		size: 500,
+	};
+
+	test("downloads text/markdown files with textContent populated", async () => {
+		const result = await downloadSlackFiles([validTextFile], "xoxb-token");
+
+		expect(result.attachments).toHaveLength(1);
+		expect(result.attachments[0].type).toBe("text");
+		expect(result.attachments[0].textContent).toBe("# Hello\nWorld");
+		expect(result.attachments[0].path).toBe("");
+		expect(result.skippedFiles).toHaveLength(0);
+	});
+
+	test("downloads text/plain files", async () => {
+		const txtFile = { ...validTextFile, mimetype: "text/plain", name: "readme.txt" };
+		const result = await downloadSlackFiles([txtFile], "xoxb-token");
+
+		expect(result.attachments).toHaveLength(1);
+		expect(result.attachments[0].type).toBe("text");
+		expect(result.attachments[0].textContent).toBeDefined();
+	});
+
+	test("accepts files by extension fallback (.md with wrong MIME)", async () => {
+		const wrongMime = { ...validTextFile, mimetype: "application/octet-stream" };
+		const result = await downloadSlackFiles([wrongMime], "xoxb-token");
+
+		expect(result.attachments).toHaveLength(1);
+		expect(result.attachments[0].type).toBe("text");
+	});
+
+	test("rejects text files over 1 MB size limit", async () => {
+		const huge = { ...validTextFile, size: 2 * 1024 * 1024 };
+		const result = await downloadSlackFiles([huge], "xoxb-token");
+
+		expect(result.attachments).toHaveLength(0);
+		expect(result.skippedFiles).toHaveLength(1);
+		expect(result.skippedFiles[0].reason).toBe("too_large");
+	});
+
+	test("rejects binary files disguised as .md (NUL byte detection)", async () => {
+		const binaryContent = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d, 0x0a]);
+		const binaryFetch = mock(() =>
+			Promise.resolve({
+				ok: true,
+				arrayBuffer: () => Promise.resolve(binaryContent.buffer),
+			}),
+		);
+		globalThis.fetch = binaryFetch as unknown as typeof fetch;
+
+		const result = await downloadSlackFiles([validTextFile], "xoxb-token");
+
+		expect(result.attachments).toHaveLength(0);
+		expect(result.skippedFiles).toHaveLength(1);
+		expect(result.skippedFiles[0].reason).toBe("unsupported_type");
+	});
+
+	test("text files NOT written to disk", async () => {
+		await downloadSlackFiles([validTextFile], "xoxb-token");
+
+		expect(mockBunWriteLocal).not.toHaveBeenCalled();
+	});
+
+	test("mixed batch: images + text files both handled correctly", async () => {
+		const imageFile = {
+			url_private: "https://files.slack.com/files-pri/T00/test.png",
+			mimetype: "image/png",
+			name: "screenshot.png",
+			size: 1000,
+		};
+		// Image fetch returns plain binary (no NUL byte issue for images)
+		const mixedFetch = mock(() =>
+			Promise.resolve({
+				ok: true,
+				arrayBuffer: () => Promise.resolve(new TextEncoder().encode("fake content").buffer),
+			}),
+		);
+		globalThis.fetch = mixedFetch as unknown as typeof fetch;
+
+		const result = await downloadSlackFiles([imageFile, validTextFile], "xoxb-token");
+
+		expect(result.attachments).toHaveLength(2);
+		expect(result.attachments[0].type).toBe("image");
+		expect(result.attachments[1].type).toBe("text");
+		expect(result.attachments[1].textContent).toBeDefined();
 	});
 });
 

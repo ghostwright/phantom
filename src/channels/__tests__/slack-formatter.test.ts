@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { SLACK_BLOCK_TEXT_MAX, splitMessage, toSlackMarkdown, truncateForSlack } from "../slack-formatter.ts";
+import {
+	SLACK_BLOCK_TEXT_MAX,
+	generateSummary,
+	splitMessage,
+	toSlackMarkdown,
+	truncateForSlack,
+} from "../slack-formatter.ts";
 
 describe("toSlackMarkdown", () => {
 	test("converts bold from **text** to *text*", () => {
@@ -80,6 +86,27 @@ describe("truncateForSlack", () => {
 		// short notice. The full string must stay under Slack's 3000-char cap.
 		expect(result.length).toBeLessThan(3000);
 		expect(result).toContain("truncated");
+	});
+});
+
+describe("generateSummary", () => {
+	test("returns short text unchanged", () => {
+		expect(generateSummary("Short text")).toBe("Short text");
+	});
+
+	test("truncates long text at clean boundary with notice", () => {
+		const paragraph = "First paragraph here.\n\nSecond paragraph that keeps going and going.";
+		const result = generateSummary(paragraph, 30);
+		expect(result).toContain("First paragraph here.");
+		expect(result).toContain("_Full response attached as a file below._");
+		expect(result).not.toContain("Second paragraph");
+	});
+
+	test("respects custom limit", () => {
+		const text = "a".repeat(100);
+		const result = generateSummary(text, 50);
+		expect(result.length).toBeLessThan(100);
+		expect(result).toContain("_Full response attached as a file below._");
 	});
 });
 
