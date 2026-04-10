@@ -16,6 +16,7 @@ function mockRuntime() {
 			cost: { totalUsd: 0.01, inputTokens: 1, outputTokens: 1, modelUsage: {} },
 			durationMs: 1,
 		})),
+		releaseSession: mock(() => {}),
 	};
 }
 

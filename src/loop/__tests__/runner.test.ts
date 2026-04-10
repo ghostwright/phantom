@@ -3,19 +3,24 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { RuntimeEvent } from "../../agent/runtime.ts";
 import { runMigrations } from "../../db/migrate.ts";
 import { LoopRunner } from "../runner.ts";
+
+type MockResponse = {
+	text: string;
+	sessionId: string;
+	cost: { totalUsd: number; inputTokens: number; outputTokens: number; modelUsage: Record<string, never> };
+	durationMs: number;
+};
 
 type HandleMessageImpl = (
 	channel: string,
 	conversationId: string,
 	text: string,
-) => Promise<{
-	text: string;
-	sessionId: string;
-	cost: { totalUsd: number; inputTokens: number; outputTokens: number; modelUsage: Record<string, never> };
-	durationMs: number;
-}>;
+	onEvent?: (event: RuntimeEvent) => void,
+	externalSignal?: AbortSignal,
+) => Promise<MockResponse>;
 
 function createMockRuntime(impl?: HandleMessageImpl) {
 	const defaultImpl: HandleMessageImpl = async () => ({
@@ -24,8 +29,15 @@ function createMockRuntime(impl?: HandleMessageImpl) {
 		cost: { totalUsd: 0.01, inputTokens: 10, outputTokens: 10, modelUsage: {} },
 		durationMs: 10,
 	});
+	// Tracks activeSessions in the same way AgentRuntime does, so tests can
+	// assert that releaseSession is called on the hard-cancel path.
+	const activeSessions = new Set<string>();
 	return {
 		handleMessage: mock(impl ?? defaultImpl),
+		releaseSession: mock((channelId: string, conversationId: string) => {
+			activeSessions.delete(`${channelId}:${conversationId}`);
+		}),
+		activeSessions,
 	};
 }
 
@@ -332,5 +344,139 @@ describe("LoopRunner", () => {
 
 		await runner.tick(loop.id);
 		expect(runner.getLoop(loop.id)?.status).toBe("running");
+	});
+
+	test("successful tick passes onEvent and abort signal to handleMessage (5-arg shape)", async () => {
+		const runtime = createMockRuntime();
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
+		const loop = runner.start({ goal: "5-arg" });
+		runtime.handleMessage.mockImplementation(agentFinishes(loop.stateFile, loop.id));
+
+		await runner.tick(loop.id);
+
+		expect(runtime.handleMessage).toHaveBeenCalledTimes(1);
+		const call = runtime.handleMessage.mock.calls[0];
+		expect(call[0]).toBe("loop");
+		expect(call[1]).toBe(`${loop.id}:0`);
+		expect(typeof call[3]).toBe("function"); // onEvent
+		// 5th arg is an AbortSignal (or at least an AbortSignal-like shape).
+		// Use duck-typing so we don't assume exact constructor identity across
+		// test environments.
+		const maybeSignal = call[4] as { aborted?: boolean; addEventListener?: unknown } | undefined;
+		expect(maybeSignal).toBeDefined();
+		expect(typeof maybeSignal?.aborted).toBe("boolean");
+		expect(typeof maybeSignal?.addEventListener).toBe("function");
+	});
+
+	test("soft timeout: mock resolves when signal aborts → status timed_out, releaseSession NOT called", async () => {
+		// Mock that cooperatively resolves when the tick's abort signal fires,
+		// simulating the SDK catching the abort and returning a normal-looking
+		// response with error text (exactly what runtime.ts does today).
+		const softImpl: HandleMessageImpl = async (_c, _cv, _t, _onEvent, signal) => {
+			await new Promise<void>((resolve) => {
+				if (signal?.aborted) {
+					resolve();
+					return;
+				}
+				signal?.addEventListener("abort", () => resolve(), { once: true });
+			});
+			return {
+				text: "Error: aborted",
+				sessionId: "s",
+				cost: { totalUsd: 0.01, inputTokens: 1, outputTokens: 1, modelUsage: {} },
+				durationMs: 1,
+			};
+		};
+		const runtime = createMockRuntime(softImpl);
+		const runner = new LoopRunner({
+			db,
+			runtime: runtime,
+			dataDir,
+			autoSchedule: false,
+			hardCancelGraceMs: 1_000, // big enough that hard never fires
+		});
+		const loop = runner.start({ goal: "soft", maxTickDurationMs: 50 });
+
+		await runner.tick(loop.id);
+
+		const final = runner.getLoop(loop.id);
+		expect(final?.status).toBe("timed_out");
+		expect(final?.lastError ?? "").toContain("soft-timed-out");
+		expect(runtime.releaseSession).not.toHaveBeenCalled();
+	});
+
+	test("hard timeout: mock never resolves → status timed_out, releaseSession called exactly once", async () => {
+		// Mock that ignores the abort signal entirely (simulates docker exec
+		// swallowing signals) — handleMessage never resolves or rejects.
+		const wedgedImpl: HandleMessageImpl = () => new Promise(() => {});
+		const runtime = createMockRuntime(wedgedImpl);
+		const runner = new LoopRunner({
+			db,
+			runtime: runtime,
+			dataDir,
+			autoSchedule: false,
+			hardCancelGraceMs: 30,
+		});
+		const loop = runner.start({ goal: "wedge", maxTickDurationMs: 50 });
+
+		await runner.tick(loop.id);
+
+		const final = runner.getLoop(loop.id);
+		expect(final?.status).toBe("timed_out");
+		expect(final?.lastError ?? "").toContain("hard-timed-out");
+		expect(runtime.releaseSession).toHaveBeenCalledTimes(1);
+		const releaseCall = runtime.releaseSession.mock.calls[0];
+		expect(releaseCall[0]).toBe("loop");
+		expect(releaseCall[1]).toBe(`${loop.id}:0`);
+	});
+
+	test("autoSchedule: no re-tick after timeout (handleMessage called exactly once)", async () => {
+		const wedgedImpl: HandleMessageImpl = () => new Promise(() => {});
+		const runtime = createMockRuntime(wedgedImpl);
+		const runner = new LoopRunner({
+			db,
+			runtime: runtime,
+			dataDir,
+			autoSchedule: true,
+			hardCancelGraceMs: 30,
+		});
+		const loop = runner.start({ goal: "auto-timeout", maxIterations: 5, maxTickDurationMs: 50 });
+
+		// Wait for the loop to finalize. Budget ~150ms: 50ms soft + 30ms hard + padding.
+		let reached = false;
+		for (let i = 0; i < 30; i++) {
+			if (runner.getLoop(loop.id)?.status === "timed_out") {
+				reached = true;
+				break;
+			}
+			await Bun.sleep(20);
+		}
+		expect(reached).toBe(true);
+		// Crucial assertion: even with autoSchedule true and max_iterations 5,
+		// a timeout must terminate the loop instead of triggering a new tick.
+		expect(runtime.handleMessage).toHaveBeenCalledTimes(1);
+	});
+
+	test("softTimerFired correctness: unrelated SDK error becomes 'failed', not 'timed_out'", async () => {
+		// Mock rejects immediately, long before the soft timer could fire.
+		const errorImpl: HandleMessageImpl = async () => {
+			throw new Error("Unrelated SDK explosion");
+		};
+		const runtime = createMockRuntime(errorImpl);
+		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
+		const loop = runner.start({ goal: "boom" });
+
+		// scheduleTick's catch handler is what turns rejections into "failed".
+		// Since autoSchedule is false here, we invoke tick directly and expect
+		// it to rethrow so the test runner sees the error; the runner only
+		// calls finalize(..., "failed") from scheduleTick's catch.
+		await expect(runner.tick(loop.id)).rejects.toThrow("Unrelated SDK explosion");
+
+		const final = runner.getLoop(loop.id);
+		// Still "running" because scheduleTick isn't in the loop here. The
+		// point of this test is that softTimerFired was false, so the catch
+		// path correctly rethrew instead of finalizing as timed_out.
+		expect(final?.status).toBe("running");
+		expect(final?.lastError).toBeNull();
 	});
 });

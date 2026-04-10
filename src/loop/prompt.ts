@@ -75,6 +75,20 @@ BUDGETS (enforced by the runner, informational for you)
 - Iterations used so far: ${loop.iterationCount}
 - Cost used so far: $${loop.totalCostUsd.toFixed(4)}
 
+TIMEOUTS (this tick will be hard-cancelled if it runs too long)
+
+- This tick has at most ${Math.round(loop.maxTickDurationMs / 1000)} seconds of wall-clock
+  time. If the runner kills the tick mid-flight, its work is lost and the
+  loop is finalized as "timed_out".
+- Signals do NOT propagate through \`docker exec\`. If you run a long command
+  inside a container, wrap it with the host \`timeout\` utility so it cannot
+  wedge the tick, e.g.
+      timeout 300s docker exec my-container pytest
+  (choose a duration well under the tick budget above).
+- Prefer many small bash invocations over one giant blocking call. A single
+  unresponsive subprocess can burn the entire tick budget with nothing to
+  show for it.
+
 INSTRUCTIONS FOR THIS TICK
 
 1. Read the current state file (above) carefully. Understand what the previous

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export type LoopStatus = "running" | "done" | "stopped" | "budget_exceeded" | "failed";
+export type LoopStatus = "running" | "done" | "stopped" | "budget_exceeded" | "failed" | "timed_out";
 
 export type Loop = {
 	id: string;
@@ -10,6 +10,7 @@ export type Loop = {
 	successCommand: string | null;
 	maxIterations: number;
 	maxCostUsd: number;
+	maxTickDurationMs: number;
 	checkpointInterval: number | null;
 	status: LoopStatus;
 	iterationCount: number;
@@ -33,6 +34,7 @@ export type LoopRow = {
 	success_command: string | null;
 	max_iterations: number;
 	max_cost_usd: number;
+	max_tick_duration_ms: number;
 	checkpoint_interval: number | null;
 	status: string;
 	iteration_count: number;
@@ -59,6 +61,7 @@ export type LoopStartInput = {
 	workspace?: string;
 	maxIterations?: number;
 	maxCostUsd?: number;
+	maxTickDurationMs?: number;
 	checkpointInterval?: number;
 	successCommand?: string;
 	channelId?: string;
@@ -72,11 +75,25 @@ export const LOOP_MAX_COST_CEILING_USD = 50;
 export const LOOP_DEFAULT_MAX_ITERATIONS = 20;
 export const LOOP_DEFAULT_MAX_COST_USD = 5;
 
+// Per-tick wall-clock bounds. Default 30min matches real-world small/medium ticks
+// (~10min avg), min 1min guards against runaway misconfig, max 60min is the
+// absolute ceiling. Stored internally as ms (setTimeout needs it), exposed on
+// the MCP tool as minutes to match the existing timeout_minutes convention.
+export const LOOP_DEFAULT_MAX_TICK_DURATION_MS = 30 * 60 * 1000;
+export const LOOP_MIN_TICK_DURATION_MS = 60 * 1000;
+export const LOOP_MAX_TICK_DURATION_MS = 60 * 60 * 1000;
+
 export const LoopStartInputSchema = z.object({
 	goal: z.string().min(1).max(10_000),
 	workspace: z.string().optional(),
 	max_iterations: z.number().int().positive().max(LOOP_MAX_ITERATIONS_CEILING).optional(),
 	max_cost_usd: z.number().positive().max(LOOP_MAX_COST_CEILING_USD).optional(),
+	max_tick_duration_minutes: z
+		.number()
+		.int()
+		.min(LOOP_MIN_TICK_DURATION_MS / 60_000)
+		.max(LOOP_MAX_TICK_DURATION_MS / 60_000)
+		.optional(),
 	checkpoint_interval: z.number().int().min(0).max(LOOP_MAX_ITERATIONS_CEILING).optional(),
 	success_command: z.string().optional(),
 	channel_id: z.string().optional(),
@@ -97,6 +114,7 @@ export function rowToLoop(row: LoopRow): Loop {
 		successCommand: row.success_command,
 		maxIterations: row.max_iterations,
 		maxCostUsd: row.max_cost_usd,
+		maxTickDurationMs: row.max_tick_duration_ms,
 		checkpointInterval: row.checkpoint_interval,
 		status: row.status as LoopStatus,
 		iterationCount: row.iteration_count,

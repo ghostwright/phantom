@@ -16,6 +16,7 @@ const TERMINAL_REACTION: Partial<Record<LoopStatus, string>> = {
 	stopped: "octagonal_sign",
 	budget_exceeded: "warning",
 	failed: "x",
+	timed_out: "alarm_clock",
 };
 
 const REACTION_START = "hourglass_flowing_sand";

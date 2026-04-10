@@ -65,6 +65,7 @@ export class AgentRuntime {
 		conversationId: string,
 		text: string,
 		onEvent?: (event: RuntimeEvent) => void,
+		externalSignal?: AbortSignal,
 	): Promise<AgentResponse> {
 		const sessionKey = `${channelId}:${conversationId}`;
 		const startTime = Date.now();
@@ -83,10 +84,31 @@ export class AgentRuntime {
 		const wrappedText = this.isExternalChannel(channelId) ? this.wrapWithSecurityContext(text) : text;
 
 		try {
-			return await this.runQuery(sessionKey, channelId, conversationId, wrappedText, startTime, onEvent);
+			return await this.runQuery(
+				sessionKey,
+				channelId,
+				conversationId,
+				wrappedText,
+				startTime,
+				onEvent,
+				externalSignal,
+			);
 		} finally {
 			this.activeSessions.delete(sessionKey);
 		}
+	}
+
+	/**
+	 * Drop an in-flight session from the activeSessions bookkeeping without
+	 * waiting for handleMessage's finally block. Used by LoopRunner on a hard
+	 * timeout: when the SDK iterator is wedged (e.g. `docker exec` ignoring
+	 * signals), the orphan handleMessage promise will never resolve and its
+	 * own finally will never fire. Without this, every subsequent tick for the
+	 * same (channelId, conversationId) pair would be silently deduped by the
+	 * activeSessions guard. Idempotent: deleting a missing key is a no-op.
+	 */
+	releaseSession(channelId: string, conversationId: string): void {
+		this.activeSessions.delete(`${channelId}:${conversationId}`);
 	}
 
 	// Scheduler, trigger, and loop are internal sources; all other channels are external user input
@@ -110,6 +132,7 @@ export class AgentRuntime {
 		text: string,
 		startTime: number,
 		onEvent?: (event: RuntimeEvent) => void,
+		externalSignal?: AbortSignal,
 	): Promise<AgentResponse> {
 		let session = this.sessionStore.findActive(channelId, conversationId);
 		const isResume = session?.sdk_session_id != null;
@@ -136,6 +159,21 @@ export class AgentRuntime {
 		const controller = new AbortController();
 		const timeoutMs = (this.config.timeout_minutes ?? 240) * 60 * 1000;
 		const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+		// Bridge an optional caller-supplied signal into the SDK controller.
+		// LoopRunner uses this for per-tick wall-clock caps layered on top of
+		// the existing config.timeout_minutes guard. `once: true` so the
+		// listener auto-detaches after firing; we also remove it explicitly in
+		// the finally to cover the no-abort success path.
+		let externalAbortListener: (() => void) | undefined;
+		if (externalSignal) {
+			if (externalSignal.aborted) {
+				controller.abort();
+			} else {
+				externalAbortListener = () => controller.abort();
+				externalSignal.addEventListener("abort", externalAbortListener, { once: true });
+			}
+		}
 		let sdkSessionId = "";
 		let resultText = "";
 		let cost: AgentCost = emptyCost();
@@ -245,6 +283,9 @@ export class AgentRuntime {
 			}
 		} finally {
 			clearTimeout(timeout);
+			if (externalSignal && externalAbortListener) {
+				externalSignal.removeEventListener("abort", externalAbortListener);
+			}
 		}
 
 		this.lastTrackedFiles = fileTracker.getTrackedFiles();

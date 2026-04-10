@@ -41,6 +41,7 @@ function makeLoop(overrides: Partial<Loop> = {}): Loop {
 		successCommand: null,
 		maxIterations: 10,
 		maxCostUsd: 5,
+		maxTickDurationMs: 30 * 60 * 1000,
 		checkpointInterval: null,
 		status: "running",
 		iterationCount: 0,
@@ -86,6 +87,7 @@ describe("terminalEmoji", () => {
 		expect(terminalEmoji("stopped")).toBe(":octagonal_sign:");
 		expect(terminalEmoji("budget_exceeded")).toBe(":warning:");
 		expect(terminalEmoji("failed")).toBe(":x:");
+		expect(terminalEmoji("timed_out")).toBe(":alarm_clock:");
 		expect(terminalEmoji("running")).toBe(":repeat:");
 	});
 });
@@ -132,6 +134,7 @@ describe("LoopNotifier", () => {
 				successCommand: null,
 				maxIterations: 10,
 				maxCostUsd: 5,
+				maxTickDurationMs: 30 * 60 * 1000,
 				channelId: "C100",
 				conversationId: "1700000000.000100",
 				triggerMessageTs: "1700000000.000200",
@@ -173,6 +176,7 @@ describe("LoopNotifier", () => {
 				successCommand: null,
 				maxIterations: 10,
 				maxCostUsd: 5,
+				maxTickDurationMs: 30 * 60 * 1000,
 				channelId: "C100",
 				conversationId: null,
 				triggerMessageTs: null,
@@ -195,6 +199,7 @@ describe("LoopNotifier", () => {
 				successCommand: null,
 				maxIterations: 10,
 				maxCostUsd: 5,
+				maxTickDurationMs: 30 * 60 * 1000,
 				channelId: "C100",
 				conversationId: "1700000000.000100",
 				triggerMessageTs: overrides.triggerMessageTs ?? "1700000000.000200",
@@ -271,6 +276,7 @@ describe("LoopNotifier", () => {
 				successCommand: null,
 				maxIterations: 10,
 				maxCostUsd: 5,
+				maxTickDurationMs: 30 * 60 * 1000,
 				channelId: "C100",
 				conversationId: null,
 				triggerMessageTs: "1700000000.000200",

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { slackContextStore } from "../agent/slack-context.ts";
 import type { LoopRunner } from "./runner.ts";
 import { parseFrontmatter, readStateFile } from "./state-file.ts";
-import type { Loop } from "./types.ts";
+import { LOOP_MAX_TICK_DURATION_MS, LOOP_MIN_TICK_DURATION_MS, type Loop } from "./types.ts";
 
 export const LOOP_TOOL_NAME = "phantom_loop";
 
@@ -27,6 +27,7 @@ function serializeLoop(loop: Loop): Record<string, unknown> {
 		max_iterations: loop.maxIterations,
 		total_cost_usd: loop.totalCostUsd,
 		max_cost_usd: loop.maxCostUsd,
+		max_tick_duration_minutes: Math.round(loop.maxTickDurationMs / 60_000),
 		started_at: loop.startedAt,
 		last_tick_at: loop.lastTickAt,
 		finished_at: loop.finishedAt,
@@ -55,6 +56,10 @@ ACTIONS:
     workspace (defaults to data/loops/<id>/),
     max_iterations (default 20, hard ceiling 200),
     max_cost_usd (default 5, hard ceiling 50),
+    max_tick_duration_minutes (per-tick wall-clock cap, default 30, min 1,
+      max 60. A tick that exceeds this is hard-cancelled and the loop is
+      finalized as timed_out. Signals do NOT propagate through docker exec,
+      so wrap container commands with the host "timeout" utility),
     checkpoint_interval (run a Sonnet critique every N ticks, 0 or omitted = off),
     success_command (shell command run after each tick; exit 0 = goal
       achieved. Runs under bash -c with a 5 minute timeout in a sanitized env
@@ -73,6 +78,13 @@ regression". Each iteration is fresh - all context must live in the state file.`
 			workspace: z.string().optional(),
 			max_iterations: z.number().int().positive().max(200).optional(),
 			max_cost_usd: z.number().positive().max(50).optional(),
+			max_tick_duration_minutes: z
+				.number()
+				.int()
+				.min(LOOP_MIN_TICK_DURATION_MS / 60_000)
+				.max(LOOP_MAX_TICK_DURATION_MS / 60_000)
+				.optional()
+				.describe("Per-tick wall-clock cap in minutes. Default 30, min 1, max 60."),
 			checkpoint_interval: z
 				.number()
 				.int()
@@ -101,6 +113,8 @@ regression". Each iteration is fresh - all context must live in the state file.`
 							workspace: input.workspace,
 							maxIterations: input.max_iterations,
 							maxCostUsd: input.max_cost_usd,
+							maxTickDurationMs:
+								input.max_tick_duration_minutes !== undefined ? input.max_tick_duration_minutes * 60_000 : undefined,
 							checkpointInterval: input.checkpoint_interval,
 							successCommand: input.success_command,
 							channelId: input.channel_id ?? ctx?.slackChannelId,

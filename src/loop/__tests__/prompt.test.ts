@@ -11,6 +11,7 @@ function makeLoop(overrides: Partial<Loop> = {}): Loop {
 		successCommand: null,
 		maxIterations: 20,
 		maxCostUsd: 5,
+		maxTickDurationMs: 30 * 60 * 1000,
 		checkpointInterval: null,
 		status: "running",
 		iterationCount: 3,

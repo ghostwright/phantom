@@ -25,7 +25,10 @@ function createMockRuntime(impl?: HandleMessageImpl) {
 		cost: { totalUsd: 0.01, inputTokens: 10, outputTokens: 10, modelUsage: {} },
 		durationMs: 10,
 	});
-	return { handleMessage: mock(impl ?? defaultImpl) };
+	return {
+		handleMessage: mock(impl ?? defaultImpl),
+		releaseSession: mock(() => {}),
+	};
 }
 
 function agentFinishes(stateFile: string, loopId: string): HandleMessageImpl {

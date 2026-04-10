@@ -9,6 +9,7 @@ export type LoopInsertInput = {
 	successCommand: string | null;
 	maxIterations: number;
 	maxCostUsd: number;
+	maxTickDurationMs: number;
 	checkpointInterval?: number | null;
 	channelId: string | null;
 	conversationId: string | null;
@@ -24,8 +25,8 @@ export class LoopStore {
 
 	insert(input: LoopInsertInput): Loop {
 		this.db.run(
-			`INSERT INTO loops (id, goal, workspace_dir, state_file, success_command, max_iterations, max_cost_usd, checkpoint_interval, status, channel_id, conversation_id, trigger_message_ts)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
+			`INSERT INTO loops (id, goal, workspace_dir, state_file, success_command, max_iterations, max_cost_usd, max_tick_duration_ms, checkpoint_interval, status, channel_id, conversation_id, trigger_message_ts)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
 			[
 				input.id,
 				input.goal,
@@ -34,6 +35,7 @@ export class LoopStore {
 				input.successCommand,
 				input.maxIterations,
 				input.maxCostUsd,
+				input.maxTickDurationMs,
 				input.checkpointInterval ?? null,
 				input.channelId,
 				input.conversationId,

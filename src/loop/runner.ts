@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { join, relative, resolve } from "node:path";
-import type { AgentRuntime } from "../agent/runtime.ts";
+import type { AgentRuntime, RuntimeEvent } from "../agent/runtime.ts";
 import type { SlackChannel } from "../channels/slack.ts";
 import { buildSafeEnv } from "../mcp/dynamic-handlers.ts";
 import type { MemoryContextBuilder } from "../memory/context-builder.ts";
@@ -21,6 +21,7 @@ import { LoopStore } from "./store.ts";
 import {
 	LOOP_DEFAULT_MAX_COST_USD,
 	LOOP_DEFAULT_MAX_ITERATIONS,
+	LOOP_DEFAULT_MAX_TICK_DURATION_MS,
 	LOOP_MAX_COST_CEILING_USD,
 	LOOP_MAX_ITERATIONS_CEILING,
 	type Loop,
@@ -29,7 +30,7 @@ import {
 } from "./types.ts";
 
 /** Narrowed runtime interface for testability. */
-type LoopRuntime = Pick<AgentRuntime, "handleMessage">;
+type LoopRuntime = Pick<AgentRuntime, "handleMessage" | "releaseSession">;
 
 type RunnerDeps = {
 	db: Database;
@@ -40,9 +41,12 @@ type RunnerDeps = {
 	postLoopDeps?: PostLoopDeps;
 	/** Tests set to false to drive ticks deterministically. */
 	autoSchedule?: boolean;
+	/** Extra grace window after the soft abort before the hard cancel fires. */
+	hardCancelGraceMs?: number;
 };
 
 const SUCCESS_COMMAND_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_HARD_CANCEL_GRACE_MS = 30 * 1000;
 
 /** start -> tick (N times) -> finalize. State file is the agent's memory across ticks. */
 export class LoopRunner {
@@ -51,6 +55,7 @@ export class LoopRunner {
 	private slackChannel: SlackChannel | undefined;
 	private dataDir: string;
 	private autoSchedule: boolean;
+	private hardCancelGraceMs: number;
 	private inFlight = new Set<string>();
 	private notifier: LoopNotifier;
 	private memoryContextBuilder: MemoryContextBuilder | undefined;
@@ -65,6 +70,7 @@ export class LoopRunner {
 		this.slackChannel = deps.slackChannel;
 		this.dataDir = deps.dataDir ?? resolve(process.cwd(), "data");
 		this.autoSchedule = deps.autoSchedule ?? true;
+		this.hardCancelGraceMs = deps.hardCancelGraceMs ?? DEFAULT_HARD_CANCEL_GRACE_MS;
 		this.notifier = new LoopNotifier(this.slackChannel ?? null, this.store);
 		this.memoryContextBuilder = deps.memoryContextBuilder;
 		this.postLoopDeps = deps.postLoopDeps;
@@ -94,6 +100,11 @@ export class LoopRunner {
 
 		const maxIterations = clamp(input.maxIterations ?? LOOP_DEFAULT_MAX_ITERATIONS, 1, LOOP_MAX_ITERATIONS_CEILING);
 		const maxCostUsd = clamp(input.maxCostUsd ?? LOOP_DEFAULT_MAX_COST_USD, 0.01, LOOP_MAX_COST_CEILING_USD);
+		// maxTickDurationMs is trusted from the caller: the tool boundary (Zod
+		// in tool.ts) enforces the 1-60 minute window. Tests need to pass very
+		// small values to exercise the timeout path without sleeping a minute,
+		// so clamping here would force an awkward test-only override.
+		const maxTickDurationMs = input.maxTickDurationMs ?? LOOP_DEFAULT_MAX_TICK_DURATION_MS;
 
 		initStateFile(stateFile, id, input.goal);
 
@@ -105,6 +116,7 @@ export class LoopRunner {
 			successCommand: input.successCommand ?? null,
 			maxIterations,
 			maxCostUsd,
+			maxTickDurationMs,
 			checkpointInterval: input.checkpointInterval ?? null,
 			channelId: input.channelId ?? null,
 			conversationId: input.conversationId ?? null,
@@ -182,9 +194,85 @@ export class LoopRunner {
 			});
 
 			const conversationId = `${loop.id}:${loop.iterationCount}`;
-			const response = await this.runtime.handleMessage("loop", conversationId, prompt);
 
-			const addedCost = response.cost.totalUsd;
+			// Two-layer cancel. The soft abort gives the SDK a chance to clean
+			// up cooperatively; the hard race is the escape hatch for wedged
+			// subprocesses (notably `docker exec` swallowing signals).
+			const tickController = new AbortController();
+			let softTimerFired = false;
+			let lastTool: string | null = null;
+			const tickStartMs = Date.now();
+
+			const onEvent = (e: RuntimeEvent): void => {
+				if (e.type === "tool_use") lastTool = e.tool;
+			};
+
+			const softTimer = setTimeout(() => {
+				softTimerFired = true;
+				tickController.abort();
+			}, loop.maxTickDurationMs);
+
+			const hardTimeoutMs = loop.maxTickDurationMs + this.hardCancelGraceMs;
+			let hardTimer: ReturnType<typeof setTimeout> | undefined;
+			const hardTimeout = new Promise<never>((_, reject) => {
+				hardTimer = setTimeout(() => {
+					reject(new Error(`HARD_TIMEOUT after ${hardTimeoutMs}ms (lastTool=${lastTool ?? "none"})`));
+				}, hardTimeoutMs);
+			});
+
+			const messagePromise = this.runtime.handleMessage("loop", conversationId, prompt, onEvent, tickController.signal);
+			// If the hard-timeout wins the race, messagePromise is left dangling
+			// and a later rejection from it would become an unhandled rejection.
+			// Attach a no-op catch handler now; Promise.race below still sees the
+			// original rejection because it registered its own handler too.
+			messagePromise.catch(() => {});
+
+			let response: Awaited<ReturnType<LoopRuntime["handleMessage"]>> | null = null;
+			let raceError: unknown = null;
+			try {
+				response = (await Promise.race([messagePromise, hardTimeout])) as Awaited<
+					ReturnType<LoopRuntime["handleMessage"]>
+				>;
+			} catch (e: unknown) {
+				raceError = e;
+			}
+			clearTimeout(softTimer);
+			if (hardTimer) clearTimeout(hardTimer);
+
+			const raceMsg = raceError instanceof Error ? raceError.message : raceError ? String(raceError) : "";
+			const hardTimedOut = raceMsg.startsWith("HARD_TIMEOUT");
+
+			// softTimerFired guards the case where the SDK aborted cooperatively
+			// and returned a normal-looking response with an error-text body. The
+			// race resolves without throwing, so we must check the flag even on
+			// the success path — otherwise we'd call recordTick + re-read the
+			// state file on a tick that actually timed out.
+			if (softTimerFired || hardTimedOut) {
+				// A hard cancel means the orphan handleMessage promise will never
+				// resolve, so its own finally block will never drop the
+				// activeSessions entry. Release it here so subsequent ticks on
+				// the same conversation id can proceed. The soft path doesn't
+				// need this: the SDK already returned and its finally ran.
+				if (hardTimedOut) {
+					this.runtime.releaseSession("loop", conversationId);
+				}
+				const elapsedMs = Date.now() - tickStartMs;
+				const kind = hardTimedOut ? "hard" : "soft";
+				const detail = `Tick ${kind}-timed-out after ${elapsedMs}ms (limit ${loop.maxTickDurationMs}ms, lastTool=${lastTool ?? "none"})`;
+				this.finalize(id, "timed_out", detail);
+				return;
+			}
+
+			if (raceError) {
+				// Unrelated SDK failure: rethrow so scheduleTick's catch routes
+				// it to finalize(..., "failed", ...).
+				throw raceError;
+			}
+
+			// Control-flow invariant: reaching this point means the race resolved
+			// successfully (no throw, no timeout), so `response` is non-null.
+			const resolvedResponse = response as NonNullable<typeof response>;
+			const addedCost = resolvedResponse.cost.totalUsd;
 			const nextIteration = loop.iterationCount + 1;
 			this.store.recordTick(id, nextIteration, addedCost);
 
@@ -193,7 +281,7 @@ export class LoopRunner {
 			const frontmatter = parseFrontmatter(updatedContents);
 
 			// Track bounded transcript for post-loop evolution
-			recordTranscript(this.transcripts, id, nextIteration, prompt, response.text, frontmatter?.status);
+			recordTranscript(this.transcripts, id, nextIteration, prompt, resolvedResponse.text, frontmatter?.status);
 
 			if (frontmatter?.status === "done") {
 				this.finalize(id, "done", null);
