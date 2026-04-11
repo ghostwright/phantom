@@ -349,25 +349,36 @@ describe("LoopNotifier", () => {
 				return stateFile;
 			}
 
-			test("posts the state.md body as a threaded reply on completion", async () => {
+			test("posts the state.md body as two threaded replies (header + body) on completion", async () => {
 				const stateFile = writeStateFile("# Progress\n- Tick 1: Hello!\n- Tick 2: Hello!\n- Tick 3: Hello!");
 				const slack = makeSlack();
 				const notifier = new LoopNotifier(asSlack(slack), store);
 				await notifier.postFinalNotice(makeLoop({ stateFile, statusMessageTs: "1700000000.100100" }), "done");
 
-				// The status message edit is one call; the summary is a second
-				// postToChannel call in the same thread.
-				expect(slack.postToChannel).toHaveBeenCalledTimes(1);
-				const [channel, text, threadTs] = slack.postToChannel.mock.calls[0];
-				expect(channel).toBe("C100");
-				expect(text).toContain("Tick 1: Hello!");
-				expect(text).toContain("Tick 3: Hello!");
-				expect(text).toContain("final state");
+				// The status message edit is an updateMessage call; the summary
+				// is split into two postToChannel calls: a short header and the
+				// full body on its own.
+				expect(slack.postToChannel).toHaveBeenCalledTimes(2);
+
+				const [headerChannel, headerText, headerThreadTs] = slack.postToChannel.mock.calls[0];
+				expect(headerChannel).toBe("C100");
+				expect(headerText).toContain("final state");
+				expect(headerText).toContain("abcdef01");
+				expect(headerThreadTs).toBe("1700000000.000100");
+
+				const [bodyChannel, bodyText, bodyThreadTs, bodyCap] = slack.postToChannel.mock.calls[1];
+				expect(bodyChannel).toBe("C100");
+				expect(bodyText).toContain("Tick 1: Hello!");
+				expect(bodyText).toContain("Tick 3: Hello!");
+				// No code fence wrapper (the regression we're guarding against).
+				expect(bodyText).not.toContain("```");
 				// Frontmatter must be stripped
-				expect(text).not.toContain("loop_id: abc");
-				expect(text).not.toContain("iteration: 3");
+				expect(bodyText).not.toContain("loop_id: abc");
+				expect(bodyText).not.toContain("iteration: 3");
 				// Posted in the same thread as the original turn
-				expect(threadTs).toBe("1700000000.000100");
+				expect(bodyThreadTs).toBe("1700000000.000100");
+				// Inline fallback cap must be supplied so the chunked fallback stays bounded.
+				expect(bodyCap).toBe(3500);
 			});
 
 			test("falls back to status_message_ts when conversationId is null", async () => {
@@ -383,9 +394,10 @@ describe("LoopNotifier", () => {
 					"done",
 				);
 
-				expect(slack.postToChannel).toHaveBeenCalledTimes(1);
-				const threadTs = slack.postToChannel.mock.calls[0][2];
-				expect(threadTs).toBe("1700000000.100100");
+				// Two calls (header + body), both in the status-message thread.
+				expect(slack.postToChannel).toHaveBeenCalledTimes(2);
+				expect(slack.postToChannel.mock.calls[0][2]).toBe("1700000000.100100");
+				expect(slack.postToChannel.mock.calls[1][2]).toBe("1700000000.100100");
 			});
 
 			test("silently skips summary when state file does not exist", async () => {
@@ -407,18 +419,26 @@ describe("LoopNotifier", () => {
 				expect(slack.postToChannel).not.toHaveBeenCalled();
 			});
 
-			test("truncates very long summaries", async () => {
-				// 5000 chars of body, well over the 3500 cap
+			test("body call receives the full state body verbatim with the inline cap", async () => {
+				// 5000 chars of body, well over the 3500 inline cap. The body
+				// must reach postToChannel untouched: the upload path needs the
+				// complete content, and the cap only applies to the fallback.
 				const body = "x".repeat(5000);
 				const stateFile = writeStateFile(body);
 				const slack = makeSlack();
 				const notifier = new LoopNotifier(asSlack(slack), store);
 				await notifier.postFinalNotice(makeLoop({ stateFile, statusMessageTs: "1700000000.100100" }), "done");
-				const text = slack.postToChannel.mock.calls[0][1] as string;
-				expect(text).toContain("…(truncated)");
-				// Total posted text must be bounded by 3500 chars of body + small
-				// amount of surrounding formatting, so under ~3700.
-				expect(text.length).toBeLessThan(3800);
+
+				expect(slack.postToChannel).toHaveBeenCalledTimes(2);
+				const bodyCall = slack.postToChannel.mock.calls[1];
+				const bodyText = bodyCall[1] as string;
+				const bodyCap = bodyCall[3] as number | undefined;
+
+				// Full body reaches postToChannel — not pre-truncated.
+				expect(bodyText.length).toBeGreaterThanOrEqual(5000);
+				expect(bodyText).not.toContain("…(truncated)");
+				// And the notifier passes the inline fallback cap through.
+				expect(bodyCap).toBe(3500);
 			});
 
 			test("summary also fires for stopped/failed/budget_exceeded outcomes", async () => {
@@ -427,8 +447,9 @@ describe("LoopNotifier", () => {
 					const slack = makeSlack();
 					const notifier = new LoopNotifier(asSlack(slack), store);
 					await notifier.postFinalNotice(makeLoop({ stateFile, statusMessageTs: "1700000000.100100", status }), status);
-					expect(slack.postToChannel).toHaveBeenCalledTimes(1);
-					expect(slack.postToChannel.mock.calls[0][1]).toContain("partial work");
+					// Header + body = two calls. The body call carries the state text.
+					expect(slack.postToChannel).toHaveBeenCalledTimes(2);
+					expect(slack.postToChannel.mock.calls[1][1]).toContain("partial work");
 				}
 			});
 		});

@@ -3,9 +3,44 @@ import { App, type LogLevel } from "@slack/bolt";
 import type { SlackBlock } from "./feedback.ts";
 import { buildFeedbackBlocks } from "./feedback.ts";
 import { registerSlackActions } from "./slack-actions.ts";
-import { ALLOWED_SUBTYPES, cleanupOldUploads, downloadSlackFiles, ensureUploadsDir } from "./slack-files.ts";
-import { splitMessage, toSlackMarkdown, truncateForSlack } from "./slack-formatter.ts";
-import type { Channel, ChannelCapabilities, InboundMessage, OutboundMessage, SentMessage } from "./types.ts";
+import {
+	ALLOWED_SUBTYPES,
+	cleanupOldUploads,
+	downloadSlackFiles,
+	ensureUploadsDir,
+	uploadSlackFile,
+} from "./slack-files.ts";
+import { generateSummary, splitMessage, toSlackMarkdown, truncateForSlack } from "./slack-formatter.ts";
+import type {
+	Channel,
+	ChannelCapabilities,
+	InboundAttachment,
+	InboundMessage,
+	OutboundMessage,
+	SentMessage,
+} from "./types.ts";
+
+/** Separate text attachments from non-text, concatenating text content into a single string. */
+function extractTextFileContent(attachments: InboundAttachment[]): {
+	nonTextAttachments: InboundAttachment[];
+	fileText: string;
+} {
+	const nonTextAttachments: InboundAttachment[] = [];
+	const textParts: string[] = [];
+
+	for (const att of attachments) {
+		if (att.type === "text") {
+			// Skip empty text files entirely - don't leak them into nonTextAttachments
+			if (att.textContent) {
+				textParts.push(`--- Content of ${att.filename} ---\n${att.textContent}`);
+			}
+		} else {
+			nonTextAttachments.push(att);
+		}
+	}
+
+	return { nonTextAttachments, fileText: textParts.join("\n\n") };
+}
 
 export type SlackChannelConfig = {
 	botToken: string;
@@ -146,6 +181,29 @@ export class SlackChannel implements Channel {
 		const chunks = splitMessage(formattedText);
 		let lastTs = "";
 
+		if (chunks.length > 1 && replyThreadTs) {
+			const summary = generateSummary(formattedText);
+			const uploaded = await uploadSlackFile(this.app.client, channel, replyThreadTs, message.text, "response.md");
+			if (uploaded) {
+				try {
+					const result = await this.app.client.chat.postMessage({
+						channel,
+						text: summary,
+						thread_ts: replyThreadTs,
+					});
+					return {
+						id: result.ts ?? randomUUID(),
+						channelId: this.id,
+						conversationId,
+						timestamp: new Date(),
+					};
+				} catch (err: unknown) {
+					const errMsg = err instanceof Error ? err.message : String(err);
+					console.warn(`[slack] Summary post failed after file upload, falling back to chunks: ${errMsg}`);
+				}
+			}
+		}
+
 		for (const chunk of chunks) {
 			const result = await this.app.client.chat.postMessage({
 				channel,
@@ -179,12 +237,62 @@ export class SlackChannel implements Channel {
 		return this.connectionState;
 	}
 
-	async postToChannel(channelId: string, text: string, threadTs?: string): Promise<string | null> {
+	async postToChannel(
+		channelId: string,
+		text: string,
+		threadTs?: string,
+		inlineFallbackMaxChars?: number,
+	): Promise<string | null> {
 		const formattedText = toSlackMarkdown(text);
 		const chunks = splitMessage(formattedText);
+
+		if (chunks.length > 1 && threadTs) {
+			const summary = generateSummary(formattedText);
+			// Upload the full, original body verbatim. The cap only applies
+			// to the chunked fallback below, not to the upload path: if the
+			// upload succeeds, the operator gets the complete content.
+			const uploaded = await uploadSlackFile(this.app.client, channelId, threadTs, text, "response.md");
+			if (uploaded) {
+				try {
+					const result = await this.app.client.chat.postMessage({
+						channel: channelId,
+						text: summary,
+						thread_ts: threadTs,
+					});
+					return result.ts ?? null;
+				} catch (err: unknown) {
+					const msg = err instanceof Error ? err.message : String(err);
+					console.warn(`[slack] Summary post failed after file upload, falling back to chunks: ${msg}`);
+				}
+			}
+		}
+
+		// Chunked fallback: if the caller supplied a cap, bound the text
+		// here (not earlier) so that we don't spray an unbounded body
+		// across many chat.postMessage calls when upload is unavailable.
+		// Negative/non-finite caps are silently treated as "no cap" to make
+		// this safe for future callers; `text.slice(0, -1)` would otherwise
+		// defeat the cap and post nearly the entire body.
+		//
+		// Note: `splitMessage` is not code-fence aware, so a bounded body
+		// that happens to contain a long fenced block can still produce
+		// half-open fences across chunks. The upload path sidesteps this;
+		// fixing it in the chunker is out of scope for this path.
+		const hasCap =
+			typeof inlineFallbackMaxChars === "number" &&
+			Number.isFinite(inlineFallbackMaxChars) &&
+			inlineFallbackMaxChars >= 0;
+		let fallbackText = text;
+		if (hasCap && text.length > (inlineFallbackMaxChars as number)) {
+			fallbackText = `${text.slice(0, inlineFallbackMaxChars as number)}\n\n_(truncated; full content was ${text.length} characters)_`;
+		}
+		// Reuse the already-computed chunks when the cap did not trigger
+		// (fallbackText is still the same object reference as text).
+		const fallbackChunks = fallbackText === text ? chunks : splitMessage(toSlackMarkdown(fallbackText));
+
 		let lastTs: string | null = null;
 
-		for (const chunk of chunks) {
+		for (const chunk of fallbackChunks) {
 			try {
 				const result = await this.app.client.chat.postMessage({
 					channel: channelId,
@@ -259,8 +367,28 @@ export class SlackChannel implements Channel {
 	 */
 	async updateWithFeedback(channel: string, ts: string, text: string, threadTs: string): Promise<void> {
 		const section = (t: string): SlackBlock => ({ type: "section", text: { type: "mrkdwn", text: t } });
-		const chunks = splitMessage(toSlackMarkdown(text));
+		const formattedText = toSlackMarkdown(text);
+		const chunks = splitMessage(formattedText);
 		const total = chunks.length;
+
+		if (total > 1) {
+			const summary = generateSummary(formattedText);
+			const uploaded = await uploadSlackFile(this.app.client, channel, threadTs, text, "response.md");
+			if (uploaded) {
+				try {
+					await this.app.client.chat.update({
+						channel,
+						ts,
+						text: summary,
+						blocks: [section(summary), ...buildFeedbackBlocks(ts)],
+					} as unknown as Parameters<typeof this.app.client.chat.update>[0]);
+					return;
+				} catch (err: unknown) {
+					const msg = err instanceof Error ? err.message : String(err);
+					console.warn(`[slack] Summary update failed after file upload, falling back to chunks: ${msg}`);
+				}
+			}
+		}
 
 		// First chunk replaces the placeholder. If it's also the only chunk,
 		// attach feedback buttons here (preserves the original short-response flow).
@@ -337,14 +465,19 @@ export class SlackChannel implements Channel {
 			const cleanText = this.stripBotMention(event.text);
 			const eventRecord = event as unknown as Record<string, unknown>;
 			const rawFiles = eventRecord.files as unknown[] | undefined;
-			const { attachments, skippedFiles } = rawFiles
+			const downloadResult = rawFiles
 				? await downloadSlackFiles(rawFiles, this.botToken)
 				: { attachments: [], skippedFiles: [] };
 
-			// Allow through if there's text or files (or both)
-			if (!cleanText.trim() && attachments.length === 0) return;
+			const { nonTextAttachments, fileText } = extractTextFileContent(downloadResult.attachments);
+			const skippedFiles = downloadResult.skippedFiles;
 
-			const text = cleanText.trim() || "[User sent attached files]";
+			// Allow through if there's text or files (or both)
+			if (!cleanText.trim() && nonTextAttachments.length === 0 && !fileText) return;
+
+			let text = cleanText.trim();
+			if (fileText) text = text ? `${text}\n\n${fileText}` : fileText;
+			text = text || "[User sent attached files]";
 			const threadTs = event.thread_ts ?? event.ts;
 			const conversationId = buildConversationId(event.channel, threadTs);
 
@@ -362,7 +495,7 @@ export class SlackChannel implements Channel {
 					slackMessageTs: event.ts,
 					source: "app_mention",
 				},
-				...(attachments.length > 0 ? { attachments } : {}),
+				...(nonTextAttachments.length > 0 ? { attachments: nonTextAttachments } : {}),
 				...(skippedFiles.length > 0 ? { skippedFiles } : {}),
 			};
 
@@ -394,15 +527,20 @@ export class SlackChannel implements Channel {
 			}
 
 			const rawFiles = msg.files as unknown[] | undefined;
-			const { attachments, skippedFiles } = rawFiles
+			const downloadResult = rawFiles
 				? await downloadSlackFiles(rawFiles, this.botToken)
 				: { attachments: [], skippedFiles: [] };
 
+			const { nonTextAttachments, fileText } = extractTextFileContent(downloadResult.attachments);
+			const skippedFiles = downloadResult.skippedFiles;
+
 			const rawText = ((msg.text as string) ?? "").trim();
 			// Allow through if there's text or files (or both)
-			if (!rawText && attachments.length === 0) return;
+			if (!rawText && nonTextAttachments.length === 0 && !fileText) return;
 
-			const text = rawText || "[User sent attached files]";
+			let text = rawText;
+			if (fileText) text = text ? `${text}\n\n${fileText}` : fileText;
+			text = text || "[User sent attached files]";
 			const channel = msg.channel as string;
 			const ts = msg.ts as string;
 			const threadTs = (msg.thread_ts as string) ?? ts;
@@ -425,7 +563,7 @@ export class SlackChannel implements Channel {
 					slackMessageTs: ts,
 					source: "dm",
 				},
-				...(attachments.length > 0 ? { attachments } : {}),
+				...(nonTextAttachments.length > 0 ? { attachments: nonTextAttachments } : {}),
 				...(skippedFiles.length > 0 ? { skippedFiles } : {}),
 			};
 

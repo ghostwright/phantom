@@ -74,22 +74,22 @@ function buildStatusBlocks(text: string, loopId: string): SlackBlock[] {
 }
 
 const FRONTMATTER_RE = /^---\s*\n[\s\S]*?\n---\s*\n?/;
-const MAX_SUMMARY_CHARS = 3500;
+const MAX_INLINE_STATE_CHARS = 3500;
 
 /**
  * Extract the human-readable body of the state file for the end-of-loop
- * summary. Drops the YAML frontmatter (runner plumbing) and truncates at a
- * safe limit so a runaway state file does not blow out a Slack message.
- * Returns null if the file is unreadable or effectively empty, which signals
- * the caller to skip the summary cleanly.
+ * summary. Drops the YAML frontmatter (runner plumbing) and returns the full
+ * remaining body verbatim; truncation (if needed) happens downstream in
+ * postToChannel's inline fallback path, never in the upload path. Returns
+ * null if the file is unreadable or effectively empty, which signals the
+ * caller to skip the summary cleanly.
  */
-function extractStateSummary(stateFilePath: string): string | null {
+function extractStateBody(stateFilePath: string): string | null {
 	try {
 		const contents = readStateFile(stateFilePath);
 		const body = contents.replace(FRONTMATTER_RE, "").trim();
 		if (!body) return null;
-		if (body.length <= MAX_SUMMARY_CHARS) return body;
-		return `${body.slice(0, MAX_SUMMARY_CHARS)}\n\n…(truncated)`;
+		return body;
 	} catch {
 		return null;
 	}
@@ -177,14 +177,22 @@ export class LoopNotifier {
 		// agent's working memory, curated every tick, so it already contains
 		// a progress log the operator wants to read. This costs no extra
 		// agent calls; we simply surface content the agent already wrote.
-		const summary = extractStateSummary(loop.stateFile);
-		if (summary) {
+		//
+		// Two sequential posts: a short header, then the body on its own.
+		// The body is passed verbatim so the upload branch in postToChannel
+		// receives the full content; the inline-fallback cap is supplied so
+		// that if the upload is unavailable, the chunked fallback stays
+		// bounded instead of spraying thousands of characters across many
+		// chat.postMessage calls.
+		const body = extractStateBody(loop.stateFile);
+		if (body) {
 			const summaryThreadTs = loop.conversationId ?? loop.statusMessageTs ?? undefined;
 			await this.slackChannel.postToChannel(
 				loop.channelId,
-				`:notebook: *Loop \`${loop.id.slice(0, 8)}\` final state:*\n\`\`\`\n${summary}\n\`\`\``,
+				`:notebook: *Loop \`${loop.id.slice(0, 8)}\` final state:*`,
 				summaryThreadTs,
 			);
+			await this.slackChannel.postToChannel(loop.channelId, body, summaryThreadTs, MAX_INLINE_STATE_CHARS);
 		}
 
 		if (loop.triggerMessageTs) {

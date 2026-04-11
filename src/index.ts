@@ -402,7 +402,7 @@ async function main(): Promise<void> {
 		}
 		if (msg.skippedFiles && msg.skippedFiles.length > 0) {
 			const skippedDesc = msg.skippedFiles.map((s) => `${s.filename} (${s.reason.replace(/_/g, " ")})`).join(", ");
-			promptText += `\n\n[Skipped attachments: ${skippedDesc}. Only PNG, JPEG, GIF, and WebP images are supported.]`;
+			promptText += `\n\n[Skipped attachments: ${skippedDesc}. Only PNG, JPEG, GIF, WebP images and Markdown/text files are supported.]`;
 		}
 
 		const existing = conversationMessages.get(convKey) ?? { user: [], assistant: [] };

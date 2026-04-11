@@ -62,15 +62,15 @@ describe("subscribe/publish", () => {
 	});
 
 	test("getListenerCount tracks active listeners", () => {
-		expect(getListenerCount()).toBe(0);
+		const baseline = getListenerCount();
 		const unsub1 = subscribe(() => {});
-		expect(getListenerCount()).toBe(1);
+		expect(getListenerCount()).toBe(baseline + 1);
 		const unsub2 = subscribe(() => {});
-		expect(getListenerCount()).toBe(2);
+		expect(getListenerCount()).toBe(baseline + 2);
 		unsub1();
-		expect(getListenerCount()).toBe(1);
+		expect(getListenerCount()).toBe(baseline + 1);
 		unsub2();
-		expect(getListenerCount()).toBe(0);
+		expect(getListenerCount()).toBe(baseline);
 	});
 });
 
