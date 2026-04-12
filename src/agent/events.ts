@@ -2,7 +2,12 @@ export type AgentCost = {
 	totalUsd: number;
 	inputTokens: number;
 	outputTokens: number;
-	modelUsage: Record<string, { inputTokens: number; outputTokens: number; costUsd: number }>;
+	cacheReadTokens: number;
+	cacheCreationTokens: number;
+	modelUsage: Record<
+		string,
+		{ inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; costUsd: number }
+	>;
 };
 
 export type AgentStopReason =
@@ -41,6 +46,8 @@ export function emptyCost(): AgentCost {
 		totalUsd: 0,
 		inputTokens: 0,
 		outputTokens: 0,
+		cacheReadTokens: 0,
+		cacheCreationTokens: 0,
 		modelUsage: {},
 	};
 }

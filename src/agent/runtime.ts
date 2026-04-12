@@ -327,26 +327,34 @@ function extractCost(message: {
 	const modelUsage: AgentCost["modelUsage"] = {};
 
 	for (const [model, usage] of Object.entries(message.modelUsage)) {
-		const totalModelInput =
-			usage.inputTokens + (usage.cacheReadInputTokens ?? 0) + (usage.cacheCreationInputTokens ?? 0);
+		const cacheRead = usage.cacheReadInputTokens ?? 0;
+		const cacheCreation = usage.cacheCreationInputTokens ?? 0;
 		modelUsage[model] = {
-			inputTokens: totalModelInput,
+			inputTokens: usage.inputTokens + cacheRead + cacheCreation,
 			outputTokens: usage.outputTokens,
+			cacheReadTokens: cacheRead,
+			cacheCreationTokens: cacheCreation,
 			costUsd: usage.costUSD,
 		};
 	}
 
 	let totalInput = 0;
 	let totalOutput = 0;
+	let totalCacheRead = 0;
+	let totalCacheCreation = 0;
 	for (const usage of Object.values(modelUsage)) {
 		totalInput += usage.inputTokens;
 		totalOutput += usage.outputTokens;
+		totalCacheRead += usage.cacheReadTokens;
+		totalCacheCreation += usage.cacheCreationTokens;
 	}
 
 	return {
 		totalUsd: message.total_cost_usd,
 		inputTokens: totalInput,
 		outputTokens: totalOutput,
+		cacheReadTokens: totalCacheRead,
+		cacheCreationTokens: totalCacheCreation,
 		modelUsage,
 	};
 }

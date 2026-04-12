@@ -10,9 +10,17 @@ export class CostTracker {
 
 	record(sessionKey: string, cost: AgentCost, model: string): void {
 		this.db.run(
-			`INSERT INTO cost_events (session_key, cost_usd, input_tokens, output_tokens, model)
-			 VALUES (?, ?, ?, ?, ?)`,
-			[sessionKey, cost.totalUsd, cost.inputTokens, cost.outputTokens, model],
+			`INSERT INTO cost_events (session_key, cost_usd, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			[
+				sessionKey,
+				cost.totalUsd,
+				cost.inputTokens,
+				cost.outputTokens,
+				cost.cacheReadTokens,
+				cost.cacheCreationTokens,
+				model,
+			],
 		);
 
 		this.db.run(
@@ -20,10 +28,12 @@ export class CostTracker {
 				total_cost_usd = total_cost_usd + ?,
 				input_tokens = input_tokens + ?,
 				output_tokens = output_tokens + ?,
+				cache_read_tokens = cache_read_tokens + ?,
+				cache_creation_tokens = cache_creation_tokens + ?,
 				turn_count = turn_count + 1,
 				last_active_at = datetime('now')
 			 WHERE session_key = ?`,
-			[cost.totalUsd, cost.inputTokens, cost.outputTokens, sessionKey],
+			[cost.totalUsd, cost.inputTokens, cost.outputTokens, cost.cacheReadTokens, cost.cacheCreationTokens, sessionKey],
 		);
 	}
 
@@ -47,6 +57,8 @@ export type CostEvent = {
 	cost_usd: number;
 	input_tokens: number;
 	output_tokens: number;
+	cache_read_tokens: number;
+	cache_creation_tokens: number;
 	model: string;
 	created_at: string;
 };

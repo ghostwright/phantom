@@ -13,7 +13,14 @@ function mockRuntime() {
 		handleMessage: mock(async () => ({
 			text: "ok",
 			sessionId: "s",
-			cost: { totalUsd: 0.01, inputTokens: 1, outputTokens: 1, modelUsage: {} },
+			cost: {
+				totalUsd: 0.01,
+				inputTokens: 1,
+				outputTokens: 1,
+				cacheReadTokens: 0,
+				cacheCreationTokens: 0,
+				modelUsage: {},
+			},
 			durationMs: 1,
 		})),
 		releaseSession: mock(() => {}),

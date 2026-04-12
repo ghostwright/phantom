@@ -9,7 +9,14 @@ function createMockRuntime() {
 		handleMessage: mock(async (_channel: string, _conversationId: string, _text: string) => ({
 			text: "Mock agent response",
 			sessionId: "mock-session",
-			cost: { totalUsd: 0.01, inputTokens: 100, outputTokens: 50, modelUsage: {} },
+			cost: {
+				totalUsd: 0.01,
+				inputTokens: 100,
+				outputTokens: 50,
+				cacheReadTokens: 0,
+				cacheCreationTokens: 0,
+				modelUsage: {},
+			},
 			durationMs: 500,
 		})),
 		setMemoryContextBuilder: mock(() => {}),

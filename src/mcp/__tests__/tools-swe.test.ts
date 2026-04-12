@@ -12,7 +12,14 @@ function createMockRuntime() {
 		handleMessage: async (_ch: string, _conv: string, text: string) => ({
 			text: `Mock review: ${text.slice(0, 50)}`,
 			sessionId: "mock-session",
-			cost: { totalUsd: 0.05, inputTokens: 1000, outputTokens: 500, modelUsage: {} },
+			cost: {
+				totalUsd: 0.05,
+				inputTokens: 1000,
+				outputTokens: 500,
+				cacheReadTokens: 0,
+				cacheCreationTokens: 0,
+				modelUsage: {},
+			},
 			durationMs: 5000,
 		}),
 		getActiveSessionCount: () => 0,

@@ -133,4 +133,9 @@ export const MIGRATIONS: string[] = [
 	// LOOP_DEFAULT_MAX_TICK_DURATION_MS in src/loop/types.ts. Backfilled by
 	// the DEFAULT clause for existing rows so the runner never sees NULL.
 	"ALTER TABLE loops ADD COLUMN max_tick_duration_ms INTEGER NOT NULL DEFAULT 1800000",
+
+	"ALTER TABLE cost_events ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0",
+	"ALTER TABLE cost_events ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0",
+	"ALTER TABLE sessions ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0",
+	"ALTER TABLE sessions ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0",
 ];

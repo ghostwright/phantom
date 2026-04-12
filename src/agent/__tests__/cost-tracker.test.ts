@@ -18,13 +18,21 @@ beforeEach(() => {
 	tracker = new CostTracker(db);
 });
 
-function makeCost(usd: number, input: number, output: number): AgentCost {
+function makeCost(usd: number, input: number, output: number, cacheRead = 0, cacheCreation = 0): AgentCost {
 	return {
 		totalUsd: usd,
 		inputTokens: input,
 		outputTokens: output,
+		cacheReadTokens: cacheRead,
+		cacheCreationTokens: cacheCreation,
 		modelUsage: {
-			"claude-opus-4-6": { inputTokens: input, outputTokens: output, costUsd: usd },
+			"claude-opus-4-6": {
+				inputTokens: input,
+				outputTokens: output,
+				cacheReadTokens: cacheRead,
+				cacheCreationTokens: cacheCreation,
+				costUsd: usd,
+			},
 		},
 	};
 }
@@ -76,5 +84,22 @@ describe("CostTracker", () => {
 		const events = tracker.getCostEvents("cli:conv-1");
 		expect(events.length).toBe(2);
 		expect(events[0].model).toBe("claude-opus-4-6");
+	});
+
+	test("records and accumulates cache token counts", () => {
+		store.create("cli", "conv-cache");
+		tracker.record("cli:conv-cache", makeCost(0.04, 1000, 500, 800, 200), "claude-opus-4-6");
+		tracker.record("cli:conv-cache", makeCost(0.06, 1500, 700, 1200, 0), "claude-opus-4-6");
+
+		const events = tracker.getCostEvents("cli:conv-cache");
+		expect(events.length).toBe(2);
+		const allCacheReads = events.map((e) => e.cache_read_tokens).sort((a, b) => a - b);
+		expect(allCacheReads).toEqual([800, 1200]);
+		const allCacheCreations = events.map((e) => e.cache_creation_tokens).sort((a, b) => a - b);
+		expect(allCacheCreations).toEqual([0, 200]);
+
+		const session = store.getByKey("cli:conv-cache") as Record<string, unknown>;
+		expect(session.cache_read_tokens).toBe(2000);
+		expect(session.cache_creation_tokens).toBe(200);
 	});
 });

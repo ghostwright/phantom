@@ -10,7 +10,14 @@ import { LoopRunner } from "../runner.ts";
 type MockResponse = {
 	text: string;
 	sessionId: string;
-	cost: { totalUsd: number; inputTokens: number; outputTokens: number; modelUsage: Record<string, never> };
+	cost: {
+		totalUsd: number;
+		inputTokens: number;
+		outputTokens: number;
+		cacheReadTokens: number;
+		cacheCreationTokens: number;
+		modelUsage: Record<string, never>;
+	};
 	durationMs: number;
 };
 
@@ -26,7 +33,14 @@ function createMockRuntime(impl?: HandleMessageImpl) {
 	const defaultImpl: HandleMessageImpl = async () => ({
 		text: "ok",
 		sessionId: "s",
-		cost: { totalUsd: 0.01, inputTokens: 10, outputTokens: 10, modelUsage: {} },
+		cost: {
+			totalUsd: 0.01,
+			inputTokens: 10,
+			outputTokens: 10,
+			cacheReadTokens: 0,
+			cacheCreationTokens: 0,
+			modelUsage: {},
+		},
 		durationMs: 10,
 	});
 	// Tracks activeSessions in the same way AgentRuntime does, so tests can
@@ -48,7 +62,14 @@ function agentFinishes(stateFile: string, loopId: string): HandleMessageImpl {
 		return {
 			text: "done",
 			sessionId: "s",
-			cost: { totalUsd: 0.01, inputTokens: 1, outputTokens: 1, modelUsage: {} },
+			cost: {
+				totalUsd: 0.01,
+				inputTokens: 1,
+				outputTokens: 1,
+				cacheReadTokens: 0,
+				cacheCreationTokens: 0,
+				modelUsage: {},
+			},
 			durationMs: 1,
 		};
 	};
@@ -190,7 +211,14 @@ describe("LoopRunner", () => {
 		const runtime = createMockRuntime(async () => ({
 			text: "expensive",
 			sessionId: "s",
-			cost: { totalUsd: 0.6, inputTokens: 1, outputTokens: 1, modelUsage: {} },
+			cost: {
+				totalUsd: 0.6,
+				inputTokens: 1,
+				outputTokens: 1,
+				cacheReadTokens: 0,
+				cacheCreationTokens: 0,
+				modelUsage: {},
+			},
 			durationMs: 1,
 		}));
 		const runner = new LoopRunner({ db, runtime: runtime, dataDir, autoSchedule: false });
@@ -294,7 +322,14 @@ describe("LoopRunner", () => {
 			return {
 				text: "progress",
 				sessionId: "s",
-				cost: { totalUsd: 0.01, inputTokens: 1, outputTokens: 1, modelUsage: {} },
+				cost: {
+					totalUsd: 0.01,
+					inputTokens: 1,
+					outputTokens: 1,
+					cacheReadTokens: 0,
+					cacheCreationTokens: 0,
+					modelUsage: {},
+				},
 				durationMs: 1,
 			};
 		});
@@ -383,7 +418,14 @@ describe("LoopRunner", () => {
 			return {
 				text: "Error: aborted",
 				sessionId: "s",
-				cost: { totalUsd: 0.01, inputTokens: 1, outputTokens: 1, modelUsage: {} },
+				cost: {
+					totalUsd: 0.01,
+					inputTokens: 1,
+					outputTokens: 1,
+					cacheReadTokens: 0,
+					cacheCreationTokens: 0,
+					modelUsage: {},
+				},
 				durationMs: 1,
 			};
 		};

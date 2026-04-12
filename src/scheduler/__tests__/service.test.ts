@@ -8,7 +8,14 @@ function createMockRuntime() {
 		handleMessage: mock(async (_channel: string, _conversationId: string, _text: string) => ({
 			text: "Mock response from agent",
 			sessionId: "mock-session",
-			cost: { totalUsd: 0.01, inputTokens: 100, outputTokens: 50, modelUsage: {} },
+			cost: {
+				totalUsd: 0.01,
+				inputTokens: 100,
+				outputTokens: 50,
+				cacheReadTokens: 0,
+				cacheCreationTokens: 0,
+				modelUsage: {},
+			},
 			durationMs: 500,
 		})),
 		setMemoryContextBuilder: mock(() => {}),
@@ -260,7 +267,14 @@ describe("Scheduler", () => {
 		errorRuntime.handleMessage.mockImplementation(async () => ({
 			text: "Error: Something went wrong",
 			sessionId: "err-session",
-			cost: { totalUsd: 0, inputTokens: 0, outputTokens: 0, modelUsage: {} },
+			cost: {
+				totalUsd: 0,
+				inputTokens: 0,
+				outputTokens: 0,
+				cacheReadTokens: 0,
+				cacheCreationTokens: 0,
+				modelUsage: {},
+			},
 			durationMs: 100,
 		}));
 

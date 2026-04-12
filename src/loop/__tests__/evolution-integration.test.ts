@@ -14,7 +14,14 @@ type HandleMessageImpl = (
 ) => Promise<{
 	text: string;
 	sessionId: string;
-	cost: { totalUsd: number; inputTokens: number; outputTokens: number; modelUsage: Record<string, never> };
+	cost: {
+		totalUsd: number;
+		inputTokens: number;
+		outputTokens: number;
+		cacheReadTokens: number;
+		cacheCreationTokens: number;
+		modelUsage: Record<string, never>;
+	};
 	durationMs: number;
 }>;
 
@@ -22,7 +29,14 @@ function createMockRuntime(impl?: HandleMessageImpl) {
 	const defaultImpl: HandleMessageImpl = async () => ({
 		text: "ok",
 		sessionId: "s",
-		cost: { totalUsd: 0.01, inputTokens: 10, outputTokens: 10, modelUsage: {} },
+		cost: {
+			totalUsd: 0.01,
+			inputTokens: 10,
+			outputTokens: 10,
+			cacheReadTokens: 0,
+			cacheCreationTokens: 0,
+			modelUsage: {},
+		},
 		durationMs: 10,
 	});
 	return {
@@ -37,7 +51,14 @@ function agentFinishes(stateFile: string, loopId: string): HandleMessageImpl {
 		return {
 			text: "done",
 			sessionId: "s",
-			cost: { totalUsd: 0.01, inputTokens: 1, outputTokens: 1, modelUsage: {} },
+			cost: {
+				totalUsd: 0.01,
+				inputTokens: 1,
+				outputTokens: 1,
+				cacheReadTokens: 0,
+				cacheCreationTokens: 0,
+				modelUsage: {},
+			},
 			durationMs: 1,
 		};
 	};
