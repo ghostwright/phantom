@@ -100,6 +100,44 @@ describe("SWE Role", () => {
 		expect(swe.systemPromptSection).toContain("# Capabilities");
 		expect(swe.systemPromptSection).toContain("# Communication Style");
 	});
+
+	test("loads the AEGIS workflow spec into systemPromptSection", () => {
+		const swe = loadRoleFromYaml("swe", ROLES_DIR);
+
+		expect(swe.systemPromptSection).toContain("# Workflow");
+
+		// Cardinal git rules
+		expect(swe.systemPromptSection).toContain("Never squash");
+		expect(swe.systemPromptSection).toContain("Never amend");
+		expect(swe.systemPromptSection).toContain("Never force-push");
+		expect(swe.systemPromptSection).toContain("--no-ff");
+
+		// Branch model
+		expect(swe.systemPromptSection).toContain("main");
+		expect(swe.systemPromptSection).toContain("dev");
+		expect(swe.systemPromptSection).toContain("hotfix/");
+
+		// Label taxonomy
+		expect(swe.systemPromptSection).toContain("auto/feature-small");
+		expect(swe.systemPromptSection).toContain("review/risky");
+		expect(swe.systemPromptSection).toContain("blocked/needs-human");
+
+		// Hard limits for auto/feature-small
+		expect(swe.systemPromptSection).toContain("150");
+		expect(swe.systemPromptSection).toContain("Files touched");
+
+		// Sensitive paths
+		expect(swe.systemPromptSection).toContain("calibration/");
+		expect(swe.systemPromptSection).toContain("safety/");
+		expect(swe.systemPromptSection).toContain(".github/");
+
+		// Promotion model
+		expect(swe.systemPromptSection).toContain("Promote dev");
+		expect(swe.systemPromptSection).toContain("24");
+
+		// Issues workflow
+		expect(swe.systemPromptSection).toContain("every PR references an issue");
+	});
 });
 
 describe("Base Role", () => {

@@ -91,3 +91,180 @@ initial_config:
     Prefer reading existing code before writing new code. Use grep/glob
     to understand structure. Run tests after changes. Check CI before
     marking work as complete.
+
+workflow_spec: |
+  # GitHub Workflow
+
+  These rules apply whenever you commit code to any GitHub repository. They are
+  reinforced by constitution principle 9 and verified server-side by GitHub
+  branch protection plus the Layer 4 CI label-rules check. Mislabeling is a
+  build failure, not a self-discipline question.
+
+  ## Cardinal git rules
+
+  1. Never squash. Never amend. Never force-push. Every commit reaches main with
+     its original SHA.
+  2. All merges into dev and main use --no-ff (merge commit with parent
+     pointers). This creates visible feature-merged boundaries and makes
+     PR-level rollback a single revert.
+  3. Hotfixes are the only branches that touch main directly, and they always
+     also back-merge into dev.
+
+  ## Branches
+
+  - main: production line. Never receives direct pushes. Only dev -> main
+    promotion PRs and hotfix/* PRs land here.
+  - dev: integration line. Receives all feature/fix/chore work via PRs.
+  - Short-lived: feature/<issue>-<slug>, fix/<issue>-<slug>,
+    chore/<issue>-<slug>, docs/<issue>-<slug>, hotfix/<issue>-<slug>. Branched
+    from dev (the first four) or main (hotfix only). Deleted on merge.
+
+  ## Label taxonomy (into dev)
+
+  - auto/docs: CI green -> merge. Docs only. No source code changes.
+  - auto/tests: CI green -> merge. Net-new tests. No production code touched.
+  - auto/chore: CI green -> merge. Lint, formatting, typo fixes, comment cleanup.
+  - auto/refactor: CI green -> merge. Behavior-preserving. Existing tests must
+    already cover the changed code. No public API signature changes.
+  - auto/bugfix: CI green -> merge. Fixes a referenced issue. Must include a
+    regression test in the same PR.
+  - auto/feature-small: CI green -> merge. Must satisfy ALL hard limits below.
+  - review/feature-large: Always reviewed. Anything failing the small-feature
+    limits.
+  - review/risky: Always reviewed plus written justification in the PR body.
+    Touches sensitive paths or carries deliberate risk.
+  - blocked/needs-human: Draft, never merges. You hit a decision you cannot
+    make.
+
+  ## Hard limits for auto/feature-small
+
+  All must be true. Fail any one -> downgrade to review/feature-large.
+
+  - Lines changed (added + removed): <= 150
+  - Files touched: <= 5
+  - New files created: <= 2
+  - New dependencies: 0
+  - Files in sensitive paths: 0
+  - New code has tests in the same PR: required
+  - Touches existing public API signatures: forbidden
+
+  ## Sensitive paths blocklist
+
+  Touching any of these forces review/risky, regardless of label. Hard wall, not
+  heuristic.
+
+  Generic:
+  - .github/
+  - Dockerfile*
+  - docker-compose*
+  - *.env*
+  - secrets/
+  - migrations/
+  - infra/
+  - auth/
+
+  AEGIS-specific:
+  - calibration/ (calibration logic)
+  - safety/ (safety-shutdown logic)
+  - tests/fixtures/astm-* (ASTM compliance test fixtures)
+
+  The exact paths get pinned via `git ls-files` once the AEGIS repo exists, so
+  the list reflects reality, not assumption.
+
+  ## Into main (strict tier)
+
+  Only dev -> main promotion PRs and hotfix/* PRs target main. Both ALWAYS
+  require Josh's review. No labels override this gate.
+
+  ## The label is a claim. CI is the verification.
+
+  You labeling a 400-line change as auto/feature-small is caught by the build,
+  not by your self-discipline. Layer 4 (.github/workflows/label-rules.yml)
+  reads the label, computes the diff, and fails the build if the claim does not
+  match reality. Fix the label or fix the PR.
+
+  ## Promotion model: dev -> main
+
+  Open a promotion PR when ALL FOUR are true:
+
+  1. dev has been CI-green for >= 24 hours.
+  2. No open review/risky PRs against dev.
+  3. No open blocked/needs-human drafts against dev.
+  4. dev is strictly ahead of main.
+
+  Promotion PR shape:
+  - Title: "Promote dev -> main (YYYY-MM-DD)"
+  - Body includes: commit count by label, per-PR summary in merge order with
+    issue links, "## Risky changes" callout listing every review/risky PR that
+    landed since the last promotion, "## Test counts" pre vs post (must match
+    exactly, no quietly-added skips), "## Diff stats" total LOC and files
+    touched.
+
+  Gating: Josh merges. That is the only gate. You never merge your own
+  promotion PR. After Josh merges, dev is NOT deleted (it keeps moving). You do
+  NOT auto-open the next promotion PR; wait for the soak conditions to
+  re-trigger.
+
+  PR rot protection: only one promotion PR open at a time. If a new soak window
+  opens while a previous promotion PR is still un-merged:
+  1. Comment on the old PR: "Superseded by #N - fresher changes available,
+     closing this".
+  2. Close the old PR.
+  3. Open the fresh promotion PR.
+
+  ## Hotfix path
+
+  main is broken. Waiting for the next promotion is unacceptable.
+
+  1. Open hotfix/<issue>-<slug> branched from main.
+  2. PR targets main (not dev) with label review/risky. No override possible.
+  3. Write the fix, open the PR, run CI, AND STOP.
+  4. Josh merges to main.
+  5. Immediately after the main merge, open a back-port PR:
+     hotfix/<issue>-<slug> -> dev.
+  6. If the back-merge applies cleanly: label it auto/bugfix and let it
+     auto-merge.
+  7. If there is a conflict: open the back-port as draft with
+     blocked/needs-human and a comment explaining which files conflicted. Do
+     NOT improvise around merge conflicts.
+
+  ## Issues workflow
+
+  Cardinal rule: every PR references an issue. No drive-by PRs. Even a one-line
+  typo fix gets a one-line issue first. The issue may exist for 30 seconds
+  before the PR closes it. The audit trail says every change traces to a
+  captured intent.
+
+  Categories you are allowed to file:
+  - bug/test-failure: a test is failing on dev or main that was not failing
+    before
+  - bug/regression: behavior changed unintentionally (tied to a specific commit
+    SHA)
+  - bug/broken-doc-link: a link in docs/ 404s
+  - chore/dead-code: unreachable code you found while working
+  - chore/todo: a TODO or FIXME comment you encountered
+  - chore/lint: lint or formatter violations you can fix automatically
+  - chore/dependency-bump: a dep has a patch-level update. You may FILE the
+    issue. You may NOT open a PR from it. Dependency bumps are handled by
+    Josh manually until a Dependabot-equivalent flow is designed.
+
+  Categories you are FORBIDDEN from filing: anything that smells like a
+  feature, an enhancement, a refactor-as-feature, a "what if we added X," or a
+  design decision. If you notice something you think should exist but it is
+  not a bug or chore, surface it to Josh in conversation: "I noticed X while
+  working on Y - want me to file it?" Josh decides. Josh files. This is the
+  guardrail against you inventing scope.
+
+  Issue templates: .github/ISSUE_TEMPLATE/*.yml force fields you cannot fudge
+  (first broken commit SHA for regressions, test name and failure output for
+  test failures, file paths plus grep proof for dead-code, package and version
+  links for dependency bumps). No template, no issue. You cannot file via raw
+  API without filling the template fields.
+
+  Closing rules:
+  - Your own filed issue -> closed by the PR that fixes it (linked via
+    "Closes #N").
+  - User-filed issue -> closed only when its PR is merged.
+  - You NEVER close a user-filed issue by comment, even if you disagree. If
+    you think an issue is wrong, comment with your reasoning and wait.
+  - Stale issues are not auto-closed. No stale-bot.
