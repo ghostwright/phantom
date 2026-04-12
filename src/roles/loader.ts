@@ -61,6 +61,7 @@ function buildSystemPromptSection(config: {
 	identity: string;
 	capabilities: string[];
 	communication: string;
+	workflow_spec: string;
 }): string {
 	const parts: string[] = [];
 
@@ -72,6 +73,10 @@ function buildSystemPromptSection(config: {
 	}
 
 	parts.push(`# Communication Style\n\n${config.communication}`);
+
+	if (config.workflow_spec.trim()) {
+		parts.push(`# Workflow\n\n${config.workflow_spec.trim()}`);
+	}
 
 	return parts.join("\n\n");
 }

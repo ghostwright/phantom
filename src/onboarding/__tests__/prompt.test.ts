@@ -10,6 +10,7 @@ const mockRole: RoleTemplate = {
 	identity: "You are a software engineer.",
 	capabilities: ["Write code"],
 	communication: "Concise and technical.",
+	workflow_spec: "",
 	onboarding_questions: [],
 	mcp_tools: [],
 	evolution_focus: { priorities: ["coding_patterns"], feedback_signals: [] },

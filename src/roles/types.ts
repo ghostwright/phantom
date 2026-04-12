@@ -41,6 +41,7 @@ export const RoleConfigSchema = z.object({
 	identity: z.string().min(1),
 	capabilities: z.array(z.string().min(1)).min(1),
 	communication: z.string().min(1),
+	workflow_spec: z.string().default(""),
 	onboarding_questions: z.array(OnboardingQuestionSchema).default([]),
 	mcp_tools: z.array(McpToolDefinitionSchema).default([]),
 	evolution_focus: EvolutionFocusSchema,

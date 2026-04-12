@@ -14,6 +14,7 @@ function makeTemplate(overrides: Partial<RoleTemplate> = {}): RoleTemplate {
 		identity: "You are a test agent.",
 		capabilities: ["Testing things"],
 		communication: "Be direct.",
+		workflow_spec: "",
 		onboarding_questions: [],
 		mcp_tools: [],
 		evolution_focus: { priorities: ["testing"], feedback_signals: [] },

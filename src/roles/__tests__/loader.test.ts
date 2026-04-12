@@ -148,6 +148,55 @@ evolution_focus:
 		expect(() => loadRoleFromYaml("badq", TEST_DIR)).toThrow("Invalid role config");
 	});
 
+	test("appends workflow_spec to systemPromptSection under a Workflow heading", () => {
+		writeFileSync(
+			join(TEST_DIR, "withwf.yaml"),
+			`id: withwf
+name: With Workflow
+description: Has a workflow spec.
+identity: You enforce workflows.
+capabilities:
+  - Enforce things
+communication: Direct.
+workflow_spec: |
+  # GitHub Workflow
+
+  Never squash. Never amend. Never force-push.
+evolution_focus:
+  priorities:
+    - workflow_compliance
+`,
+		);
+
+		const template = loadRoleFromYaml("withwf", TEST_DIR);
+
+		expect(template.systemPromptSection).toContain("# Workflow");
+		expect(template.systemPromptSection).toContain("Never squash. Never amend. Never force-push.");
+		const commIdx = template.systemPromptSection.indexOf("# Communication Style");
+		const wfIdx = template.systemPromptSection.indexOf("# Workflow");
+		expect(commIdx).toBeGreaterThan(-1);
+		expect(wfIdx).toBeGreaterThan(commIdx);
+	});
+
+	test("omits Workflow heading when workflow_spec is empty", () => {
+		writeFileSync(
+			join(TEST_DIR, "nowf.yaml"),
+			`id: nowf
+name: No Workflow
+description: No workflow.
+identity: You have no workflow.
+capabilities:
+  - Nothing
+communication: Whatever.
+evolution_focus:
+  priorities:
+    - nothing
+`,
+		);
+		const template = loadRoleFromYaml("nowf", TEST_DIR);
+		expect(template.systemPromptSection).not.toContain("# Workflow");
+	});
+
 	test("validates evolution_focus has at least one priority", () => {
 		writeFileSync(
 			join(TEST_DIR, "noprio.yaml"),
