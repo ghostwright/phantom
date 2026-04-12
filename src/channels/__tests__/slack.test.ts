@@ -260,6 +260,106 @@ describe("SlackChannel", () => {
 		expect(handlerCalled).toBe(false);
 	});
 
+	test("responds in channel thread after trackThreadParticipation has been called", async () => {
+		const channel = new SlackChannel(testConfig);
+		let handlerCalled = false;
+
+		channel.onMessage(async () => {
+			handlerCalled = true;
+		});
+
+		await channel.connect();
+		channel.trackThreadParticipation("C_CHANNEL1", "1234567890.000007");
+
+		await invokeHandler("message", {
+			event: {
+				text: "Follow-up reply without mention",
+				user: "U_USER1",
+				channel: "C_CHANNEL1",
+				channel_type: "channel",
+				thread_ts: "1234567890.000007",
+				ts: "1234567890.000008",
+			},
+		});
+
+		expect(handlerCalled).toBe(true);
+	});
+
+	test("ignores channel thread reply when not previously participating", async () => {
+		const channel = new SlackChannel(testConfig);
+		let handlerCalled = false;
+
+		channel.onMessage(async () => {
+			handlerCalled = true;
+		});
+
+		await channel.connect();
+
+		await invokeHandler("message", {
+			event: {
+				text: "Reply in a thread we've never seen",
+				user: "U_USER1",
+				channel: "C_CHANNEL1",
+				channel_type: "channel",
+				thread_ts: "1234567890.000009",
+				ts: "1234567890.000010",
+			},
+		});
+
+		expect(handlerCalled).toBe(false);
+	});
+
+	test("ignores channel top-level message even after participating in a sibling thread", async () => {
+		const channel = new SlackChannel(testConfig);
+		let handlerCalled = false;
+
+		channel.onMessage(async () => {
+			handlerCalled = true;
+		});
+
+		await channel.connect();
+		channel.trackThreadParticipation("C_CHANNEL1", "1234567890.000011");
+
+		// New top-level message in the same channel — no thread_ts — must be ignored.
+		await invokeHandler("message", {
+			event: {
+				text: "Hey channel",
+				user: "U_USER1",
+				channel: "C_CHANNEL1",
+				channel_type: "channel",
+				ts: "1234567890.000012",
+			},
+		});
+
+		expect(handlerCalled).toBe(false);
+	});
+
+	test("hasParticipatedInThread evicts oldest entry when cap is exceeded", () => {
+		const channel = new SlackChannel(testConfig);
+		// The cap is 1000; track 1001 distinct threads and verify the first one is evicted.
+		for (let i = 0; i < 1001; i++) {
+			channel.trackThreadParticipation("C_CAP", `t${i}`);
+		}
+		expect(channel.hasParticipatedInThread("C_CAP", "t0")).toBe(false);
+		expect(channel.hasParticipatedInThread("C_CAP", "t1")).toBe(true);
+		expect(channel.hasParticipatedInThread("C_CAP", "t1000")).toBe(true);
+	});
+
+	test("re-tracking an existing thread refreshes its position to avoid eviction", () => {
+		const channel = new SlackChannel(testConfig);
+		channel.trackThreadParticipation("C_REFRESH", "t0");
+		// Fill the cap with new entries; t0 would normally be evicted first.
+		for (let i = 1; i < 1000; i++) {
+			channel.trackThreadParticipation("C_REFRESH", `t${i}`);
+		}
+		// Refresh t0 — it should now be the newest entry.
+		channel.trackThreadParticipation("C_REFRESH", "t0");
+		// Add one more entry, evicting the oldest. The oldest is now t1, not t0.
+		channel.trackThreadParticipation("C_REFRESH", "t1000");
+		expect(channel.hasParticipatedInThread("C_REFRESH", "t0")).toBe(true);
+		expect(channel.hasParticipatedInThread("C_REFRESH", "t1")).toBe(false);
+	});
+
 	test("tracks positive reactions", async () => {
 		const channel = new SlackChannel(testConfig);
 		let capturedPositive = "unset";

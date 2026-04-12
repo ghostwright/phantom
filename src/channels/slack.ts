@@ -80,6 +80,11 @@ export class SlackChannel implements Channel {
 	private ownerUserId: string | null;
 	private phantomName: string;
 	private rejectedUsers = new Set<string>();
+	// FIFO-bounded record of "channel:threadTs" pairs the bot has already replied to.
+	// Lets the bot continue a thread without a fresh @-mention. In-memory only;
+	// resets on restart so users would need to re-mention after a deploy.
+	private participatedThreads = new Map<string, true>();
+	private static readonly PARTICIPATED_THREADS_CAP = 1000;
 
 	constructor(config: SlackChannelConfig) {
 		this.botToken = config.botToken;
@@ -191,6 +196,7 @@ export class SlackChannel implements Channel {
 						text: summary,
 						thread_ts: replyThreadTs,
 					});
+					this.trackThreadParticipation(channel, replyThreadTs);
 					return {
 						id: result.ts ?? randomUUID(),
 						channelId: this.id,
@@ -211,6 +217,10 @@ export class SlackChannel implements Channel {
 				thread_ts: replyThreadTs,
 			});
 			lastTs = result.ts ?? "";
+		}
+
+		if (replyThreadTs) {
+			this.trackThreadParticipation(channel, replyThreadTs);
 		}
 
 		return {
@@ -235,6 +245,23 @@ export class SlackChannel implements Channel {
 
 	getConnectionState(): ConnectionState {
 		return this.connectionState;
+	}
+
+	trackThreadParticipation(channelId: string, threadTs: string): void {
+		const key = `${channelId}:${threadTs}`;
+		// Refresh the entry to keep it warm even if it already exists.
+		if (this.participatedThreads.has(key)) {
+			this.participatedThreads.delete(key);
+		} else if (this.participatedThreads.size >= SlackChannel.PARTICIPATED_THREADS_CAP) {
+			// FIFO eviction: drop the oldest entry to bound memory growth.
+			const oldest = this.participatedThreads.keys().next().value;
+			if (oldest !== undefined) this.participatedThreads.delete(oldest);
+		}
+		this.participatedThreads.set(key, true);
+	}
+
+	hasParticipatedInThread(channelId: string, threadTs: string): boolean {
+		return this.participatedThreads.has(`${channelId}:${threadTs}`);
 	}
 
 	async postToChannel(
@@ -518,7 +545,14 @@ export class SlackChannel implements Channel {
 			if (this.botUserId && userId === this.botUserId) return;
 
 			const channelType = msg.channel_type as string | undefined;
-			if (channelType !== "im") return;
+			if (channelType !== "im") {
+				// In channels we only respond to thread replies in threads we have already
+				// participated in. The first message in a thread still requires an
+				// @-mention (handled by the separate app_mention event).
+				const incomingThreadTs = msg.thread_ts as string | undefined;
+				if (!incomingThreadTs) return;
+				if (!this.hasParticipatedInThread(msg.channel as string, incomingThreadTs)) return;
+			}
 
 			if (userId && !this.isOwner(userId)) {
 				console.log(`[slack] Ignoring DM from non-owner: ${userId}`);
