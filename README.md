@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License"></a>
-  <img src="https://img.shields.io/badge/tests-822%20passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-875%20passed-brightgreen.svg" alt="Tests">
   <a href="https://hub.docker.com/r/ghostwright/phantom"><img src="https://img.shields.io/docker/pulls/ghostwright/phantom.svg" alt="Docker Pulls"></a>
   <img src="https://img.shields.io/badge/version-0.18.2-orange.svg" alt="Version">
 </p>
@@ -74,6 +74,34 @@ A Phantom discovered [Vigil](https://github.com/baudsmithstudios/vigil), a light
 ---
 
 This is what happens when you give an AI its own computer.
+
+## Bring Your Own Model
+
+Phantom is not locked to any single AI backend. It ships with support for seven providers out of the box, configured through a single YAML block:
+
+- **Anthropic** (default) - Claude Opus, Sonnet, Haiku
+- **Z.AI** - GLM-5.1 and GLM-4.5-Air via [Z.AI's Anthropic-compatible API](https://docs.z.ai/guides/llm/glm-5). Roughly 15x cheaper than Claude Opus for comparable coding quality.
+- **OpenRouter** - 100+ models through one key
+- **Ollama** - Any GGUF model on your own GPU, zero API cost
+- **vLLM** - Self-hosted inference with OpenAI-compatible endpoints
+- **LiteLLM** - Local proxy bridging OpenAI, Gemini, and more
+- **Custom** - Any Anthropic Messages API compatible endpoint
+
+Switching providers is two lines of YAML:
+
+```yaml
+# phantom.yaml
+model: claude-sonnet-4-6
+provider:
+  type: zai
+  api_key_env: ZAI_API_KEY
+  model_mappings:
+    sonnet: glm-5.1
+```
+
+Set `ZAI_API_KEY` in `.env`, restart, done. Both the main agent and every evolution judge flow through the chosen provider from that point on. The tools are the same, the memory is the same, the self-evolution pipeline is the same. Only the brain changes.
+
+Anthropic stays the default. Existing deployments continue to work with no configuration changes. See [docs/providers.md](docs/providers.md) for the full reference.
 
 ## Quick Start
 
@@ -186,6 +214,7 @@ Because the agent that can only use pre-built tools hits a ceiling. Phantom buil
 | Feature | Why it matters |
 |---------|----------------|
 | **Its own computer** | Your laptop stays yours. The agent installs software, runs 24/7, and builds infrastructure on its own machine. |
+| **Bring your own model** | Anthropic, Z.AI (GLM-5.1), OpenRouter, Ollama, vLLM, LiteLLM, or any Anthropic Messages API compatible endpoint. Pick your backend in YAML, same agent everywhere. |
 | **Self-evolution** | The agent rewrites its own config after every session, validated by LLM judges. Day 30 knows things Day 1 didn't. |
 | **Persistent memory** | Three tiers of vector memory. Mention something on Monday, it uses it on Wednesday. No re-explaining. |
 | **Dynamic tools** | Creates and registers its own MCP tools at runtime. Tools survive restarts and work across sessions. |

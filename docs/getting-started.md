@@ -74,7 +74,25 @@ Open `.env` in your editor and fill in these values:
 ANTHROPIC_API_KEY=sk-ant-your-key-here
 ```
 
-Your Anthropic API key. This is the only value you absolutely must set.
+Your Anthropic API key. This is the only value you absolutely must set for the default setup.
+
+**Using a different provider?** Phantom supports Z.AI (GLM-5.1, ~15x cheaper than Claude Opus), OpenRouter, Ollama, vLLM, LiteLLM, and custom endpoints. For example, to run Phantom on Z.AI:
+
+```
+ZAI_API_KEY=your-zai-key
+```
+
+Then add this to `phantom.yaml`:
+
+```yaml
+provider:
+  type: zai
+  api_key_env: ZAI_API_KEY
+  model_mappings:
+    sonnet: glm-5.1
+```
+
+See [docs/providers.md](providers.md) for the full provider reference.
 
 ### Slack (recommended)
 

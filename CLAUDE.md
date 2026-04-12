@@ -1,13 +1,13 @@
 # Phantom
 
-Phantom is an autonomous AI co-worker that runs as a persistent Bun process on a VM. It wraps the Claude Agent SDK (Opus 4.6), maintains vector-backed memory across sessions, rewrites its own configuration through a validated self-evolution engine, communicates via Slack/Telegram/Email/Webhook, and exposes all capabilities as an MCP server. 27,000+ lines of TypeScript, 822 tests, v0.18.2. Apache 2.0, repo at ghostwright/phantom.
+Phantom is an autonomous AI co-worker that runs as a persistent Bun process on a VM. It wraps the Claude Agent SDK as a subprocess (Anthropic by default, swappable via a `provider:` config block to Z.AI/GLM-5.1, OpenRouter, Ollama, vLLM, LiteLLM, or any Anthropic Messages API compatible endpoint). It maintains vector-backed memory across sessions, rewrites its own configuration through a validated self-evolution engine, communicates via Slack/Telegram/Email/Webhook, and exposes all capabilities as an MCP server. 27,000+ lines of TypeScript, 875 tests, v0.18.2. Apache 2.0, repo at ghostwright/phantom.
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
 | Runtime | Bun (TypeScript-native, built-in SQLite, no bundler) |
-| Agent | Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) with Opus 4.6, 1M context |
+| Agent | Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) subprocess. Provider is configurable via `src/config/providers.ts`: Anthropic (default), Z.AI, OpenRouter, Ollama, vLLM, LiteLLM, custom. |
 | Memory | Qdrant (vector DB, Docker) + Ollama (nomic-embed-text, local embeddings) |
 | State | SQLite via Bun (sessions, tasks, metrics, evolution versions, scheduled jobs) |
 | Channels | Slack (Socket Mode, primary), Telegram (long polling), Email (IMAP/SMTP), Webhook (HMAC-SHA256), CLI |
@@ -41,7 +41,7 @@ If you find yourself writing a function that does something the agent can do bet
 
 ```bash
 bun install                          # Install dependencies
-bun test                             # Run 770 tests
+bun test                             # Run 875 tests
 bun run src/index.ts                 # Start the server
 bun run src/cli/main.ts init --yes   # Initialize config (reads env vars)
 bun run src/cli/main.ts doctor       # Check all subsystems
