@@ -178,8 +178,10 @@ export class AgentRuntime {
 		let resultText = "";
 		let cost: AgentCost = emptyCost();
 		let emittedThinking = false;
+		let toolCallsEmitted = false;
 
-		const runSdkQuery = async (useResume: boolean): Promise<void> => {
+		const runSdkQuery = async (useResume: boolean, contextNote?: string): Promise<void> => {
+			const finalPrompt = contextNote ? `${appendPrompt}\n\n# Session Recovery\n\n${contextNote}` : appendPrompt;
 			const queryStream = query({
 				prompt: text,
 				options: {
@@ -190,7 +192,7 @@ export class AgentRuntime {
 					systemPrompt: {
 						type: "preset" as const,
 						preset: "claude_code" as const,
-						append: appendPrompt,
+						append: finalPrompt,
 					},
 					persistSession: true,
 					effort: this.config.effort,
@@ -232,6 +234,7 @@ export class AgentRuntime {
 						for (const block of message.message.content) {
 							if (block.type === "tool_use") {
 								const toolBlock = block as { name: string; input?: Record<string, unknown> };
+								toolCallsEmitted = true;
 								onEvent?.({
 									type: "tool_use",
 									tool: toolBlock.name,
@@ -258,19 +261,27 @@ export class AgentRuntime {
 			} catch (err: unknown) {
 				const errorMsg = err instanceof Error ? err.message : String(err);
 				const isStaleSession = isResume && errorMsg.includes("No conversation found");
+				// Only attempt overflow recovery on resumed sessions where no tools
+				// have fired yet. A fresh oversized prompt cannot be fixed by retrying
+				// fresh, and retrying after tool activity risks duplicate side effects.
+				const isContextOverflow = !isStaleSession && isResume && !toolCallsEmitted && isContextOverflowError(errorMsg);
 
-				if (isStaleSession) {
-					// SDK session file is gone (container restart, deploy, etc).
-					// Clear the stale reference and retry as a fresh session.
-					console.log(`[runtime] Stale session detected, retrying without resume: ${sessionKey}`);
+				if (isStaleSession || isContextOverflow) {
+					const reason = isStaleSession ? "Stale session" : "Context overflow";
+					console.log(`[runtime] ${reason} detected, retrying as fresh session: ${sessionKey}`);
 					this.sessionStore.clearSdkSessionId(sessionKey);
 					sdkSessionId = "";
 					resultText = "";
 					cost = emptyCost();
 					emittedThinking = false;
+					toolCallsEmitted = false;
+
+					const contextNote = isContextOverflow
+						? "The previous conversation exceeded the context window and was reset. Please continue helping with the original request."
+						: undefined;
 
 					try {
-						await runSdkQuery(false);
+						await runSdkQuery(false, contextNote);
 					} catch (retryErr: unknown) {
 						const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
 						resultText = `Error: ${retryMsg}`;
@@ -349,4 +360,18 @@ function extractCost(message: {
 		outputTokens: totalOutput,
 		modelUsage,
 	};
+}
+
+const CONTEXT_OVERFLOW_PATTERNS = [
+	"prompt is too long",
+	"context_length_exceeded",
+	"input is too long",
+	"reduce the length",
+	"context window",
+	"maximum context length",
+] as const;
+
+export function isContextOverflowError(message: string): boolean {
+	const lower = message.toLowerCase();
+	return CONTEXT_OVERFLOW_PATTERNS.some((pattern) => lower.includes(pattern));
 }
