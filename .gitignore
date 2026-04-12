@@ -5,6 +5,7 @@ data/
 .env.local
 .env
 local/
+docs/plans/
 *.log
 *.db
 *.db-wal
