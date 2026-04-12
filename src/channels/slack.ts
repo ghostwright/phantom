@@ -555,7 +555,8 @@ export class SlackChannel implements Channel {
 			}
 
 			if (userId && !this.isOwner(userId)) {
-				console.log(`[slack] Ignoring DM from non-owner: ${userId}`);
+				const source = channelType === "im" ? "DM" : "channel thread";
+				console.log(`[slack] Ignoring ${source} from non-owner: ${userId}`);
 				await this.rejectNonOwner(userId);
 				return;
 			}
@@ -595,7 +596,7 @@ export class SlackChannel implements Channel {
 					slackChannel: channel,
 					slackThreadTs: threadTs,
 					slackMessageTs: ts,
-					source: "dm",
+					source: channelType === "im" ? "dm" : "channel_thread",
 				},
 				...(nonTextAttachments.length > 0 ? { attachments: nonTextAttachments } : {}),
 				...(skippedFiles.length > 0 ? { skippedFiles } : {}),

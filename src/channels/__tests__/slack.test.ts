@@ -360,6 +360,31 @@ describe("SlackChannel", () => {
 		expect(channel.hasParticipatedInThread("C_REFRESH", "t1")).toBe(false);
 	});
 
+	test("non-owner reply in participated channel thread is rejected", async () => {
+		const channel = new SlackChannel({ ...testConfig, ownerUserId: "U_OWNER" });
+		let handlerCalled = false;
+
+		channel.onMessage(async () => {
+			handlerCalled = true;
+		});
+
+		await channel.connect();
+		channel.trackThreadParticipation("C_CHANNEL1", "1234567890.000020");
+
+		await invokeHandler("message", {
+			event: {
+				text: "I'm not the owner",
+				user: "U_STRANGER",
+				channel: "C_CHANNEL1",
+				channel_type: "channel",
+				thread_ts: "1234567890.000020",
+				ts: "1234567890.000021",
+			},
+		});
+
+		expect(handlerCalled).toBe(false);
+	});
+
 	test("tracks positive reactions", async () => {
 		const channel = new SlackChannel(testConfig);
 		let capturedPositive = "unset";
