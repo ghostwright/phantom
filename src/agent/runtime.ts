@@ -28,6 +28,7 @@ export class AgentRuntime {
 	private roleTemplate: RoleTemplate | null = null;
 	private onboardingPrompt: string | null = null;
 	private lastTrackedFiles: string[] = [];
+	private configDir: string | null = null;
 	private mcpServerFactories: Record<string, () => McpServerConfig> | null = null;
 
 	constructor(config: PhantomConfig, db: Database) {
@@ -50,6 +51,10 @@ export class AgentRuntime {
 
 	setOnboardingPrompt(prompt: string | null): void {
 		this.onboardingPrompt = prompt;
+	}
+
+	setConfigDir(dir: string): void {
+		this.configDir = dir;
 	}
 
 	setMcpServerFactories(factories: Record<string, () => McpServerConfig>): void {
@@ -155,6 +160,7 @@ export class AgentRuntime {
 			this.roleTemplate ?? undefined,
 			this.onboardingPrompt ?? undefined,
 			undefined,
+			this.configDir ?? undefined,
 		);
 		const controller = new AbortController();
 		const timeoutMs = (this.config.timeout_minutes ?? 240) * 60 * 1000;

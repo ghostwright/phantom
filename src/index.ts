@@ -148,6 +148,7 @@ async function main(): Promise<void> {
 
 	if (evolution) {
 		runtime.setEvolvedConfig(evolution.getConfig());
+		runtime.setConfigDir(evolution.getEvolutionConfig().paths.config_dir);
 	}
 
 	// Wire feedback to evolution engine

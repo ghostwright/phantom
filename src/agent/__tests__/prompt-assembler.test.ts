@@ -107,7 +107,7 @@ describe("assemblePrompt constitution injection", () => {
 
 	test("omits constitution section when file is missing", () => {
 		const prompt = assemblePrompt(baseConfig, undefined, undefined, undefined, undefined, undefined, TEST_CONFIG_DIR);
-		expect(prompt).not.toContain("# Constitution\n\n# Phantom Constitution");
+		expect(prompt).not.toContain("# Constitution");
 	});
 
 	test("omits constitution section when file is empty", () => {
