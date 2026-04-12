@@ -1,4 +1,4 @@
-// zod/v4 required: the Anthropic SDK's zodOutputFormat reads schema._zod.def (v4 only)
+// zod/v4 required: judge-query.ts uses z.toJSONSchema (v4 only)
 import { z } from "zod/v4";
 
 // -- Observation Extraction --

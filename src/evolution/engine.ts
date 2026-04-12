@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { AgentRuntime } from "../agent/runtime.ts";
 import { applyApproved } from "./application.ts";
 import { type EvolutionConfig, loadEvolutionConfig } from "./config.ts";
 import { recordObservations, runConsolidation } from "./consolidation.ts";
@@ -32,16 +33,25 @@ export class EvolutionEngine {
 	private llmJudgesEnabled: boolean;
 	private dailyCostUsd = 0;
 	private dailyCostResetDate = "";
+	private runtime: AgentRuntime | null;
 
-	constructor(configPath?: string) {
+	// `runtime` is optional so existing tests and heuristic-only deployments can
+	// construct an engine without wiring a full AgentRuntime. When the engine
+	// is asked to use LLM judges but has no runtime, it falls back to heuristics.
+	constructor(configPath?: string, runtime?: AgentRuntime) {
 		this.config = loadEvolutionConfig(configPath);
 		this.checker = new ConstitutionChecker(this.config);
+		this.runtime = runtime ?? null;
 		this.llmJudgesEnabled = this.resolveJudgeMode();
 		if (this.llmJudgesEnabled) {
-			console.log("[evolution] LLM judges enabled (API key detected)");
+			console.log("[evolution] LLM judges enabled");
 		} else {
-			console.log("[evolution] LLM judges disabled (no API key or config override)");
+			console.log("[evolution] LLM judges disabled (config override or no auth detected)");
 		}
+	}
+
+	setRuntime(runtime: AgentRuntime): void {
+		this.runtime = runtime;
 	}
 
 	private resolveJudgeMode(): boolean {
@@ -82,9 +92,9 @@ export class EvolutionEngine {
 
 		// Step 1: Observation Extraction (LLM or heuristic)
 		let observations: import("./types.ts").SessionObservation[];
-		if (this.llmJudgesEnabled && !this.isDailyCostCapReached()) {
+		if (this.llmJudgesEnabled && this.runtime && !this.isDailyCostCapReached()) {
 			const currentConfig = this.getConfig();
-			const result = await extractObservationsWithLLM(session, currentConfig);
+			const result = await extractObservationsWithLLM(this.runtime, session, currentConfig);
 			observations = result.observations;
 			if (result.judgeCost) {
 				addCost(judgeCosts.observation_extraction, result.judgeCost);
@@ -119,8 +129,15 @@ export class EvolutionEngine {
 		const goldenSuite = loadSuite(this.config);
 		let validationResults: import("./types.ts").ValidationResult[];
 
-		if (this.llmJudgesEnabled && !this.isDailyCostCapReached()) {
-			const judgeResult = await validateAllWithJudges(deltas, this.checker, goldenSuite, this.config, currentConfig);
+		if (this.llmJudgesEnabled && this.runtime && !this.isDailyCostCapReached()) {
+			const judgeResult = await validateAllWithJudges(
+				this.runtime,
+				deltas,
+				this.checker,
+				goldenSuite,
+				this.config,
+				currentConfig,
+			);
 			validationResults = judgeResult.results;
 			mergeCosts(judgeCosts, judgeResult.judgeCosts);
 			this.incrementDailyCost(totalCostFromJudgeCosts(judgeResult.judgeCosts));
@@ -161,9 +178,9 @@ export class EvolutionEngine {
 		}
 
 		// Quality Assessment (LLM only, non-blocking)
-		if (this.llmJudgesEnabled && !this.isDailyCostCapReached()) {
+		if (this.llmJudgesEnabled && this.runtime && !this.isDailyCostCapReached()) {
 			try {
-				const qualityResult = await runQualityJudge(session, currentConfig);
+				const qualityResult = await runQualityJudge(this.runtime, session, currentConfig);
 				judgeCosts.quality_assessment.calls++;
 				judgeCosts.quality_assessment.totalUsd += qualityResult.costUsd;
 				judgeCosts.quality_assessment.totalInputTokens += qualityResult.inputTokens;

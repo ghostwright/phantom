@@ -1,87 +1,63 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-// zod/v4 required: matches schemas.ts for zodOutputFormat compatibility
+// zod/v4 required: matches schemas.ts so judge schemas flow through unchanged.
 import type { z } from "zod/v4";
-import {
-	JUDGE_MAX_TOKENS,
-	JUDGE_TEMPERATURE,
-	type JudgeResult,
-	type MultiJudgeResult,
-	type VotingStrategy,
-} from "./types.ts";
+import type { AgentRuntime } from "../../agent/runtime.ts";
+import type { JudgeResult, MultiJudgeResult, VotingStrategy } from "./types.ts";
 
-let _client: Anthropic | null = null;
+// Judges used to live on the raw Anthropic SDK (`client.messages.parse`). They now
+// route through the same Agent SDK subprocess as the main agent, so a single auth
+// path and a single provider env var control both tiers. The shape of this module
+// is deliberately small: it exists to delegate, not to own its own transport.
 
-function getClient(): Anthropic {
-	if (!_client) {
-		_client = new Anthropic();
-	}
-	return _client;
-}
-
-// Visible for testing - allows injecting a mock client
-export function setClient(client: Anthropic | null): void {
-	_client = client;
-}
-
+/**
+ * Back-compat signal: does the judge machinery have any hope of running?
+ *
+ * With the old raw-SDK design this checked `ANTHROPIC_API_KEY`. Under the
+ * subprocess design, authentication is handled by the Claude Code CLI itself
+ * (via `claude login`, custom base URLs, or env vars like `ANTHROPIC_BASE_URL`).
+ * There is no reliable way to introspect CLI auth status from this module,
+ * and a failed subprocess call will surface a clear error anyway. Returning
+ * `true` preserves any callers without reintroducing an auth coupling.
+ */
 export function isJudgeAvailable(): boolean {
-	return !!process.env.ANTHROPIC_API_KEY;
+	return true;
 }
 
 /**
  * Call a single LLM judge with structured output.
- * Uses the raw Anthropic SDK (not the Agent SDK).
- * Temperature 0 for deterministic judging.
+ *
+ * Returns a `JudgeResult<T>` matching the pre-subprocess contract so every
+ * downstream judge (safety, constitution, observation, etc.) and the voting
+ * logic in `multiJudge()` continue to work without changes to their shape.
  */
-export async function callJudge<T>(options: {
-	model: string;
-	systemPrompt: string;
-	userMessage: string;
-	schema: z.ZodType<T>;
-	schemaName?: string;
-	maxTokens?: number;
-}): Promise<JudgeResult<T>> {
-	const client = getClient();
-	const startTime = Date.now();
-
-	const message = await client.messages.parse({
+export async function callJudge<T>(
+	runtime: AgentRuntime,
+	options: {
+		model: string;
+		systemPrompt: string;
+		userMessage: string;
+		schema: z.ZodType<T>;
+		schemaName?: string;
+		maxTokens?: number;
+	},
+): Promise<JudgeResult<T>> {
+	const result = await runtime.judgeQuery<T>({
+		systemPrompt: options.systemPrompt,
+		userMessage: options.userMessage,
+		schema: options.schema,
 		model: options.model,
-		max_tokens: options.maxTokens ?? JUDGE_MAX_TOKENS,
-		temperature: JUDGE_TEMPERATURE,
-		system: options.systemPrompt,
-		messages: [{ role: "user", content: options.userMessage }],
-		output_config: {
-			// Cast needed: SDK .d.ts references zod v3 types but runtime uses zod/v4
-			// biome-ignore lint/suspicious/noExplicitAny: bridging zod v3/v4 type mismatch
-			format: zodOutputFormat(options.schema as any),
-		},
+		maxTokens: options.maxTokens,
 	});
 
-	const parsed = message.parsed_output;
-	if (!parsed) {
-		throw new Error(`Judge returned no structured output (stop_reason: ${message.stop_reason})`);
-	}
-
-	const inputTokens = message.usage.input_tokens;
-	const outputTokens = message.usage.output_tokens;
-	const costUsd = estimateCost(options.model, inputTokens, outputTokens);
-
-	// Extract verdict and confidence from the parsed data if present
-	const data = parsed as Record<string, unknown>;
-	const verdict = (data.verdict as "pass" | "fail") ?? "pass";
-	const confidence = (data.confidence as number) ?? 1.0;
-	const reasoning = (data.reasoning as string) ?? (data.overall_reasoning as string) ?? "";
-
 	return {
-		verdict,
-		confidence,
-		reasoning,
-		data: parsed,
-		model: options.model,
-		inputTokens,
-		outputTokens,
-		costUsd,
-		durationMs: Date.now() - startTime,
+		verdict: result.verdict,
+		confidence: result.confidence,
+		reasoning: result.reasoning,
+		data: result.data,
+		model: result.model,
+		inputTokens: result.inputTokens,
+		outputTokens: result.outputTokens,
+		costUsd: result.costUsd,
+		durationMs: result.durationMs,
 	};
 }
 
@@ -89,7 +65,7 @@ export async function callJudge<T>(options: {
  * Run multiple judges in parallel and aggregate results.
  *
  * Strategies:
- * - minority_veto: ANY fail with confidence > threshold = overall fail
+ * - minority_veto: ANY fail with confidence >= threshold = overall fail
  * - majority: >50% must agree on the verdict
  * - unanimous: ALL must agree
  */
@@ -105,7 +81,6 @@ export async function multiJudge<T>(
 
 	switch (strategy) {
 		case "minority_veto": {
-			// Any judge that fails with sufficient confidence vetoes
 			const vetoes = results.filter((r) => r.verdict === "fail" && r.confidence >= confidenceThreshold);
 			const verdict = vetoes.length > 0 ? "fail" : "pass";
 			const reasoning =
@@ -159,27 +134,4 @@ export async function multiJudge<T>(
 			};
 		}
 	}
-}
-
-/**
- * Estimate USD cost from token counts.
- * Pricing as of March 2026.
- */
-function estimateCost(model: string, inputTokens: number, outputTokens: number): number {
-	let inputPer1M: number;
-	let outputPer1M: number;
-
-	if (model.includes("opus")) {
-		inputPer1M = 5.0;
-		outputPer1M = 25.0;
-	} else if (model.includes("haiku")) {
-		inputPer1M = 1.0;
-		outputPer1M = 5.0;
-	} else {
-		// Sonnet default
-		inputPer1M = 3.0;
-		outputPer1M = 15.0;
-	}
-
-	return (inputTokens / 1_000_000) * inputPer1M + (outputTokens / 1_000_000) * outputPer1M;
 }

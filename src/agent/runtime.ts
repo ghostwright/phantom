@@ -8,6 +8,8 @@ import type { RoleTemplate } from "../roles/types.ts";
 import { CostTracker } from "./cost-tracker.ts";
 import { type AgentCost, type AgentResponse, emptyCost } from "./events.ts";
 import { createDangerousCommandBlocker, createFileTracker } from "./hooks.ts";
+import { type JudgeQueryOptions, type JudgeQueryResult, runJudgeQuery } from "./judge-query.ts";
+import { extractCost, extractTextFromMessage } from "./message-utils.ts";
 import { assemblePrompt } from "./prompt-assembler.ts";
 import { SessionStore } from "./session-store.ts";
 
@@ -101,6 +103,18 @@ export class AgentRuntime {
 
 	getActiveSessionCount(): number {
 		return this.activeSessions.size;
+	}
+
+	/**
+	 * Run a focused evaluation query through the same subprocess as the main agent.
+	 *
+	 * Evolution judges route through this method so that auth, provider, and base URL
+	 * flow through a single code path. No MCP servers, no hooks, no session persistence:
+	 * judges are stateless evaluators that receive a system prompt, a user message, and
+	 * a Zod schema describing the expected JSON response.
+	 */
+	async judgeQuery<T>(options: JudgeQueryOptions<T>): Promise<JudgeQueryResult<T>> {
+		return runJudgeQuery(this.config, options);
 	}
 
 	private async runQuery(
@@ -258,54 +272,4 @@ export class AgentRuntime {
 			durationMs: Date.now() - startTime,
 		};
 	}
-}
-
-function extractTextFromMessage(message: {
-	content: ReadonlyArray<{ type: string; text?: string }>;
-}): string {
-	return message.content
-		.filter((block) => block.type === "text" && block.text)
-		.map((block) => block.text ?? "")
-		.join("\n");
-}
-
-function extractCost(message: {
-	total_cost_usd: number;
-	usage: Record<string, number>;
-	modelUsage: Record<
-		string,
-		{
-			inputTokens: number;
-			outputTokens: number;
-			cacheReadInputTokens?: number;
-			cacheCreationInputTokens?: number;
-			costUSD: number;
-		}
-	>;
-}): AgentCost {
-	const modelUsage: AgentCost["modelUsage"] = {};
-
-	for (const [model, usage] of Object.entries(message.modelUsage)) {
-		const totalModelInput =
-			usage.inputTokens + (usage.cacheReadInputTokens ?? 0) + (usage.cacheCreationInputTokens ?? 0);
-		modelUsage[model] = {
-			inputTokens: totalModelInput,
-			outputTokens: usage.outputTokens,
-			costUsd: usage.costUSD,
-		};
-	}
-
-	let totalInput = 0;
-	let totalOutput = 0;
-	for (const usage of Object.values(modelUsage)) {
-		totalInput += usage.inputTokens;
-		totalOutput += usage.outputTokens;
-	}
-
-	return {
-		totalUsd: message.total_cost_usd,
-		inputTokens: totalInput,
-		outputTokens: totalOutput,
-		modelUsage,
-	};
 }

@@ -1,3 +1,4 @@
+import type { AgentRuntime } from "../../agent/runtime.ts";
 import type { ConfigDelta } from "../types.ts";
 import { callJudge, multiJudge } from "./client.ts";
 import { safetyGatePrompt } from "./prompts.ts";
@@ -9,12 +10,13 @@ import { JUDGE_MODEL_SONNET, type MultiJudgeResult } from "./types.ts";
  *
  * Runs 3 independent Sonnet judges in parallel. If ANY judge returns "fail"
  * with confidence > 0.7, the change is rejected. This maximizes safety at
- * the cost of a higher false-rejection rate - which is the correct tradeoff
+ * the cost of a higher false-rejection rate, which is the correct tradeoff
  * for safety-critical gates.
  *
  * Fail-closed: if any judge call errors, the entire gate fails.
  */
 export async function runSafetyJudge(
+	runtime: AgentRuntime,
 	delta: ConfigDelta,
 	constitution: string,
 	currentConfigText: string,
@@ -29,7 +31,7 @@ export async function runSafetyJudge(
 	);
 
 	const makeJudge = () => () =>
-		callJudge({
+		callJudge(runtime, {
 			model: JUDGE_MODEL_SONNET,
 			systemPrompt: system,
 			userMessage: user,

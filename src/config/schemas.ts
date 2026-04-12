@@ -14,6 +14,10 @@ export const PhantomConfigSchema = z.object({
 	port: z.number().int().min(1).max(65535).default(3100),
 	role: z.string().min(1).default("swe"),
 	model: z.string().min(1).default("claude-sonnet-4-6"),
+	// Optional override for the model used by evolution judges. Defaults to `model` when omitted
+	// so a single-model deployment "just works". Lets operators run a cheaper model for judging
+	// while keeping a more capable model for the primary agent.
+	judge_model: z.string().min(1).optional(),
 	effort: z.enum(["low", "medium", "high", "max"]).default("max"),
 	max_budget_usd: z.number().min(0).default(0),
 	timeout_minutes: z.number().min(1).default(240),

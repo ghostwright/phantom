@@ -95,9 +95,14 @@ async function main(): Promise<void> {
 
 	setMemoryHealthProvider(() => memory.healthCheck());
 
+	// Runtime is created before evolution so we can wire it into the engine.
+	// Evolution judges run through the same Agent SDK subprocess as the main
+	// agent, which means a single auth path and a single provider switch.
+	const runtime = new AgentRuntime(config, db);
+
 	let evolution: EvolutionEngine | null = null;
 	try {
-		evolution = new EvolutionEngine();
+		evolution = new EvolutionEngine(undefined, runtime);
 		const currentVersion = evolution.getCurrentVersion();
 		const judgeMode = evolution.usesLLMJudges() ? "LLM judges" : "heuristic";
 		console.log(`[evolution] Engine initialized (v${currentVersion}, ${judgeMode})`);
@@ -106,8 +111,6 @@ async function main(): Promise<void> {
 		const msg = err instanceof Error ? err.message : String(err);
 		console.warn(`[evolution] Failed to initialize: ${msg}. Running without self-evolution.`);
 	}
-
-	const runtime = new AgentRuntime(config, db);
 
 	if (activeRole) {
 		runtime.setRoleTemplate(activeRole);
@@ -494,7 +497,7 @@ async function main(): Promise<void> {
 			if (useLLMConsolidation) {
 				const evolvedConfig = evolution?.getConfig();
 				const existingFacts = evolvedConfig ? `${evolvedConfig.userProfile}\n${evolvedConfig.domainKnowledge}` : "";
-				consolidateSessionWithLLM(memory, sessionData, existingFacts)
+				consolidateSessionWithLLM(runtime, memory, sessionData, existingFacts)
 					.then(({ result, judgeCost }) => {
 						if (judgeCost) {
 							evolution?.trackExternalJudgeCost(judgeCost);

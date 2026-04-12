@@ -1,3 +1,4 @@
+import type { AgentRuntime } from "../agent/runtime.ts";
 import { runConsolidationJudge } from "../evolution/judges/consolidation-judge.ts";
 import type { JudgeCostEntry } from "../evolution/judges/types.ts";
 import type { SessionSummary } from "../evolution/types.ts";
@@ -11,13 +12,14 @@ import type { ConsolidationResult, Episode, SemanticFact } from "./types.ts";
  * existing knowledge, and repeatable procedures.
  */
 export async function consolidateSessionWithLLM(
+	runtime: AgentRuntime,
 	memory: MemorySystem,
 	sessionData: SessionData,
 	existingFacts: string,
 ): Promise<{ result: ConsolidationResult; judgeCost: JudgeCostEntry | null }> {
 	try {
 		const session = sessionDataToSummary(sessionData);
-		const judgeResult = await runConsolidationJudge(session, existingFacts);
+		const judgeResult = await runConsolidationJudge(runtime, session, existingFacts);
 
 		const startTime = Date.now();
 		let factsExtracted = 0;

@@ -1,3 +1,4 @@
+import type { AgentRuntime } from "../../agent/runtime.ts";
 import type { EvolvedConfig, SessionObservation, SessionSummary } from "../types.ts";
 import { callJudge } from "./client.ts";
 import { observationExtractionPrompt } from "./prompts.ts";
@@ -9,6 +10,7 @@ import { JUDGE_MODEL_SONNET, type JudgeResult } from "./types.ts";
  * Returns structured observations that are far richer than regex matching.
  */
 export async function extractObservationsWithJudge(
+	runtime: AgentRuntime,
 	session: SessionSummary,
 	currentConfig: EvolvedConfig,
 ): Promise<JudgeResult<ObservationExtractionResultType>> {
@@ -16,7 +18,7 @@ export async function extractObservationsWithJudge(
 	const configText = buildConfigText(currentConfig);
 	const { system, user } = observationExtractionPrompt(transcript, configText);
 
-	return callJudge({
+	return callJudge(runtime, {
 		model: JUDGE_MODEL_SONNET,
 		systemPrompt: system,
 		userMessage: user,
