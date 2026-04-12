@@ -51,9 +51,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          # 8 GiB is sized for peak LLM-judge concurrency: main process plus an
+          # active agent query subprocess plus up to five Claude Code judge
+          # subprocesses (observation, regression, constitution, safety, and
+          # consolidation) spawned via runJudgeQuery. The prior 2 GiB cap
+          # cgroup-OOM-killed judge subprocesses under evolution load.
+          memory: 8G
         reservations:
-          memory: 256M
+          memory: 512M
     networks:
       - phantom-net
 
