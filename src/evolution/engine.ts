@@ -1,5 +1,7 @@
-import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import type { AgentRuntime } from "../agent/runtime.ts";
 import { applyApproved } from "./application.ts";
 import { type EvolutionConfig, loadEvolutionConfig } from "./config.ts";
 import { recordObservations, runConsolidation } from "./consolidation.ts";
@@ -32,28 +34,59 @@ export class EvolutionEngine {
 	private llmJudgesEnabled: boolean;
 	private dailyCostUsd = 0;
 	private dailyCostResetDate = "";
+	private runtime: AgentRuntime | null;
 
-	constructor(configPath?: string) {
+	// `runtime` is optional so existing tests and heuristic-only deployments can
+	// construct an engine without wiring a full AgentRuntime. When the engine
+	// is asked to use LLM judges but has no runtime, it falls back to heuristics.
+	constructor(configPath?: string, runtime?: AgentRuntime) {
 		this.config = loadEvolutionConfig(configPath);
 		this.checker = new ConstitutionChecker(this.config);
+		this.runtime = runtime ?? null;
 		this.llmJudgesEnabled = this.resolveJudgeMode();
 		if (this.llmJudgesEnabled) {
-			console.log("[evolution] LLM judges enabled (API key detected)");
+			console.log("[evolution] LLM judges enabled");
 		} else {
-			console.log("[evolution] LLM judges disabled (no API key or config override)");
+			console.log("[evolution] LLM judges disabled (config override or no auth detected)");
 		}
+	}
+
+	setRuntime(runtime: AgentRuntime): void {
+		this.runtime = runtime;
+	}
+
+	getRuntime(): AgentRuntime | null {
+		return this.runtime;
 	}
 
 	private resolveJudgeMode(): boolean {
 		const setting = this.config.judges?.enabled ?? "auto";
 		if (setting === "never") return false;
 		if (setting === "always") return true;
-		return !!(
-			process.env.JUDGE_API_KEY ||
-			process.env.ANTHROPIC_API_KEY ||
-			process.env.ANTHROPIC_AUTH_TOKEN ||
-			process.env.CLAUDE_CODE_OAUTH_TOKEN
-		);
+
+		// auto mode: judges are available whenever any plausible credential path exists.
+		// Evaluated in priority order:
+		//  1. A non-anthropic provider was configured. The operator explicitly opted
+		//     into a non-default backend, so assume they have credentials for it. We
+		//     cannot validate the key here because it lives in an arbitrary env var.
+		//  2. A custom base_url was set on the anthropic provider. Same reasoning: the
+		//     operator pointed us at a specific endpoint on purpose.
+		//  3. ANTHROPIC_API_KEY is set (the legacy default path, preserved verbatim).
+		//  4. ~/.claude/.credentials.json exists. This is the `claude login` path the
+		//     Phase 1 mcheema VM test exercised: no env key, just an OAuth credential
+		//     file that the Agent SDK subprocess reads directly.
+		if (this.runtime) {
+			const provider = this.runtime.getPhantomConfig().provider;
+			if (provider.type !== "anthropic") return true;
+			if (provider.base_url) return true;
+		}
+		if (process.env.ANTHROPIC_API_KEY) return true;
+		// Prefer $HOME so tests can sandbox the credentials lookup. Bun's os.homedir()
+		// reads from getpwuid and ignores in-process mutations to HOME, so falling
+		// back to homedir() only when HOME is unset keeps production behavior correct.
+		const home = process.env.HOME ?? homedir();
+		if (existsSync(join(home, ".claude", ".credentials.json"))) return true;
+		return false;
 	}
 
 	usesLLMJudges(): boolean {
@@ -87,9 +120,9 @@ export class EvolutionEngine {
 
 		// Step 1: Observation Extraction (LLM or heuristic)
 		let observations: import("./types.ts").SessionObservation[];
-		if (this.llmJudgesEnabled && !this.isDailyCostCapReached()) {
+		if (this.llmJudgesEnabled && this.runtime && !this.isDailyCostCapReached()) {
 			const currentConfig = this.getConfig();
-			const result = await extractObservationsWithLLM(session, currentConfig);
+			const result = await extractObservationsWithLLM(this.runtime, session, currentConfig);
 			observations = result.observations;
 			if (result.judgeCost) {
 				addCost(judgeCosts.observation_extraction, result.judgeCost);
@@ -124,8 +157,15 @@ export class EvolutionEngine {
 		const goldenSuite = loadSuite(this.config);
 		let validationResults: import("./types.ts").ValidationResult[];
 
-		if (this.llmJudgesEnabled && !this.isDailyCostCapReached()) {
-			const judgeResult = await validateAllWithJudges(deltas, this.checker, goldenSuite, this.config, currentConfig);
+		if (this.llmJudgesEnabled && this.runtime && !this.isDailyCostCapReached()) {
+			const judgeResult = await validateAllWithJudges(
+				this.runtime,
+				deltas,
+				this.checker,
+				goldenSuite,
+				this.config,
+				currentConfig,
+			);
 			validationResults = judgeResult.results;
 			mergeCosts(judgeCosts, judgeResult.judgeCosts);
 			this.incrementDailyCost(totalCostFromJudgeCosts(judgeResult.judgeCosts));
@@ -168,9 +208,9 @@ export class EvolutionEngine {
 		}
 
 		// Quality Assessment (LLM only, non-blocking)
-		if (this.llmJudgesEnabled && !this.isDailyCostCapReached()) {
+		if (this.llmJudgesEnabled && this.runtime && !this.isDailyCostCapReached()) {
 			try {
-				const qualityResult = await runQualityJudge(session, currentConfig);
+				const qualityResult = await runQualityJudge(this.runtime, session, currentConfig);
 				judgeCosts.quality_assessment.calls++;
 				judgeCosts.quality_assessment.totalUsd += qualityResult.costUsd;
 				judgeCosts.quality_assessment.totalInputTokens += qualityResult.inputTokens;

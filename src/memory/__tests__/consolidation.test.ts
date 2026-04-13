@@ -1,6 +1,12 @@
 import { describe, expect, mock, test } from "bun:test";
+import type { AgentRuntime } from "../../agent/runtime.ts";
 import { type SessionData, consolidateSession, consolidateSessionWithLLM } from "../consolidation.ts";
 import type { MemorySystem } from "../system.ts";
+
+// Minimal mock runtime for tests - runConsolidationJudge is mocked so this is never called
+function createMockRuntime(): AgentRuntime {
+	return {} as AgentRuntime;
+}
 
 function makeTestSessionData(overrides?: Partial<SessionData>): SessionData {
 	return {
@@ -217,7 +223,7 @@ describe("consolidateSessionWithLLM - procedure storage", () => {
 			}),
 		);
 
-		const { result } = await consolidateSessionWithLLM(memory, makeTestSessionData(), "");
+		const { result } = await consolidateSessionWithLLM(createMockRuntime(), memory, makeTestSessionData(), "");
 
 		expect(result.proceduresDetected).toBe(1);
 		expect(storedProcedures.length).toBe(1);
@@ -248,10 +254,10 @@ describe("consolidateSessionWithLLM - procedure storage", () => {
 		};
 
 		mockedRunConsolidationJudge.mockResolvedValueOnce(makeJudgeResult({ detected_procedures: [proc] }));
-		await consolidateSessionWithLLM(memSuccess, makeTestSessionData({ outcome: "success" }), "");
+		await consolidateSessionWithLLM(createMockRuntime(), memSuccess, makeTestSessionData({ outcome: "success" }), "");
 
 		mockedRunConsolidationJudge.mockResolvedValueOnce(makeJudgeResult({ detected_procedures: [proc] }));
-		await consolidateSessionWithLLM(memFailure, makeTestSessionData({ outcome: "failure" }), "");
+		await consolidateSessionWithLLM(createMockRuntime(), memFailure, makeTestSessionData({ outcome: "failure" }), "");
 
 		expect(procsSuccess[0].success_count).toBe(1);
 		expect(procsSuccess[0].failure_count).toBe(0);
@@ -263,7 +269,7 @@ describe("consolidateSessionWithLLM - procedure storage", () => {
 		const { memory, storedProcedures } = createMockMemory();
 		mockedRunConsolidationJudge.mockResolvedValueOnce(makeJudgeResult());
 
-		const { result } = await consolidateSessionWithLLM(memory, makeTestSessionData(), "");
+		const { result } = await consolidateSessionWithLLM(createMockRuntime(), memory, makeTestSessionData(), "");
 
 		expect(result.proceduresDetected).toBe(0);
 		expect(storedProcedures.length).toBe(0);

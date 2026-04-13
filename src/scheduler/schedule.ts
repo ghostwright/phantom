@@ -17,8 +17,13 @@ export function computeNextRunAt(schedule: Schedule, afterMs: number = Date.now(
 		}
 		case "cron": {
 			const tz = schedule.tz || Intl.DateTimeFormat().resolvedOptions().timeZone;
+			// Pin to standard 5-field cron (M3). Croner's mode:"5-part" rejects
+			// 6/7 part expressions; we also reject nicknames like @daily because
+			// the tool description promises 5-field syntax and nicknames invite
+			// ambiguous scheduling.
+			if (schedule.expr.trim().startsWith("@")) return null;
 			try {
-				const cron = new Cron(schedule.expr, { timezone: tz });
+				const cron = new Cron(schedule.expr, { timezone: tz, mode: "5-part" });
 				return cron.nextRun(new Date(afterMs));
 			} catch {
 				return null;
@@ -55,6 +60,53 @@ export function serializeScheduleValue(schedule: Schedule): string {
 			return JSON.stringify({ intervalMs: schedule.intervalMs });
 		case "cron":
 			return JSON.stringify({ expr: schedule.expr, ...(schedule.tz ? { tz: schedule.tz } : {}) });
+	}
+}
+
+/**
+ * Validate a schedule at creation time. Returns a descriptive error string
+ * when the schedule cannot produce a future fire time. Returns null when the
+ * schedule is valid and computeNextRunAt will succeed. See C1 in the audit.
+ */
+export function validateSchedule(schedule: Schedule): string | null {
+	switch (schedule.kind) {
+		case "at": {
+			const atMs = new Date(schedule.at).getTime();
+			if (Number.isNaN(atMs)) {
+				return `invalid 'at' timestamp: ${schedule.at} (use ISO 8601 with an explicit offset, e.g. 2026-03-26T09:00:00-07:00)`;
+			}
+			if (atMs <= Date.now()) {
+				return `'at' timestamp is in the past: ${schedule.at}`;
+			}
+			return null;
+		}
+		case "every": {
+			if (!Number.isFinite(schedule.intervalMs) || schedule.intervalMs <= 0) {
+				return `'every' intervalMs must be positive, got ${schedule.intervalMs}`;
+			}
+			return null;
+		}
+		case "cron": {
+			const tz = schedule.tz || Intl.DateTimeFormat().resolvedOptions().timeZone;
+			if (schedule.expr.trim().startsWith("@")) {
+				return `cron nicknames like '${schedule.expr}' are not supported; use explicit 5-field syntax (minute hour day month day-of-week)`;
+			}
+			try {
+				const cron = new Cron(schedule.expr, { timezone: tz, mode: "5-part" });
+				const next = cron.nextRun(new Date());
+				if (!next) {
+					return `cron expression has no future fire: ${schedule.expr}`;
+				}
+				return null;
+			} catch (err: unknown) {
+				const msg = err instanceof Error ? err.message : String(err);
+				// Croner's TypeError about timezone is the common case for bad tz.
+				if (/timezone/i.test(msg)) {
+					return `invalid timezone '${tz}': ${msg}`;
+				}
+				return `invalid cron expression '${schedule.expr}': ${msg} (use 5-field cron: minute hour day month day-of-week)`;
+			}
+		}
 	}
 }
 

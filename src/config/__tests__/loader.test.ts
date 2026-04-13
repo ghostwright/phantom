@@ -364,4 +364,140 @@ port: 3100
 			cleanup();
 		}
 	});
+
+	test("defaults provider to anthropic when block is absent", () => {
+		const path = writeYaml(
+			"no-provider.yaml",
+			`
+name: test
+`,
+		);
+		try {
+			const config = loadConfig(path);
+			expect(config.provider.type).toBe("anthropic");
+			expect(config.provider.base_url).toBeUndefined();
+		} finally {
+			cleanup();
+		}
+	});
+
+	test("loads a zai provider block", () => {
+		const path = writeYaml(
+			"zai-provider.yaml",
+			`
+name: test
+provider:
+  type: zai
+  api_key_env: ZAI_API_KEY
+  model_mappings:
+    opus: glm-5.1
+`,
+		);
+		try {
+			const config = loadConfig(path);
+			expect(config.provider.type).toBe("zai");
+			expect(config.provider.api_key_env).toBe("ZAI_API_KEY");
+			expect(config.provider.model_mappings?.opus).toBe("glm-5.1");
+		} finally {
+			cleanup();
+		}
+	});
+
+	test("PHANTOM_PROVIDER_TYPE env var overrides YAML provider.type", () => {
+		const path = writeYaml(
+			"env-provider-type.yaml",
+			`
+name: test
+provider:
+  type: anthropic
+`,
+		);
+		const saved = process.env.PHANTOM_PROVIDER_TYPE;
+		try {
+			process.env.PHANTOM_PROVIDER_TYPE = "ollama";
+			const config = loadConfig(path);
+			expect(config.provider.type).toBe("ollama");
+		} finally {
+			if (saved !== undefined) {
+				process.env.PHANTOM_PROVIDER_TYPE = saved;
+			} else {
+				process.env.PHANTOM_PROVIDER_TYPE = undefined;
+			}
+			cleanup();
+		}
+	});
+
+	test("PHANTOM_PROVIDER_TYPE with unknown value leaves YAML provider.type alone", () => {
+		const path = writeYaml(
+			"env-provider-type-bad.yaml",
+			`
+name: test
+provider:
+  type: zai
+`,
+		);
+		const saved = process.env.PHANTOM_PROVIDER_TYPE;
+		try {
+			process.env.PHANTOM_PROVIDER_TYPE = "mystery-llm";
+			const config = loadConfig(path);
+			expect(config.provider.type).toBe("zai");
+		} finally {
+			if (saved !== undefined) {
+				process.env.PHANTOM_PROVIDER_TYPE = saved;
+			} else {
+				process.env.PHANTOM_PROVIDER_TYPE = undefined;
+			}
+			cleanup();
+		}
+	});
+
+	test("PHANTOM_PROVIDER_BASE_URL env var overrides YAML provider.base_url", () => {
+		const path = writeYaml(
+			"env-provider-baseurl.yaml",
+			`
+name: test
+provider:
+  type: custom
+  base_url: http://old.example.com
+`,
+		);
+		const saved = process.env.PHANTOM_PROVIDER_BASE_URL;
+		try {
+			process.env.PHANTOM_PROVIDER_BASE_URL = "https://new.example.com/v1";
+			const config = loadConfig(path);
+			expect(config.provider.base_url).toBe("https://new.example.com/v1");
+		} finally {
+			if (saved !== undefined) {
+				process.env.PHANTOM_PROVIDER_BASE_URL = saved;
+			} else {
+				process.env.PHANTOM_PROVIDER_BASE_URL = undefined;
+			}
+			cleanup();
+		}
+	});
+
+	test("PHANTOM_PROVIDER_BASE_URL with malformed URL is ignored", () => {
+		const path = writeYaml(
+			"env-provider-baseurl-bad.yaml",
+			`
+name: test
+provider:
+  type: custom
+  base_url: http://old.example.com
+`,
+		);
+		const saved = process.env.PHANTOM_PROVIDER_BASE_URL;
+		try {
+			process.env.PHANTOM_PROVIDER_BASE_URL = "not a url";
+			const config = loadConfig(path);
+			expect(config.provider.base_url).toBe("http://old.example.com");
+		} finally {
+			if (saved !== undefined) {
+				process.env.PHANTOM_PROVIDER_BASE_URL = saved;
+			} else {
+				process.env.PHANTOM_PROVIDER_BASE_URL = undefined;
+			}
+			cleanup();
+		}
+	});
 });

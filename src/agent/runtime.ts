@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
+import { buildProviderEnv } from "../config/providers.ts";
 import type { PhantomConfig } from "../config/types.ts";
 import type { EvolvedConfig } from "../evolution/types.ts";
 import type { MemoryContextBuilder } from "../memory/context-builder.ts";
@@ -8,6 +9,8 @@ import type { RoleTemplate } from "../roles/types.ts";
 import { CostTracker } from "./cost-tracker.ts";
 import { type AgentCost, type AgentResponse, emptyCost } from "./events.ts";
 import { createDangerousCommandBlocker, createFileTracker } from "./hooks.ts";
+import { type JudgeQueryOptions, type JudgeQueryResult, runJudgeQuery } from "./judge-query.ts";
+import { extractCost, extractTextFromMessage } from "./message-utils.ts";
 import { assemblePrompt } from "./prompt-assembler.ts";
 import { SessionStore } from "./session-store.ts";
 
@@ -65,6 +68,23 @@ export class AgentRuntime {
 		return this.lastTrackedFiles;
 	}
 
+	// Accessor used by EvolutionEngine.resolveJudgeMode() to inspect the provider
+	// config without piercing encapsulation on every other runtime field. Returning
+	// the same reference is fine: PhantomConfig is treated as immutable after load.
+	getPhantomConfig(): PhantomConfig {
+		return this.config;
+	}
+
+	/**
+	 * Peek whether a session key is currently executing. The scheduler uses
+	 * this to avoid even calling handleMessage when a prior execution of the
+	 * same job is still in flight (Phase 2.5 C2 braces layer). Direct callers
+	 * outside the scheduler still see the belt layer: an Error-shaped return.
+	 */
+	isSessionBusy(channelId: string, conversationId: string): boolean {
+		return this.activeSessions.has(`${channelId}:${conversationId}`);
+	}
+
 	async handleMessage(
 		channelId: string,
 		conversationId: string,
@@ -76,8 +96,12 @@ export class AgentRuntime {
 		const startTime = Date.now();
 
 		if (this.activeSessions.has(sessionKey)) {
+			// Belt layer for C2: return a loud, parseable Error so direct callers
+			// (router, trigger, secret save) stop treating the bounce as success.
+			// The scheduler adds its own braces layer via isSessionBusy.
+			console.warn(`[runtime] Session busy, bouncing concurrent message: ${sessionKey}`);
 			return {
-				text: "I'm still working on your previous message. Please wait.",
+				text: "Error: session busy (previous execution still running)",
 				sessionId: "",
 				cost: emptyCost(),
 				durationMs: 0,
@@ -128,6 +152,18 @@ export class AgentRuntime {
 
 	getActiveSessionCount(): number {
 		return this.activeSessions.size;
+	}
+
+	/**
+	 * Run a focused evaluation query through the same subprocess as the main agent.
+	 *
+	 * Evolution judges route through this method so that auth, provider, and base URL
+	 * flow through a single code path. No MCP servers, no hooks, no session persistence:
+	 * judges are stateless evaluators that receive a system prompt, a user message, and
+	 * a Zod schema describing the expected JSON response.
+	 */
+	async judgeQuery<T>(options: JudgeQueryOptions<T>): Promise<JudgeQueryResult<T>> {
+		return runJudgeQuery(this.config, options);
 	}
 
 	private async runQuery(
@@ -186,6 +222,12 @@ export class AgentRuntime {
 		let emittedThinking = false;
 		let toolCallsEmitted = false;
 
+		// Provider env is computed per call so operators can hot-swap provider
+		// config between queries without restarting the process. The map is merged
+		// on top of process.env so provider-specific overrides win, and everything
+		// else (PATH, HOME, credential files) is inherited intact.
+		const providerEnv = buildProviderEnv(this.config);
+
 		const runSdkQuery = async (useResume: boolean, contextNote?: string): Promise<void> => {
 			const finalPrompt = contextNote ? `${appendPrompt}\n\n# Session Recovery\n\n${contextNote}` : appendPrompt;
 			const queryStream = query({
@@ -204,6 +246,7 @@ export class AgentRuntime {
 					effort: this.config.effort,
 					...(this.config.max_budget_usd > 0 ? { maxBudgetUsd: this.config.max_budget_usd } : {}),
 					abortController: controller,
+					env: { ...process.env, ...providerEnv },
 					hooks: {
 						PreToolUse: [commandBlocker],
 						PostToolUse: [fileTracker.hook],
@@ -316,64 +359,6 @@ export class AgentRuntime {
 			durationMs: Date.now() - startTime,
 		};
 	}
-}
-
-function extractTextFromMessage(message: {
-	content: ReadonlyArray<{ type: string; text?: string }>;
-}): string {
-	return message.content
-		.filter((block) => block.type === "text" && block.text)
-		.map((block) => block.text ?? "")
-		.join("\n");
-}
-
-function extractCost(message: {
-	total_cost_usd: number;
-	usage: Record<string, number>;
-	modelUsage: Record<
-		string,
-		{
-			inputTokens: number;
-			outputTokens: number;
-			cacheReadInputTokens?: number;
-			cacheCreationInputTokens?: number;
-			costUSD: number;
-		}
-	>;
-}): AgentCost {
-	const modelUsage: AgentCost["modelUsage"] = {};
-
-	for (const [model, usage] of Object.entries(message.modelUsage)) {
-		const cacheRead = usage.cacheReadInputTokens ?? 0;
-		const cacheCreation = usage.cacheCreationInputTokens ?? 0;
-		modelUsage[model] = {
-			inputTokens: usage.inputTokens + cacheRead + cacheCreation,
-			outputTokens: usage.outputTokens,
-			cacheReadTokens: cacheRead,
-			cacheCreationTokens: cacheCreation,
-			costUsd: usage.costUSD,
-		};
-	}
-
-	let totalInput = 0;
-	let totalOutput = 0;
-	let totalCacheRead = 0;
-	let totalCacheCreation = 0;
-	for (const usage of Object.values(modelUsage)) {
-		totalInput += usage.inputTokens;
-		totalOutput += usage.outputTokens;
-		totalCacheRead += usage.cacheReadTokens;
-		totalCacheCreation += usage.cacheCreationTokens;
-	}
-
-	return {
-		totalUsd: message.total_cost_usd,
-		inputTokens: totalInput,
-		outputTokens: totalOutput,
-		cacheReadTokens: totalCacheRead,
-		cacheCreationTokens: totalCacheCreation,
-		modelUsage,
-	};
 }
 
 const CONTEXT_OVERFLOW_PATTERNS = [

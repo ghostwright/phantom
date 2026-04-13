@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { parse } from "yaml";
+import { PROVIDER_TYPES, type ProviderType } from "./providers.ts";
 import { type ChannelsConfig, ChannelsConfigSchema, PhantomConfigSchema } from "./schemas.ts";
 import type { PhantomConfig } from "./types.ts";
 
@@ -57,6 +58,27 @@ export function loadConfig(path?: string): PhantomConfig {
 			config.port = port;
 		}
 	}
+	// Provider env overrides: let operators flip backends without editing YAML.
+	// Only the two highest-leverage fields are exposed here. Anything more granular
+	// (model mappings, timeouts, beta flags) belongs in the YAML block.
+	if (process.env.PHANTOM_PROVIDER_TYPE?.trim()) {
+		const candidate = process.env.PHANTOM_PROVIDER_TYPE.trim();
+		if ((PROVIDER_TYPES as readonly string[]).includes(candidate)) {
+			config.provider.type = candidate as ProviderType;
+		} else {
+			console.warn(`[config] PHANTOM_PROVIDER_TYPE is not a known provider: ${candidate}`);
+		}
+	}
+	if (process.env.PHANTOM_PROVIDER_BASE_URL?.trim()) {
+		const candidate = process.env.PHANTOM_PROVIDER_BASE_URL.trim();
+		try {
+			new URL(candidate);
+			config.provider.base_url = candidate;
+		} catch {
+			console.warn(`[config] PHANTOM_PROVIDER_BASE_URL is not a valid URL: ${candidate}`);
+		}
+	}
+
 	if (process.env.PHANTOM_PUBLIC_URL?.trim()) {
 		const candidate = process.env.PHANTOM_PUBLIC_URL.trim();
 		try {

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { AgentRuntime } from "../agent/runtime.ts";
 import type { EvolutionConfig } from "./config.ts";
 import type { ConstitutionChecker } from "./constitution.ts";
 import { runConstitutionJudge } from "./judges/constitution-judge.ts";
@@ -254,6 +255,7 @@ export function validateAll(
  * Non-critical gates (regression) fall back to heuristics on errors.
  */
 export async function validateAllWithJudges(
+	runtime: AgentRuntime,
 	deltas: ConfigDelta[],
 	checker: ConstitutionChecker,
 	goldenSuite: GoldenCase[],
@@ -271,7 +273,7 @@ export async function validateAllWithJudges(
 
 		// Gate 1: Constitution - triple Sonnet with minority veto (fail-closed)
 		try {
-			const constitutionResult = await runConstitutionJudge(delta, constitution, configText);
+			const constitutionResult = await runConstitutionJudge(runtime, delta, constitution, configText);
 			gates.push({
 				gate: "constitution",
 				passed: constitutionResult.verdict === "pass",
@@ -292,7 +294,7 @@ export async function validateAllWithJudges(
 
 		// Gate 2: Regression - cascaded Haiku -> Sonnet (fallback to heuristic)
 		try {
-			const regressionResult = await runRegressionJudge(delta, goldenSuite, configText);
+			const regressionResult = await runRegressionJudge(runtime, delta, goldenSuite, configText);
 			gates.push({
 				gate: "regression",
 				passed: regressionResult.verdict === "pass",
@@ -314,7 +316,7 @@ export async function validateAllWithJudges(
 
 		// Gate 5: Safety - triple Sonnet with minority veto (fail-closed)
 		try {
-			const safetyResult = await runSafetyJudge(delta, constitution, configText);
+			const safetyResult = await runSafetyJudge(runtime, delta, constitution, configText);
 			gates.push({
 				gate: "safety",
 				passed: safetyResult.verdict === "pass",

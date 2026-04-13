@@ -122,9 +122,9 @@ export const MIGRATIONS: string[] = [
 	"CREATE INDEX IF NOT EXISTS idx_loops_status ON loops(status)",
 
 	// Track the operator's originating Slack message so the loop runner can
-	// drive a reaction ladder on it (hourglass → cycle → terminal emoji).
+	// drive a reaction ladder on it (hourglass -> cycle -> terminal emoji).
 	// Appended, never inserted mid-array: existing deployments have already
-	// applied migrations 0–10, so the new column must land at index 11.
+	// applied migrations 0-10, so the new column must land at index 11.
 	"ALTER TABLE loops ADD COLUMN trigger_message_ts TEXT",
 
 	"ALTER TABLE loops ADD COLUMN checkpoint_interval INTEGER",
@@ -138,4 +138,10 @@ export const MIGRATIONS: string[] = [
 	"ALTER TABLE cost_events ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0",
 	"ALTER TABLE sessions ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0",
 	"ALTER TABLE sessions ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0",
+
+	// Phase 2.5 scheduler hardening: record whether the last delivery attempt
+	// actually made it to Slack. null = never delivered, "delivered" = sent,
+	// "dropped:<reason>" = skipped at the delivery branch, "error:<reason>" =
+	// Slack threw during send. Existing rows keep null on migration.
+	"ALTER TABLE scheduled_jobs ADD COLUMN last_delivery_status TEXT",
 ];

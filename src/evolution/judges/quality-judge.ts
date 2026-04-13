@@ -1,3 +1,4 @@
+import type { AgentRuntime } from "../../agent/runtime.ts";
 import type { EvolvedConfig, SessionSummary } from "../types.ts";
 import { callJudge } from "./client.ts";
 import { qualityAssessmentPrompt } from "./prompts.ts";
@@ -11,6 +12,7 @@ import { JUDGE_MODEL_SONNET, type JudgeResult } from "./types.ts";
  * degradation that binary success/fail would miss.
  */
 export async function runQualityJudge(
+	runtime: AgentRuntime,
 	session: SessionSummary,
 	currentConfig: EvolvedConfig,
 ): Promise<JudgeResult<QualityAssessmentResultType>> {
@@ -27,7 +29,7 @@ export async function runQualityJudge(
 		session.tools_used.join(", ") || "none",
 	);
 
-	return callJudge({
+	return callJudge(runtime, {
 		model: JUDGE_MODEL_SONNET,
 		systemPrompt: system,
 		userMessage: user,

@@ -120,11 +120,12 @@ export async function runPostLoopPipeline(deps: PostLoopDeps, sessionData: Sessi
 	// Memory consolidation - runs independently of evolution state
 	if (!memory?.isReady()) return;
 	try {
-		const useLLM = evolution?.usesLLMJudges() && evolution?.isWithinCostCap();
-		if (useLLM && evolution) {
+		const runtime = evolution?.getRuntime();
+		const useLLM = evolution?.usesLLMJudges() && evolution?.isWithinCostCap() && runtime;
+		if (useLLM && evolution && runtime) {
 			const evolvedConfig = evolution.getConfig();
 			const existingFacts = `${evolvedConfig.userProfile}\n${evolvedConfig.domainKnowledge}`;
-			const { result, judgeCost } = await consolidateSessionWithLLM(memory, sessionData, existingFacts);
+			const { result, judgeCost } = await consolidateSessionWithLLM(runtime, memory, sessionData, existingFacts);
 			if (judgeCost) evolution.trackExternalJudgeCost(judgeCost);
 			if (result.episodesCreated > 0 || result.factsExtracted > 0) {
 				console.log(

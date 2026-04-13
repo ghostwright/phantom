@@ -1,4 +1,4 @@
-import { JudgeParseError } from "../evolution/judges/client.ts";
+import type { AgentRuntime } from "../agent/runtime.ts";
 import { runConsolidationJudge } from "../evolution/judges/consolidation-judge.ts";
 import type { JudgeCostEntry } from "../evolution/judges/types.ts";
 import type { SessionSummary } from "../evolution/types.ts";
@@ -12,13 +12,14 @@ import type { ConsolidationResult, Episode, SemanticFact } from "./types.ts";
  * existing knowledge, and repeatable procedures.
  */
 export async function consolidateSessionWithLLM(
+	runtime: AgentRuntime,
 	memory: MemorySystem,
 	sessionData: SessionData,
 	existingFacts: string,
 ): Promise<{ result: ConsolidationResult; judgeCost: JudgeCostEntry | null }> {
 	try {
 		const session = sessionDataToSummary(sessionData);
-		const judgeResult = await runConsolidationJudge(session, existingFacts);
+		const judgeResult = await runConsolidationJudge(runtime, session, existingFacts);
 
 		const startTime = Date.now();
 		let factsExtracted = 0;
@@ -94,17 +95,9 @@ export async function consolidateSessionWithLLM(
 		const msg = error instanceof Error ? error.message : String(error);
 		console.warn(`[memory] Consolidation judge failed, falling back to heuristic: ${msg}`);
 		const result = await consolidateSession(memory, sessionData);
-		// Track cost from successful API calls that failed parsing (tokens were consumed)
-		const judgeCost =
-			error instanceof JudgeParseError
-				? {
-						calls: 1,
-						totalUsd: error.costUsd,
-						totalInputTokens: error.inputTokens,
-						totalOutputTokens: error.outputTokens,
-					}
-				: null;
-		return { result, judgeCost };
+		// With subprocess judge routing, partial cost tracking from failed parses is no
+		// longer possible - the subprocess either succeeds fully or returns an error.
+		return { result, judgeCost: null };
 	}
 }
 

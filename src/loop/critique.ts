@@ -1,4 +1,5 @@
 import { z } from "zod/v4";
+import type { AgentRuntime } from "../agent/runtime.ts";
 import { callJudge } from "../evolution/judges/client.ts";
 import { JUDGE_MODEL_SONNET, type JudgeCostEntry } from "../evolution/judges/types.ts";
 import type { LoopTranscript } from "./post-loop.ts";
@@ -16,6 +17,7 @@ const CritiqueSchema = z.object({ assessment: z.string() });
  * Same cross-model pattern as interactive sessions (Sonnet judging Opus).
  */
 export async function runCritiqueJudge(
+	runtime: AgentRuntime,
 	goal: string,
 	stateFileContents: string,
 	transcript: LoopTranscript,
@@ -44,7 +46,7 @@ Is this loop making meaningful progress toward the goal? Is the agent stuck
 in a pattern? Should it change approach? Give a brief (2-3 sentence) assessment
 and one concrete suggestion if applicable.`;
 
-	const result = await callJudge({
+	const result = await callJudge(runtime, {
 		model: JUDGE_MODEL_SONNET,
 		systemPrompt: system,
 		userMessage: user,
