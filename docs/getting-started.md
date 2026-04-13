@@ -331,6 +331,7 @@ Then check health at `http://localhost:3200/health`.
 - Verify your `SLACK_BOT_TOKEN` starts with `xoxb-` and your `SLACK_APP_TOKEN` starts with `xapp-`.
 - Make sure Socket Mode is enabled on your Slack app (the manifest does this automatically).
 - Check that the app is installed to your workspace (not just created).
+- Check your Phantom `/health` endpoint and inspect `channel_details.slack.state` and `channel_details.slack.error` for the current connection status.
 
 ### "Memory not available" or Qdrant/Ollama errors
 

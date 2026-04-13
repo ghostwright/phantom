@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { ChannelRouter } from "../router.ts";
 import type { Channel, ChannelCapabilities, InboundMessage, OutboundMessage, SentMessage } from "../types.ts";
@@ -57,6 +57,12 @@ class MockChannel implements Channel {
 	}
 }
 
+class HangingChannel extends MockChannel {
+	override async connect(): Promise<void> {
+		await new Promise(() => {});
+	}
+}
+
 describe("ChannelRouter", () => {
 	test("registers a channel", () => {
 		const router = new ChannelRouter();
@@ -90,6 +96,23 @@ describe("ChannelRouter", () => {
 		await router.connectAll();
 		await router.disconnectAll();
 		expect(ch.connected).toBe(false);
+	});
+
+	test("connectAll times out slow channels and continues", async () => {
+		const router = new ChannelRouter();
+		const fast = new MockChannel("fast");
+		const slow = new HangingChannel("slow");
+		const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+		router.register(fast);
+		router.register(slow);
+
+		await router.connectAll(5);
+
+		expect(fast.connected).toBe(true);
+		expect(slow.connected).toBe(false);
+		expect(errorSpy).toHaveBeenCalled();
+		expect(errorSpy.mock.calls.some((call) => call.join(" ").includes("Timed out after 5ms"))).toBe(true);
+		errorSpy.mockRestore();
 	});
 
 	test("routes inbound messages to handler", async () => {

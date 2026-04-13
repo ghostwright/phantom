@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { SlackChannel, type SlackChannelConfig } from "../slack.ts";
 
 // Mock the Slack Bolt App class
@@ -98,6 +98,18 @@ describe("SlackChannel", () => {
 		await channel.disconnect();
 		expect(channel.isConnected()).toBe(false);
 		expect(mockStop).toHaveBeenCalledTimes(1);
+	});
+
+	test("connect failure exposes error state", async () => {
+		const channel = new SlackChannel(testConfig);
+		const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+		mockStart.mockImplementationOnce(() => Promise.reject(new Error("socket hang")));
+
+		await expect(channel.connect()).rejects.toThrow("socket hang");
+		expect(channel.isConnected()).toBe(false);
+		expect(channel.getConnectionState()).toBe("error");
+		expect(channel.getConnectionError()).toBe("socket hang");
+		errorSpy.mockRestore();
 	});
 
 	test("registers event handlers on connect", async () => {

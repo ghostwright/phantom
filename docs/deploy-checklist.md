@@ -208,7 +208,7 @@ The user should have received a personalized DM from Phantom. Ask them to reply 
 | SSH key rejection | `ssh-keygen -R <IP>` |
 | Docker pull fails | Retry, or check Docker Hub rate limits |
 | Ollama model pull slow | Wait, it's a 270MB download |
-| Slack not connecting | Check bot token and app token are correct |
+| Slack not connecting | Check bot/app tokens and inspect `channel_details.slack` in `/health` |
 | No DM received | Check OWNER_SLACK_USER_ID is correct |
 | Health endpoint 502 | Phantom may still be starting, wait 30 seconds |
 | "Already initialized" on init | Remove config files first (step 6 does this) |

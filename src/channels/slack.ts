@@ -39,6 +39,7 @@ export class SlackChannel implements Channel {
 	private messageHandler: ((message: InboundMessage) => Promise<void>) | null = null;
 	private reactionHandler: ReactionHandler | null = null;
 	private connectionState: ConnectionState = "disconnected";
+	private lastConnectionError: string | null = null;
 	private botUserId: string | null = null;
 	private ownerUserId: string | null;
 	private phantomName: string;
@@ -93,8 +94,9 @@ export class SlackChannel implements Channel {
 	}
 
 	async connect(): Promise<void> {
-		if (this.connectionState === "connected") return;
+		if (this.connectionState === "connected" || this.connectionState === "connecting") return;
 		this.connectionState = "connecting";
+		this.lastConnectionError = null;
 
 		this.registerEventHandlers();
 		registerSlackActions(this.app);
@@ -115,6 +117,7 @@ export class SlackChannel implements Channel {
 		} catch (err: unknown) {
 			this.connectionState = "error";
 			const msg = err instanceof Error ? err.message : String(err);
+			this.lastConnectionError = msg;
 			console.error(`[slack] Failed to connect: ${msg}`);
 			throw err;
 		}
@@ -131,6 +134,7 @@ export class SlackChannel implements Channel {
 		}
 
 		this.connectionState = "disconnected";
+		this.lastConnectionError = null;
 		console.log("[slack] Disconnected");
 	}
 
@@ -172,6 +176,10 @@ export class SlackChannel implements Channel {
 
 	getConnectionState(): ConnectionState {
 		return this.connectionState;
+	}
+
+	getConnectionError(): string | null {
+		return this.lastConnectionError;
 	}
 
 	async postToChannel(channelId: string, text: string): Promise<string | null> {

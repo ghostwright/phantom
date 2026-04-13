@@ -1,6 +1,7 @@
 import type { Channel, InboundMessage, OutboundMessage, SentMessage } from "./types.ts";
 
 type MessageHandler = (message: InboundMessage) => Promise<void>;
+const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
 
 export class ChannelRouter {
 	private channels = new Map<string, Channel>();
@@ -18,12 +19,13 @@ export class ChannelRouter {
 		this.handler = handler;
 	}
 
-	async connectAll(): Promise<void> {
-		const results = await Promise.allSettled([...this.channels.values()].map((ch) => ch.connect()));
+	async connectAll(connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS): Promise<void> {
+		const channels = [...this.channels.values()];
+		const results = await Promise.allSettled(channels.map((ch) => connectWithTimeout(ch, connectTimeoutMs)));
 
 		for (const [i, result] of results.entries()) {
 			if (result.status === "rejected") {
-				const ch = [...this.channels.values()][i];
+				const ch = channels[i];
 				console.error(`[router] Failed to connect channel ${ch.id}: ${result.reason}`);
 			}
 		}
@@ -72,5 +74,25 @@ export class ChannelRouter {
 			const msg = err instanceof Error ? err.message : String(err);
 			console.error(`[router] Error handling message from ${message.channelId}: ${msg}`);
 		}
+	}
+}
+
+async function connectWithTimeout(channel: Channel, timeoutMs: number): Promise<void> {
+	if (timeoutMs <= 0) {
+		await channel.connect();
+		return;
+	}
+
+	let timeoutId: ReturnType<typeof setTimeout> | null = null;
+	try {
+		const connectPromise = channel.connect();
+		await Promise.race([
+			connectPromise,
+			new Promise<never>((_, reject) => {
+				timeoutId = setTimeout(() => reject(new Error(`Timed out after ${timeoutMs}ms`)), timeoutMs);
+			}),
+		]);
+	} finally {
+		if (timeoutId) clearTimeout(timeoutId);
 	}
 }

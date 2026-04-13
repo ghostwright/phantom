@@ -14,6 +14,7 @@ type MemoryHealthProvider = () => Promise<MemoryHealth>;
 type EvolutionVersionProvider = () => number;
 type McpServerProvider = () => PhantomMcpServer | null;
 type ChannelHealthProvider = () => Record<string, boolean>;
+type ChannelHealthDetailsProvider = () => Record<string, { connected: boolean; state?: string; error?: string }>;
 type RoleInfoProvider = () => { id: string; name: string } | null;
 type OnboardingStatusProvider = () => string;
 type WebhookHandler = (req: Request) => Promise<Response>;
@@ -29,6 +30,7 @@ let memoryHealthProvider: MemoryHealthProvider | null = null;
 let evolutionVersionProvider: EvolutionVersionProvider | null = null;
 let mcpServerProvider: McpServerProvider | null = null;
 let channelHealthProvider: ChannelHealthProvider | null = null;
+let channelHealthDetailsProvider: ChannelHealthDetailsProvider | null = null;
 let roleInfoProvider: RoleInfoProvider | null = null;
 let onboardingStatusProvider: OnboardingStatusProvider | null = null;
 let webhookHandler: WebhookHandler | null = null;
@@ -50,6 +52,10 @@ export function setMcpServerProvider(provider: McpServerProvider): void {
 
 export function setChannelHealthProvider(provider: ChannelHealthProvider): void {
 	channelHealthProvider = provider;
+}
+
+export function setChannelHealthDetailsProvider(provider: ChannelHealthDetailsProvider): void {
+	channelHealthDetailsProvider = provider;
 }
 
 export function setRoleInfoProvider(provider: RoleInfoProvider): void {
@@ -93,6 +99,7 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 					: { qdrant: false, ollama: false, configured: false };
 
 				const channels: Record<string, boolean> = channelHealthProvider ? channelHealthProvider() : {};
+				const channelDetails = channelHealthDetailsProvider ? channelHealthDetailsProvider() : {};
 
 				const allHealthy = memory.qdrant && memory.ollama;
 				const someHealthy = memory.qdrant || memory.ollama;
@@ -114,6 +121,7 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 					...(config.public_url ? { public_url: config.public_url } : {}),
 					role: roleInfo ?? { id: config.role, name: config.role },
 					channels,
+					...(Object.keys(channelDetails).length > 0 ? { channel_details: channelDetails } : {}),
 					memory,
 					evolution: {
 						generation: evolutionGeneration,

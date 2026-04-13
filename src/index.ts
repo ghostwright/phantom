@@ -17,6 +17,7 @@ import { WebhookChannel } from "./channels/webhook.ts";
 import { loadChannelsConfig, loadConfig } from "./config/loader.ts";
 import { installShutdownHandlers, onShutdown } from "./core/graceful.ts";
 import {
+	setChannelHealthDetailsProvider,
 	setChannelHealthProvider,
 	setEvolutionVersionProvider,
 	setMcpServerProvider,
@@ -332,6 +333,26 @@ async function main(): Promise<void> {
 		if (emailChannel) health.email = emailChannel.isConnected();
 		if (webhookChannel) health.webhook = webhookChannel.isConnected();
 		return health;
+	});
+	setChannelHealthDetailsProvider(() => {
+		const details: Record<string, { connected: boolean; state?: string; error?: string }> = {};
+		if (slackChannel) {
+			details.slack = buildChannelHealthDetail(
+				slackChannel.isConnected(),
+				slackChannel.getConnectionState(),
+				slackChannel.getConnectionError(),
+			);
+		}
+		if (telegramChannel) {
+			details.telegram = buildChannelHealthDetail(telegramChannel.isConnected(), telegramChannel.getConnectionState());
+		}
+		if (emailChannel) {
+			details.email = buildChannelHealthDetail(emailChannel.isConnected(), emailChannel.getConnectionState());
+		}
+		if (webhookChannel) {
+			details.webhook = buildChannelHealthDetail(webhookChannel.isConnected());
+		}
+		return details;
 	});
 
 	// Wire action follow-up handler (button clicks -> agent)
@@ -655,6 +676,9 @@ async function main(): Promise<void> {
 		}
 
 		if (target) {
+			if (!slackChannel.isConnected()) {
+				console.warn("[onboarding] Slack Socket Mode is not connected yet; attempting onboarding via Web API");
+			}
 			const slackClient = slackChannel.getClient();
 			const profile = await startOnboarding(slackChannel, target, config.name, activeRole, db, slackClient);
 
@@ -676,6 +700,18 @@ async function main(): Promise<void> {
 	}
 
 	console.log(`[phantom] ${config.name} is ready.`);
+}
+
+function buildChannelHealthDetail(
+	connected: boolean,
+	state?: string,
+	error?: string | null,
+): { connected: boolean; state?: string; error?: string } {
+	return {
+		connected,
+		...(state ? { state } : {}),
+		...(error ? { error } : {}),
+	};
 }
 
 main().catch((err: unknown) => {
