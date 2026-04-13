@@ -19,6 +19,7 @@ function createMockRuntime() {
 			},
 			durationMs: 500,
 		})),
+		isSessionBusy: mock((_channel: string, _conversationId: string) => false),
 		setMemoryContextBuilder: mock(() => {}),
 		setEvolvedConfig: mock(() => {}),
 		setRoleTemplate: mock(() => {}),

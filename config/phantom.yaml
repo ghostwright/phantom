@@ -16,3 +16,30 @@ timeout_minutes: 240
 #     url: https://data.ghostwright.dev/mcp
 #     token: "bearer-token-for-data"
 #     description: "Data Analyst Phantom"
+
+# Provider selection. Defaults to Anthropic. Uncomment and customize to use
+# a different backend. Both the main agent and every LLM judge flow through
+# the chosen provider; authentication happens at the env var named below.
+#
+# provider:
+#   type: anthropic            # anthropic | zai | openrouter | vllm | ollama | litellm | custom
+#   # api_key_env: ANTHROPIC_API_KEY
+#
+# Example: GLM-5.1 via Z.AI's Anthropic-compatible API (15x cheaper than Opus)
+# provider:
+#   type: zai
+#   api_key_env: ZAI_API_KEY
+#   model_mappings:
+#     opus: glm-5.1
+#     sonnet: glm-5.1
+#     haiku: glm-4.5-air
+#
+# Example: Local vLLM server hosting any OpenAI-compatible model
+# provider:
+#   type: vllm
+#   base_url: http://localhost:8000
+#
+# Example: Local Ollama (free, runs on your GPU)
+# provider:
+#   type: ollama
+#   base_url: http://localhost:11434

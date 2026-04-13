@@ -37,6 +37,9 @@ services:
       - phantom_data:/app/data
       - phantom_public:/app/public
       - phantom_repos:/app/repos
+      # Claude Code credentials (persists `claude login` across restarts so
+      # subscription users do not have to re-authenticate on every upgrade)
+      - phantom_claude:/home/phantom/.claude
       # Docker socket for sibling container creation
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
@@ -48,9 +51,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          # 8 GiB is sized for peak LLM-judge concurrency: main process plus an
+          # active agent query subprocess plus up to five Claude Code judge
+          # subprocesses (observation, regression, constitution, safety, and
+          # consolidation) spawned via runJudgeQuery. The prior 2 GiB cap
+          # cgroup-OOM-killed judge subprocesses under evolution load.
+          memory: 8G
         reservations:
-          memory: 256M
+          memory: 512M
     networks:
       - phantom-net
 
@@ -105,6 +113,7 @@ volumes:
   phantom_data:
   phantom_public:
   phantom_repos:
+  phantom_claude:
   qdrant_data:
   ollama_data:
 

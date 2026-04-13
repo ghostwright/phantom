@@ -328,6 +328,7 @@ describe("Dynamic Tools via MCP Protocol", () => {
 					role: "swe",
 					model: "claude-opus-4-6",
 					model_source: "config" as const,
+					provider: { type: "anthropic" as const },
 					effort: "max" as const,
 					max_budget_usd: 0,
 					timeout_minutes: 240,

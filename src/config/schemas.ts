@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ProviderSchema } from "./providers.ts";
 
 export const PeerConfigSchema = z.object({
 	url: z.string().url(),
@@ -15,6 +16,15 @@ export const PhantomConfigSchema = z.object({
 	role: z.string().min(1).default("swe"),
 	model: z.string().min(1).default("claude-opus-4-6"),
 	model_source: z.enum(["config", "env"]).default("config"),
+	// Optional override for the model used by evolution judges. Defaults to `model` when omitted
+	// so a single-model deployment "just works". Lets operators run a cheaper model for judging
+	// while keeping a more capable model for the primary agent.
+	judge_model: z.string().min(1).optional(),
+	// Provider selection. Defaults to { type: "anthropic" }, which is identical in behavior to
+	// omitting the block entirely and matches every deployment that existed before Phase 2.
+	// The effective env vars are computed by buildProviderEnv() in config/providers.ts and
+	// merged into the Agent SDK subprocess environment at query() time.
+	provider: ProviderSchema,
 	effort: z.enum(["low", "medium", "high", "max"]).default("max"),
 	max_budget_usd: z.number().min(0).default(0),
 	timeout_minutes: z.number().min(1).default(240),

@@ -1,3 +1,4 @@
+import type { AgentRuntime } from "../../agent/runtime.ts";
 import type { ConfigDelta, GoldenCase } from "../types.ts";
 import { callJudge } from "./client.ts";
 import { regressionGatePrompt } from "./prompts.ts";
@@ -26,6 +27,7 @@ type CaseJudgment = {
  * Returns early with pass if the golden suite is empty.
  */
 export async function runRegressionJudge(
+	runtime: AgentRuntime,
 	delta: ConfigDelta,
 	goldenSuite: GoldenCase[],
 	currentConfigText: string,
@@ -52,7 +54,7 @@ export async function runRegressionJudge(
 
 	// Phase 1: Haiku evaluates all cases in parallel
 	const haikuResults = await Promise.all(
-		goldenSuite.map((gc) => evaluateCase(delta, gc, currentConfigText, JUDGE_MODEL_HAIKU)),
+		goldenSuite.map((gc) => evaluateCase(runtime, delta, gc, currentConfigText, JUDGE_MODEL_HAIKU)),
 	);
 
 	const results: CaseJudgment[] = [];
@@ -92,7 +94,9 @@ export async function runRegressionJudge(
 	// Phase 2: Sonnet re-evaluates uncertain cases
 	if (needsEscalation.length > 0) {
 		const sonnetResults = await Promise.all(
-			needsEscalation.map(({ goldenCase }) => evaluateCase(delta, goldenCase, currentConfigText, JUDGE_MODEL_SONNET)),
+			needsEscalation.map(({ goldenCase }) =>
+				evaluateCase(runtime, delta, goldenCase, currentConfigText, JUDGE_MODEL_SONNET),
+			),
 		);
 
 		for (let i = 0; i < sonnetResults.length; i++) {
@@ -129,6 +133,7 @@ export async function runRegressionJudge(
 }
 
 async function evaluateCase(
+	runtime: AgentRuntime,
 	delta: ConfigDelta,
 	goldenCase: GoldenCase,
 	currentConfigText: string,
@@ -145,7 +150,7 @@ async function evaluateCase(
 		currentConfigText,
 	);
 
-	return callJudge({
+	return callJudge(runtime, {
 		model,
 		systemPrompt: system,
 		userMessage: user,

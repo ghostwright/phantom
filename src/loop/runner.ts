@@ -357,8 +357,10 @@ export class LoopRunner {
 		if (!transcript) return;
 		const evo = this.postLoopDeps?.evolution;
 		if (!evo || !evo.usesLLMJudges() || !evo.isWithinCostCap()) return;
+		const runtime = evo.getRuntime();
+		if (!runtime) return;
 		try {
-			const r = await runCritiqueJudge(loop.goal, stateContents, transcript, iteration, loop.maxIterations);
+			const r = await runCritiqueJudge(runtime, loop.goal, stateContents, transcript, iteration, loop.maxIterations);
 			this.pendingCritique.set(loopId, r.assessment);
 			evo.trackExternalJudgeCost(r.cost);
 		} catch (e: unknown) {

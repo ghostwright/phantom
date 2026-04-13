@@ -1,3 +1,4 @@
+import type { AgentRuntime } from "../agent/runtime.ts";
 import { matchesCorrectionPattern, matchesDomainFactPattern, matchesPreferencePattern } from "../shared/patterns.ts";
 import type { EvolutionConfig } from "./config.ts";
 import { extractObservationsWithJudge, toSessionObservations } from "./judges/observation-judge.ts";
@@ -10,11 +11,12 @@ import type { ConfigDelta, CritiqueResult, EvolvedConfig, SessionObservation, Se
  * sentiment signals that regex cannot detect.
  */
 export async function extractObservationsWithLLM(
+	runtime: AgentRuntime,
 	session: SessionSummary,
 	currentConfig: EvolvedConfig,
 ): Promise<{ observations: SessionObservation[]; judgeCost: JudgeCostEntry | null }> {
 	try {
-		const result = await extractObservationsWithJudge(session, currentConfig);
+		const result = await extractObservationsWithJudge(runtime, session, currentConfig);
 		const observations = toSessionObservations(result.data);
 		return {
 			observations: observations.length > 0 ? observations : extractObservations(session),

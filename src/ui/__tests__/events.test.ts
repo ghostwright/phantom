@@ -62,15 +62,18 @@ describe("subscribe/publish", () => {
 	});
 
 	test("getListenerCount tracks active listeners", () => {
-		const baseline = getListenerCount();
+		// events.ts uses a module-level listener set that can be touched by
+		// other tests in the same bun test process. Measure relative to the
+		// initial count so this test is robust to ordering.
+		const initial = getListenerCount();
 		const unsub1 = subscribe(() => {});
-		expect(getListenerCount()).toBe(baseline + 1);
+		expect(getListenerCount()).toBe(initial + 1);
 		const unsub2 = subscribe(() => {});
-		expect(getListenerCount()).toBe(baseline + 2);
+		expect(getListenerCount()).toBe(initial + 2);
 		unsub1();
-		expect(getListenerCount()).toBe(baseline + 1);
+		expect(getListenerCount()).toBe(initial + 1);
 		unsub2();
-		expect(getListenerCount()).toBe(baseline);
+		expect(getListenerCount()).toBe(initial);
 	});
 });
 

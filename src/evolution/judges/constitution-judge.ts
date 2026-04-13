@@ -1,3 +1,4 @@
+import type { AgentRuntime } from "../../agent/runtime.ts";
 import type { ConfigDelta } from "../types.ts";
 import { callJudge, multiJudge } from "./client.ts";
 import { constitutionGatePrompt } from "./prompts.ts";
@@ -13,6 +14,7 @@ import { JUDGE_MODEL_SONNET, type MultiJudgeResult } from "./types.ts";
  * Fail-closed: if any judge call errors, the entire gate fails.
  */
 export async function runConstitutionJudge(
+	runtime: AgentRuntime,
 	delta: ConfigDelta,
 	constitution: string,
 	currentConfigText: string,
@@ -27,7 +29,7 @@ export async function runConstitutionJudge(
 	);
 
 	const makeJudge = () => () =>
-		callJudge({
+		callJudge(runtime, {
 			model: JUDGE_MODEL_SONNET,
 			systemPrompt: system,
 			userMessage: user,

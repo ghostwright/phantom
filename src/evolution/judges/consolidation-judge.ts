@@ -1,3 +1,4 @@
+import type { AgentRuntime } from "../../agent/runtime.ts";
 import type { SessionSummary } from "../types.ts";
 import { callJudge } from "./client.ts";
 import { consolidationPrompt } from "./prompts.ts";
@@ -10,6 +11,7 @@ import { JUDGE_MODEL_SONNET, type JudgeResult } from "./types.ts";
  * contradictions with existing knowledge, and repeatable procedures.
  */
 export async function runConsolidationJudge(
+	runtime: AgentRuntime,
 	session: SessionSummary,
 	existingFacts: string,
 ): Promise<JudgeResult<ConsolidationJudgeResultType>> {
@@ -26,7 +28,7 @@ export async function runConsolidationJudge(
 		session.outcome,
 	);
 
-	return callJudge({
+	return callJudge(runtime, {
 		model: JUDGE_MODEL_SONNET,
 		systemPrompt: system,
 		userMessage: user,
