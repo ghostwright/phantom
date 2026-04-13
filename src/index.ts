@@ -51,6 +51,8 @@ import { Scheduler } from "./scheduler/service.ts";
 import { createSchedulerToolServer } from "./scheduler/tool.ts";
 import { getSecretRequest } from "./secrets/store.ts";
 import { createSecretToolServer } from "./secrets/tools.ts";
+import { createBrowserToolServer } from "./ui/browser-mcp.ts";
+import { closePreviewResources, createPreviewToolServer, getOrCreatePreviewContext } from "./ui/preview.ts";
 import { setPublicDir, setSecretSavedCallback, setSecretsDb } from "./ui/serve.ts";
 import { createWebUiToolServer } from "./ui/tools.ts";
 
@@ -191,6 +193,8 @@ async function main(): Promise<void> {
 			"phantom-scheduler": () => createSchedulerToolServer(scheduler as Scheduler),
 			"phantom-web-ui": () => createWebUiToolServer(config.public_url),
 			"phantom-secrets": () => createSecretToolServer({ db, baseUrl: secretsBaseUrl }),
+			"phantom-preview": () => createPreviewToolServer(config.port),
+			"phantom-browser": () => createBrowserToolServer(() => getOrCreatePreviewContext()),
 			...(process.env.RESEND_API_KEY
 				? {
 						"phantom-email": () =>
@@ -204,7 +208,7 @@ async function main(): Promise<void> {
 		});
 		const emailStatus = process.env.RESEND_API_KEY ? " + email" : "";
 		console.log(
-			`[mcp] MCP server initialized (dynamic tools + scheduler + web UI + secrets${emailStatus} wired to agent)`,
+			`[mcp] MCP server initialized (dynamic tools + scheduler + web UI + secrets + preview + browser${emailStatus} wired to agent)`,
 		);
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
@@ -579,6 +583,9 @@ async function main(): Promise<void> {
 	});
 	onShutdown("Scheduler", async () => {
 		if (scheduler) scheduler.stop();
+	});
+	onShutdown("Preview browser", async () => {
+		await closePreviewResources();
 	});
 	onShutdown("Peer health monitor", async () => {
 		if (peerHealthMonitor) peerHealthMonitor.stop();

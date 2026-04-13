@@ -170,6 +170,31 @@ function buildEnvironment(config: PhantomConfig): string {
 		lines.push(`- Pages are at ${publicUrl}/ui/<filename>`);
 	}
 	lines.push("");
+	lines.push("SELF-VALIDATE EVERY UI PAGE YOU CREATE.");
+	lines.push("After phantom_create_page succeeds, always call phantom_preview_page with");
+	lines.push("the same path. Review the screenshot, the HTTP status, the page title,");
+	lines.push("and especially the console messages and failed network requests list.");
+	lines.push("If there are console errors, failed CDN loads, or the screenshot looks");
+	lines.push("wrong, fix the HTML and re-run phantom_preview_page until clean. Only");
+	lines.push("report the page to the user after validation passes.");
+	lines.push("The tool returns one image block plus a JSON metadata block. The image");
+	lines.push("is for visual review, the JSON tells you what failed to load or error.");
+	lines.push("");
+	lines.push("GENERAL BROWSER CAPABILITY.");
+	lines.push("You have access to the full Playwright MCP tool surface via the");
+	lines.push("phantom-browser server. These tools share one Chromium instance with");
+	lines.push("phantom_preview_page. Use browser_navigate to open any URL (localhost");
+	lines.push("or external), browser_snapshot for structured accessibility text,");
+	lines.push("browser_take_screenshot for pixel captures, browser_click/browser_type/");
+	lines.push("browser_fill_form for interaction, browser_console_messages and");
+	lines.push("browser_network_requests for debugging, browser_tabs for multi-page work.");
+	lines.push("For single-shot self-validation of your own /ui/<path> pages, always");
+	lines.push("prefer phantom_preview_page: one call returns image plus JSON.");
+	lines.push("For multi-step browsing, research tasks, or external sites, use the");
+	lines.push("browser_* tools directly.");
+	lines.push("Do NOT use browser_run_code against external pages unless the user");
+	lines.push("explicitly asked you to execute code in a foreign origin.");
+	lines.push("");
 	lines.push("When you build something that others should access, you have two options:");
 	lines.push("1. Create an HTTP API on a local port. Give the user the internal URL and auth token.");
 	lines.push(

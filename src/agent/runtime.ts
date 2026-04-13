@@ -31,7 +31,7 @@ export class AgentRuntime {
 	private roleTemplate: RoleTemplate | null = null;
 	private onboardingPrompt: string | null = null;
 	private lastTrackedFiles: string[] = [];
-	private mcpServerFactories: Record<string, () => McpServerConfig> | null = null;
+	private mcpServerFactories: Record<string, () => McpServerConfig | Promise<McpServerConfig>> | null = null;
 
 	constructor(config: PhantomConfig, db: Database) {
 		this.config = config;
@@ -55,7 +55,7 @@ export class AgentRuntime {
 		this.onboardingPrompt = prompt;
 	}
 
-	setMcpServerFactories(factories: Record<string, () => McpServerConfig>): void {
+	setMcpServerFactories(factories: Record<string, () => McpServerConfig | Promise<McpServerConfig>>): void {
 		this.mcpServerFactories = factories;
 	}
 
@@ -208,7 +208,11 @@ export class AgentRuntime {
 					...(useResume && session.sdk_session_id ? { resume: session.sdk_session_id } : {}),
 					...(this.mcpServerFactories
 						? {
-								mcpServers: Object.fromEntries(Object.entries(this.mcpServerFactories).map(([k, f]) => [k, f()])),
+								mcpServers: Object.fromEntries(
+									await Promise.all(
+										Object.entries(this.mcpServerFactories).map(async ([k, f]) => [k, await f()] as const),
+									),
+								),
 							}
 						: {}),
 				},

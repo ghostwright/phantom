@@ -18,10 +18,12 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.77",
     "@modelcontextprotocol/sdk": "^1.28.0",
+    "@playwright/mcp": "0.0.70",
     "@slack/bolt": "^4.6.0",
     "croner": "^10.0.1",
     "imapflow": "^1.2.18",
     "nodemailer": "^8.0.4",
+    "playwright": "1.59.1",
     "resend": "^6.9.4",
     "telegraf": "^4.16.3",
     "yaml": "^2.6.0",

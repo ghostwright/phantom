@@ -75,6 +75,18 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/tsconfig.json ./
 
+# Install Chromium headless shell + system deps for Playwright.
+# Must run after node_modules is copied so bunx can resolve playwright.
+# --only-shell skips the full Chromium binary (saves ~75 MiB); the custom
+# phantom_preview_page tool uses chromium.launch() which picks the shell
+# automatically for headless=true. The @playwright/mcp embed path uses a
+# contextGetter so it never needs the full chrome channel binary.
+ENV PLAYWRIGHT_BROWSERS_PATH=/home/phantom/.cache/ms-playwright
+RUN mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" && \
+    bunx playwright install --with-deps --only-shell chromium && \
+    chown -R phantom:phantom /home/phantom/.cache && \
+    rm -rf /var/lib/apt/lists/*
+
 # Copy default phantom-config (constitution.md, persona.md, etc.)
 # These get backed up so they survive the empty volume mount on first run.
 COPY --from=builder /app/phantom-config ./phantom-config
