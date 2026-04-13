@@ -67,6 +67,7 @@ Nightly consolidation (configurable):
 - Compresses old episodes into summaries
 - Promotes repeated patterns from episodic to procedural
 - Prunes contradicted facts
+- Forgets stale, low-signal episodes and long-expired superseded facts
 - Keeps storage bounded
 
 ## Configuration

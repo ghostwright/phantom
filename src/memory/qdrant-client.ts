@@ -9,14 +9,14 @@ type CollectionSchema = {
 	sparse_vectors?: SparseVectorConfig;
 };
 
-type QdrantResponse = {
-	status?: string;
-	result?: unknown;
-	time?: number;
-};
+type QdrantResponse = { status?: string; result?: unknown; time?: number };
 
 type QdrantQueryResponse = {
 	result?: { points?: QdrantScoredPoint[] };
+};
+
+type QdrantScrollResponse = {
+	result?: { points?: QdrantScoredPoint[]; next_page_offset?: string | number | null };
 };
 
 type QdrantScoredPoint = {
@@ -146,6 +146,24 @@ export class QdrantClient {
 		});
 	}
 
+	async scroll(
+		collection: string,
+		options: {
+			filter?: Record<string, unknown>;
+			limit?: number;
+			withPayload?: boolean;
+		},
+	): Promise<QdrantSearchResult[]> {
+		const response = (await this.request("POST", `/collections/${collection}/points/scroll`, {
+			filter: options.filter,
+			limit: options.limit ?? 50,
+			with_payload: options.withPayload ?? true,
+			with_vectors: false,
+		})) as QdrantScrollResponse;
+
+		return this.mapPoints(response.result?.points ?? []);
+	}
+
 	async createPayloadIndex(
 		collection: string,
 		fieldName: string,
@@ -246,7 +264,10 @@ export class QdrantClient {
 	}
 
 	private extractResults(response: QdrantQueryResponse): QdrantSearchResult[] {
-		const points = response.result?.points ?? [];
+		return this.mapPoints(response.result?.points ?? []);
+	}
+
+	private mapPoints(points: QdrantScoredPoint[]): QdrantSearchResult[] {
 		return points.map((p) => ({
 			id: String(p.id),
 			score: p.score,

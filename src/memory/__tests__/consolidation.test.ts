@@ -23,9 +23,13 @@ function createMockMemory(): {
 	memory: MemorySystem;
 	storedEpisodes: Array<Record<string, unknown>>;
 	storedFacts: Array<Record<string, unknown>>;
+	pruneStaleEpisodesCalls: Array<[string, string]>;
+	pruneExpiredFactsCalls: string[];
 } {
 	const storedEpisodes: Array<Record<string, unknown>> = [];
 	const storedFacts: Array<Record<string, unknown>> = [];
+	const pruneStaleEpisodesCalls: Array<[string, string]> = [];
+	const pruneExpiredFactsCalls: string[] = [];
 
 	const memory = {
 		storeEpisode: mock((episode: Record<string, unknown>) => {
@@ -36,9 +40,17 @@ function createMockMemory(): {
 			storedFacts.push(fact);
 			return Promise.resolve(fact.id as string);
 		}),
+		pruneStaleEpisodes: mock((userId: string, endedAt: string) => {
+			pruneStaleEpisodesCalls.push([userId, endedAt]);
+			return Promise.resolve(0);
+		}),
+		pruneExpiredFacts: mock((endedAt: string) => {
+			pruneExpiredFactsCalls.push(endedAt);
+			return Promise.resolve(0);
+		}),
 	} as unknown as MemorySystem;
 
-	return { memory, storedEpisodes, storedFacts };
+	return { memory, storedEpisodes, storedFacts, pruneStaleEpisodesCalls, pruneExpiredFactsCalls };
 }
 
 describe("consolidateSession", () => {
@@ -155,5 +167,15 @@ describe("consolidateSession", () => {
 
 		expect(result.durationMs).toBeGreaterThanOrEqual(0);
 		expect(typeof result.durationMs).toBe("number");
+	});
+
+	test("runs retention cleanup after consolidation", async () => {
+		const { memory, pruneStaleEpisodesCalls, pruneExpiredFactsCalls } = createMockMemory();
+		const data = makeTestSessionData();
+
+		await consolidateSession(memory, data);
+
+		expect(pruneStaleEpisodesCalls).toEqual([[data.userId, data.endedAt]]);
+		expect(pruneExpiredFactsCalls).toEqual([data.endedAt]);
 	});
 });

@@ -71,6 +71,11 @@ export class MemorySystem {
 		return this.episodic.recall(query, options);
 	}
 
+	async pruneStaleEpisodes(userId: string, referenceTime?: string): Promise<number> {
+		if (!this.initialized) return 0;
+		return this.episodic.pruneStaleEpisodes(userId, referenceTime);
+	}
+
 	// Semantic memory
 	async storeFact(fact: SemanticFact): Promise<string> {
 		if (!this.initialized) return fact.id;
@@ -90,6 +95,11 @@ export class MemorySystem {
 	async resolveContradiction(newFact: SemanticFact, existingFact: SemanticFact): Promise<void> {
 		if (!this.initialized) return;
 		return this.semantic.resolveContradiction(newFact, existingFact);
+	}
+
+	async pruneExpiredFacts(referenceTime?: string): Promise<number> {
+		if (!this.initialized) return 0;
+		return this.semantic.pruneExpiredFacts(referenceTime);
 	}
 
 	// Procedural memory

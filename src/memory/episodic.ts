@@ -2,6 +2,7 @@ import type { MemoryConfig } from "../config/types.ts";
 import { type EmbeddingClient, textToSparseVector } from "./embeddings.ts";
 import type { QdrantClient } from "./qdrant-client.ts";
 import { calculateEpisodeRecallScore } from "./ranking.ts";
+import { RETENTION_BATCH_LIMIT, buildStaleEpisodeFilter } from "./retention.ts";
 import type { Episode, QdrantSearchResult, RecallOptions } from "./types.ts";
 
 const COLLECTION_SCHEMA = {
@@ -123,6 +124,25 @@ export class EpisodicStore {
 			access_count: { $inc: 1 },
 			last_accessed_at: new Date().toISOString(),
 		});
+	}
+
+	async pruneStaleEpisodes(userId: string, referenceTime = new Date().toISOString()): Promise<number> {
+		if (!userId) return 0;
+
+		const referenceTimeMs = new Date(referenceTime).getTime();
+		if (!Number.isFinite(referenceTimeMs)) return 0;
+
+		const candidates = await this.qdrant.scroll(this.collectionName, {
+			filter: buildStaleEpisodeFilter(userId, referenceTimeMs),
+			limit: RETENTION_BATCH_LIMIT,
+			withPayload: false,
+		});
+
+		for (const episode of candidates) {
+			await this.qdrant.deletePoint(this.collectionName, episode.id);
+		}
+
+		return candidates.length;
 	}
 
 	private async updateAccessCounts(ids: string[]): Promise<void> {

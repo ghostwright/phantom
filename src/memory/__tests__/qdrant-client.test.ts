@@ -238,4 +238,39 @@ describe("QdrantClient", () => {
 		expect(deleteBody).not.toBeNull();
 		expect(deleteBody.points).toEqual(["point-123"]);
 	});
+
+	test("scroll sends filter and returns matching points", async () => {
+		let capturedUrl = "";
+		let capturedBody: Record<string, unknown> | null = null;
+
+		globalThis.fetch = mock((url: string | Request, init?: RequestInit) => {
+			capturedUrl = typeof url === "string" ? url : url.url;
+			if (init?.body) {
+				capturedBody = JSON.parse(init.body as string);
+			}
+
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({
+						result: {
+							points: [{ id: "stale-ep", score: 0, payload: { summary: "old memory" } }],
+						},
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+			);
+		}) as unknown as typeof fetch;
+
+		const client = new QdrantClient(TEST_CONFIG);
+		const results = await client.scroll("episodes", {
+			filter: { must: [{ key: "user_id", match: { value: "user-1" } }] },
+			limit: 5,
+			withPayload: true,
+		});
+
+		expect(capturedUrl).toContain("/collections/episodes/points/scroll");
+		expect(results).toHaveLength(1);
+		expect(results[0].id).toBe("stale-ep");
+		expect((capturedBody as unknown as Record<string, unknown>).limit).toBe(5);
+	});
 });

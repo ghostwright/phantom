@@ -1,6 +1,7 @@
 import type { MemoryConfig } from "../config/types.ts";
 import { type EmbeddingClient, textToSparseVector } from "./embeddings.ts";
 import type { QdrantClient } from "./qdrant-client.ts";
+import { RETENTION_BATCH_LIMIT, buildExpiredFactFilter } from "./retention.ts";
 import type { QdrantSearchResult, RecallOptions, SemanticFact } from "./types.ts";
 
 const COLLECTION_SCHEMA = {
@@ -140,6 +141,23 @@ export class SemanticStore {
 				valid_until: new Date(newFact.valid_from).getTime(),
 			});
 		}
+	}
+
+	async pruneExpiredFacts(referenceTime = new Date().toISOString()): Promise<number> {
+		const referenceTimeMs = new Date(referenceTime).getTime();
+		if (!Number.isFinite(referenceTimeMs)) return 0;
+
+		const expiredFacts = await this.qdrant.scroll(this.collectionName, {
+			filter: buildExpiredFactFilter(referenceTimeMs),
+			limit: RETENTION_BATCH_LIMIT,
+			withPayload: false,
+		});
+
+		for (const fact of expiredFacts) {
+			await this.qdrant.deletePoint(this.collectionName, fact.id);
+		}
+
+		return expiredFacts.length;
 	}
 
 	private buildFilter(options?: RecallOptions): Record<string, unknown> | undefined {
