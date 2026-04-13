@@ -9,6 +9,22 @@ if [ ! -f /app/phantom-config/constitution.md ]; then
   cp -r /app/phantom-config-defaults/* /app/phantom-config/ 2>/dev/null || true
 fi
 
+# Seed built-in skills into the user-scope .claude/skills volume on first run.
+# Existing skills (user edits) are preserved: we only copy directories that are
+# missing. The source lives at /app/skills-builtin/ and is a pristine copy from
+# the repo; the target is on the phantom_claude Docker volume.
+if [ -d /app/skills-builtin ]; then
+  mkdir -p /home/phantom/.claude/skills
+  for skill_dir in /app/skills-builtin/*/; do
+    name=$(basename "$skill_dir")
+    target="/home/phantom/.claude/skills/$name"
+    if [ ! -d "$target" ]; then
+      echo "[phantom] Seeding built-in skill: $name"
+      cp -r "$skill_dir" "$target"
+    fi
+  done
+fi
+
 # Determine service URLs from environment (with Docker Compose defaults)
 QDRANT_URL="${QDRANT_URL:-http://qdrant:6333}"
 OLLAMA_URL="${OLLAMA_URL:-http://ollama:11434}"

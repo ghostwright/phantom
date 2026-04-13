@@ -1,0 +1,63 @@
+---
+name: show-my-tools
+description: List the agent's current skills, memory files, and dashboard URLs. The user-facing discovery path for everything the operator can edit.
+when_to_use: Use when the user says "what can you do", "what skills do you have", "show me your skills", "what can I edit", "how do I customize you", "what memory files do you have", "what is in your .claude", "where is the dashboard", or any similar discovery question.
+allowed-tools:
+  - Read
+  - Glob
+  - Bash
+context: inline
+---
+
+# Show my tools
+
+## Goal
+
+Give the user a clear, accurate view of what is currently loaded: skills, memory files, and dashboard URLs. Honest about what is on disk, not a marketing list.
+
+## Steps
+
+### 1. List skills
+
+Use Glob to find every `SKILL.md` file under `/home/phantom/.claude/skills/`. For each hit, Read the file and extract the YAML frontmatter's `name` and `description`.
+
+**Success criteria**: you have a list of `(name, description)` pairs for every SKILL.md on disk.
+
+### 2. List memory files
+
+Use Glob to find every `.md` file directly under `/home/phantom/.claude/` (depth up to 3), excluding the `skills/` subtree and the `plugins/` and `agents/` subtrees. Do not read their content; just list the paths and sizes.
+
+**Success criteria**: you have a list of memory file paths with sizes.
+
+### 3. Render as three sections
+
+Format the response like this:
+
+> **Skills.** I have N skills loaded from /home/phantom/.claude/skills/:
+>
+> - **mirror** - weekly self-audit playback
+> - **thread** - the evolution of thinking on a topic
+> - **echo** - prior-answer surfacer before I answer substantive questions
+> - **overheard** - promises audit from the last 14 days
+> - **ritual** - turn latent patterns into scheduled jobs
+> - **show-my-tools** - this one
+>
+> **Memory files.** I have M markdown files under /home/phantom/.claude/:
+>
+> - **CLAUDE.md** - top-level memory (N bytes)
+> - **rules/...** - any rule files you have written
+> - **memory/...** - any free-form notes you have written
+>
+> **Dashboard.** You can see and edit all of the above at `<public_url>/ui/dashboard/`. Skills tab is for creating, editing, and deleting skills. Memory files tab is for everything else under .claude/. The other tabs (sessions, cost, scheduler, evolution, memory explorer, settings) are coming in later releases.
+
+If `public_url` is not available, use `http://localhost:<port>/ui/dashboard/` or whatever matches the operator's known URL.
+
+**Success criteria**: the response shows the real current counts and names, the dashboard URL is accurate, and the user can act on it immediately.
+
+## Rules
+
+- Never fabricate a skill or memory file that is not actually on disk.
+- Never use em dashes in the response. Regular hyphens are fine.
+- Always list the dashboard URL.
+- If a skill has invalid YAML frontmatter, show it in the list with a note "(parse error)" so the user can fix it.
+- Keep the response under 300 words.
