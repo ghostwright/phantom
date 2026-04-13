@@ -25,24 +25,35 @@
 //     escape hatch the CLAUDE.md standards allow for this exact case.
 //     See findings 01b Section 3.3 for the source citation.
 //
-//  3. `@playwright/mcp@0.0.70` ships a nested `playwright-core` under its
-//     own `node_modules`, so its `BrowserContext` type root is structurally
-//     identical to but nominally disjoint from the top-level `playwright`
-//     package's `BrowserContext`. At runtime they are the same object (the
-//     nested playwright-core is never constructed; we pass in our own
-//     context). We declare the `getContext` parameter against the top-level
-//     type (what every caller in this codebase has on hand) and widen the
-//     function reference to `unknown` at the `createConnection` boundary.
-//     Any change to this line should preserve that single-point widening.
+//  3. Two `playwright-core` versions coexist in `node_modules`. `src/ui/preview.ts`
+//     launches via `playwright@1.59.1 -> nested playwright-core@1.59.1` at
+//     `node_modules/playwright/node_modules/playwright-core`, while
+//     `@playwright/mcp@0.0.70` resolves via the hoisted top-level
+//     `playwright-core@1.60.0-alpha-1774999321000` at `node_modules/playwright-core`.
+//     No `playwright-core` is nested under `@playwright/mcp/node_modules`
+//     itself; only a nested `playwright` wrapper is there. The `BrowserContext`
+//     we hand across the boundary is an instance from `1.59.1` consumed by
+//     `1.60.0-alpha`'s `SimpleBrowser` wrapper. The public `BrowserContext`
+//     API (`contexts()`, `addCookies`, `newPage`) is stable across this
+//     version range. The cross-version bridge is verified end to end by the
+//     integration test at `src/ui/__tests__/browser-mcp.integration.test.ts`,
+//     which drives a real `browser_navigate` through the embed against a
+//     context minted by `getOrCreatePreviewContext()`. We declare the
+//     `getContext` parameter against the top-level `playwright` type (what
+//     every caller in this codebase has on hand) and widen the function
+//     reference at the `createConnection` boundary. Any change to this line
+//     should preserve that single-point widening.
 
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createConnection } from "@playwright/mcp";
 import type { BrowserContext } from "playwright";
 
-// @playwright/mcp's createConnection declares contextGetter against its own
-// nested playwright-core types. At runtime both roots are structurally the
-// same BrowserContext; see header note 3 for the full explanation.
+// @playwright/mcp's createConnection declares contextGetter against the
+// hoisted playwright-core@1.60.0-alpha types, while our callers hold a
+// BrowserContext from the nested playwright-core@1.59.1. The public surface
+// SimpleBrowser touches is stable across both versions. See header note 3
+// for the full explanation and the runtime verification path.
 type AnyContextGetter = Parameters<typeof createConnection>[1];
 
 export async function createBrowserToolServer(

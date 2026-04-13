@@ -27,6 +27,13 @@ let browser: Browser | null = null;
 let browserPromise: Promise<Browser> | null = null;
 let currentContext: BrowserContext | null = null;
 let currentContextPromise: Promise<BrowserContext> | null = null;
+let lastCookieMintAt = 0;
+let shuttingDown = false;
+
+// The preview session cookie has a 10 minute TTL (see createPreviewSession in
+// session.ts). We rotate before minute 8 to leave a 2 minute safety margin so
+// a long-running multi-step query can never navigate with an expired cookie.
+const COOKIE_ROTATE_AFTER_MS = 8 * 60 * 1000;
 
 const CHROMIUM_LAUNCH_ARGS = [
 	// Required because the container runs as a non-root user and Chromium's
@@ -40,45 +47,74 @@ const CHROMIUM_LAUNCH_ARGS = [
 	"--disable-dev-shm-usage",
 ];
 
+function buildPreviewCookie(sessionToken: string) {
+	return {
+		name: "phantom_session",
+		value: sessionToken,
+		domain: "localhost",
+		// Scoped to /ui so the cookie matches the existing magic-link posture in
+		// src/ui/serve.ts. The only cookie-authenticated route in Phantom is
+		// /ui/*; /health, /mcp, /trigger, and /webhook use bearer or HMAC auth
+		// and never read phantom_session.
+		path: "/ui",
+		httpOnly: true,
+		secure: false,
+		sameSite: "Strict" as const,
+	};
+}
+
+async function injectFreshPreviewCookie(ctx: BrowserContext): Promise<void> {
+	const { sessionToken } = createPreviewSession();
+	await ctx.addCookies([buildPreviewCookie(sessionToken)]);
+	lastCookieMintAt = Date.now();
+}
+
 export async function getOrCreateBrowser(): Promise<Browser> {
+	if (shuttingDown) throw new Error("preview subsystem is shutting down");
 	if (browser) return browser;
 	if (browserPromise) return browserPromise;
+	// try/finally pattern: on either success OR failure we clear the cached
+	// promise. If we did not, a transient chromium.launch() throw would leave
+	// a rejected promise cached and every subsequent call would re-reject
+	// with the same error until process restart (Codex P2).
 	browserPromise = (async () => {
-		const b = await chromium.launch({
-			headless: true,
-			args: CHROMIUM_LAUNCH_ARGS,
-		});
-		browser = b;
-		browserPromise = null;
-		return b;
+		try {
+			const b = await chromium.launch({
+				headless: true,
+				args: CHROMIUM_LAUNCH_ARGS,
+			});
+			browser = b;
+			return b;
+		} finally {
+			browserPromise = null;
+		}
 	})();
 	return browserPromise;
 }
 
 export async function getOrCreatePreviewContext(): Promise<BrowserContext> {
-	if (currentContext) return currentContext;
+	if (shuttingDown) throw new Error("preview subsystem is shutting down");
+	if (currentContext) {
+		// Warm cache path: rotate the preview cookie if we are inside the 2
+		// minute safety margin before the 10 minute TTL expires. Playwright's
+		// addCookies replaces cookies with the same name+domain+path in place,
+		// so this is an O(1) refresh of the cached context (review F6, Codex P1).
+		if (Date.now() - lastCookieMintAt >= COOKIE_ROTATE_AFTER_MS) {
+			await injectFreshPreviewCookie(currentContext);
+		}
+		return currentContext;
+	}
 	if (currentContextPromise) return currentContextPromise;
 	currentContextPromise = (async () => {
-		const b = await getOrCreateBrowser();
-		const ctx = await b.newContext();
-		const { sessionToken } = createPreviewSession();
-		// Scoped to localhost: external navigations initiated by any browser_*
-		// tool will not see this cookie, so the auth surface stays identical to
-		// the existing /ui/ cookie model.
-		await ctx.addCookies([
-			{
-				name: "phantom_session",
-				value: sessionToken,
-				domain: "localhost",
-				path: "/",
-				httpOnly: true,
-				secure: false,
-				sameSite: "Strict",
-			},
-		]);
-		currentContext = ctx;
-		currentContextPromise = null;
-		return ctx;
+		try {
+			const b = await getOrCreateBrowser();
+			const ctx = await b.newContext();
+			await injectFreshPreviewCookie(ctx);
+			currentContext = ctx;
+			return ctx;
+		} finally {
+			currentContextPromise = null;
+		}
 	})();
 	return currentContextPromise;
 }
@@ -97,6 +133,7 @@ export async function closePreviewContext(): Promise<void> {
 }
 
 export async function closePreviewResources(): Promise<void> {
+	shuttingDown = true;
 	await closePreviewContext();
 	const b = browser;
 	browser = null;
@@ -108,6 +145,20 @@ export async function closePreviewResources(): Promise<void> {
 			// Swallow: we are shutting down, any error is terminal anyway.
 		}
 	}
+}
+
+// Test-only reset hook. Clears every module-level singleton so the next unit
+// test starts from a pristine state. Not exported from the public index; only
+// tests under src/ui/__tests__ import it via the relative path. Keeping this
+// in the production module avoids an indirection layer that would complicate
+// the happy path.
+export function __resetPreviewStateForTesting(): void {
+	browser = null;
+	browserPromise = null;
+	currentContext = null;
+	currentContextPromise = null;
+	lastCookieMintAt = 0;
+	shuttingDown = false;
 }
 
 type ConsoleMessage = { type: string; text: string };
@@ -152,7 +203,7 @@ export function createPreviewToolServer(port: number): McpSdkServerConfigWithIns
 				// cause the tool to time out. Stub it before any page JS runs.
 				// Research 01 verified init scripts run before page JS.
 				await page.addInitScript(() => {
-					(window as unknown as { EventSource: undefined }).EventSource = undefined;
+					Reflect.deleteProperty(globalThis, "EventSource");
 				});
 				const consoleMessages: ConsoleMessage[] = [];
 				page.on("console", (m) => {
@@ -205,7 +256,14 @@ export function createPreviewToolServer(port: number): McpSdkServerConfigWithIns
 				try {
 					await page.close();
 				} catch {
-					// Page already closed by cleanup path.
+					// page.close() can throw if the browser or context was torn
+					// down mid-call (e.g. SIGTERM during a successful return).
+					// Null currentContext so the next call re-creates a fresh
+					// one instead of handing back a dead reference. The cost on
+					// a genuinely cosmetic error is one extra ~60 ms context
+					// creation, which is cheap (review F8).
+					currentContext = null;
+					currentContextPromise = null;
 				}
 			}
 		},

@@ -77,10 +77,25 @@ COPY --from=builder /app/tsconfig.json ./
 
 # Install Chromium headless shell + system deps for Playwright.
 # Must run after node_modules is copied so bunx can resolve playwright.
-# --only-shell skips the full Chromium binary (saves ~75 MiB); the custom
-# phantom_preview_page tool uses chromium.launch() which picks the shell
-# automatically for headless=true. The @playwright/mcp embed path uses a
-# contextGetter so it never needs the full chrome channel binary.
+# --only-shell skips the full Chromium binary (saves ~75 MiB off the full
+# chrome channel); the custom phantom_preview_page tool uses
+# chromium.launch() which picks the headless shell automatically for
+# headless=true. The @playwright/mcp embed path uses a contextGetter so it
+# never needs the full chrome channel binary.
+#
+# Image cost breakdown (verified on the built image vs. the pre-Playwright
+# baseline, total delta roughly 996 MiB over the non-Playwright baseline):
+#   ~327 MB  chromium_headless_shell-* binary at
+#            /home/phantom/.cache/ms-playwright/chromium_headless_shell-*
+#   ~91 MB   /usr/share/fonts pulled by --with-deps (DejaVu, Liberation,
+#            Noto Core)
+#   ~500+ MB /usr/lib X11 / GTK / libasound / libnss3 / libcups / libatk
+#            and the other shared libraries apt-get pulls for Chromium
+#
+# --only-shell only affects the Chromium binary. The system deps are the
+# dominant cost and cannot be trimmed without breaking Chromium's ability
+# to start. If you are trying to shrink this image, the headless shell
+# binary is the only safe target; the /usr/lib growth is load-bearing.
 ENV PLAYWRIGHT_BROWSERS_PATH=/home/phantom/.cache/ms-playwright
 RUN mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" && \
     bunx playwright install --with-deps --only-shell chromium && \
