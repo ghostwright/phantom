@@ -2,7 +2,6 @@ import type { AgentRuntime } from "../agent/runtime.ts";
 import type { SlackChannel } from "../channels/slack.ts";
 import type { PhantomConfig } from "../config/types.ts";
 import { AuthMiddleware } from "../mcp/auth.ts";
-import { loadMcpConfig } from "../mcp/config.ts";
 import type { PhantomMcpServer } from "../mcp/server.ts";
 import type { MemoryHealth } from "../memory/types.ts";
 import type { SchedulerHealthSummary } from "../scheduler/health.ts";
@@ -78,9 +77,12 @@ export function setTriggerDeps(deps: TriggerDeps): void {
 
 let triggerAuth: AuthMiddleware | null = null;
 
-export function startServer(config: PhantomConfig, startedAt: number): ReturnType<typeof Bun.serve> {
-	const mcpConfig = loadMcpConfig();
-	triggerAuth = new AuthMiddleware(mcpConfig);
+export function startServer(
+	config: PhantomConfig,
+	startedAt: number,
+	mcpConfigPath = "config/mcp.yaml",
+): ReturnType<typeof Bun.serve> {
+	triggerAuth = new AuthMiddleware(mcpConfigPath);
 
 	const server = Bun.serve({
 		port: config.port,

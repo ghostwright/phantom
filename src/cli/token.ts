@@ -24,6 +24,27 @@ function createToken(): { token: string; hash: string } {
 	return { token, hash };
 }
 
+function printInitializeExample(token: string): void {
+	const requestBody = JSON.stringify({
+		jsonrpc: "2.0",
+		id: 1,
+		method: "initialize",
+		params: {
+			protocolVersion: "2025-11-25",
+			capabilities: {},
+			clientInfo: { name: "curl", version: "1.0" },
+		},
+	});
+
+	console.log("\nUse with an MCP client or initialize with:");
+	console.log("  curl -X POST https://your-phantom/mcp \\");
+	console.log(`    -H "Authorization: Bearer ${token}" \\`);
+	console.log('    -H "Accept: application/json, text/event-stream" \\');
+	console.log('    -H "Content-Type: application/json" \\');
+	console.log(`    -d '${requestBody}'`);
+	console.log("\nThe response will include an Mcp-Session-Id header for follow-up MCP requests.");
+}
+
 function runCreate(args: string[]): void {
 	const { values } = parseArgs({
 		args,
@@ -70,7 +91,7 @@ function runCreate(args: string[]): void {
 
 	console.log(`Token created for '${values.client}' with scope '${scopeStr}'`);
 	console.log(`\nToken (save this, it will not be shown again):\n  ${token}`);
-	console.log(`\nUse with curl:\n  curl -H "Authorization: Bearer ${token}" https://your-phantom/mcp`);
+	printInitializeExample(token);
 }
 
 function runList(): void {

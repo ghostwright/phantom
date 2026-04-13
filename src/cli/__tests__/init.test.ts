@@ -94,6 +94,7 @@ describe("phantom init", () => {
 		expect(logs.some((l) => l.includes("Admin:"))).toBe(true);
 		expect(logs.some((l) => l.includes("Operator:"))).toBe(true);
 		expect(logs.some((l) => l.includes("Read:"))).toBe(true);
+		expect(logs.some((l) => l.includes("docs/getting-started.md"))).toBe(true);
 	});
 
 	test("refuses to reinitialize if config exists", async () => {

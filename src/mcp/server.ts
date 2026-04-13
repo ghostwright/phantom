@@ -55,7 +55,7 @@ export class PhantomMcpServer {
 		// Run tasks migration
 		deps.db.run(TASKS_MIGRATION);
 
-		this.auth = new AuthMiddleware(mcpConfig);
+		this.auth = new AuthMiddleware(mcpConfigPath ?? "config/mcp.yaml");
 		this.rateLimiter = new RateLimiter(mcpConfig.rate_limit);
 		this.audit = new AuditLogger(deps.db);
 		this.roleId = deps.roleId ?? deps.config.role;

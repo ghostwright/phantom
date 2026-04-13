@@ -305,6 +305,7 @@ export async function runInit(args: string[]): Promise<void> {
 	console.log("  1. Set ANTHROPIC_API_KEY in your environment");
 	console.log("  2. Start Docker services: docker compose up -d");
 	console.log("  3. Start Phantom: phantom start");
-	console.log("  4. Connect from Claude Code:");
-	console.log(`     claude mcp add phantom -- curl -H "Authorization: Bearer ${mcp.adminToken}" https://your-host/mcp`);
+	console.log("  4. Add the streamableHttp MCP config from docs/getting-started.md:");
+	console.log("     URL: https://your-host/mcp");
+	console.log(`     Header: Authorization: Bearer ${mcp.operatorToken}`);
 }

@@ -1,4 +1,8 @@
 import { beforeAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import YAML from "yaml";
 import { AuthMiddleware } from "../auth.ts";
 import { hashTokenSync } from "../config.ts";
 import type { McpConfig, McpScope } from "../types.ts";
@@ -107,5 +111,43 @@ describe("AuthMiddleware", () => {
 	test("hasScope: unauthenticated has no scopes", () => {
 		const noAuth = { authenticated: false as const, error: "nope" };
 		expect(auth.hasScope(noAuth, "read")).toBe(false);
+	});
+
+	test("reloads file-backed tokens when config changes", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "phantom-auth-test-"));
+		const configPath = join(tempDir, "mcp.yaml");
+		const alphaToken = "alpha-token";
+		const betaToken = "beta-token";
+
+		const writeConfig = (tokens: McpConfig["tokens"]) => {
+			writeFileSync(
+				configPath,
+				YAML.stringify({ tokens, rate_limit: { requests_per_minute: 60, burst: 10 } }),
+				"utf-8",
+			);
+		};
+
+		try {
+			writeConfig([{ name: "alpha", hash: hashTokenSync(alphaToken), scopes: ["read"] }]);
+			const fileAuth = new AuthMiddleware(configPath);
+
+			const before = await fileAuth.authenticate(
+				new Request("http://localhost/mcp", { headers: { Authorization: `Bearer ${betaToken}` } }),
+			);
+			expect(before.authenticated).toBe(false);
+
+			writeConfig([{ name: "beta", hash: hashTokenSync(betaToken), scopes: ["read", "operator"] }]);
+
+			const after = await fileAuth.authenticate(
+				new Request("http://localhost/mcp", { headers: { Authorization: `Bearer ${betaToken}` } }),
+			);
+			expect(after.authenticated).toBe(true);
+			if (after.authenticated) {
+				expect(after.clientName).toBe("beta");
+				expect(after.scopes).toContain("operator");
+			}
+		} finally {
+			rmSync(tempDir, { recursive: true, force: true });
+		}
 	});
 });

@@ -27,6 +27,8 @@ bun run phantom token list
 bun run phantom token revoke --client claude-code
 ```
 
+Running Phantom reloads token changes from `config/mcp.yaml` automatically, so new tokens do not require a restart.
+
 Three scopes:
 
 | Scope | Permissions |
@@ -34,6 +36,20 @@ Three scopes:
 | `read` | Query status, memory, config, metrics, history |
 | `operator` | Everything in read + ask questions, create tasks |
 | `admin` | Everything in operator + register/unregister dynamic tools |
+
+## Validating a Token
+
+MCP uses a session-based streamable HTTP transport. A bare authenticated `curl` to `/mcp` is not enough; start with an `initialize` request:
+
+```bash
+curl -i -X POST https://your-phantom/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}'
+```
+
+The response includes an `Mcp-Session-Id` header. Use that header on follow-up `tools/list`, `resources/read`, and `tools/call` requests.
 
 ## Universal Tools
 
@@ -78,9 +94,11 @@ Additional tools when running with the `swe` role:
 The agent can register new tools at runtime. When a Phantom builds something (a database, a pipeline, a dashboard), it registers MCP tools so external clients can use it:
 
 ```bash
-# List dynamically registered tools
+# List dynamically registered tools after initialize
 curl -X POST https://your-phantom/mcp \
   -H "Authorization: Bearer $TOKEN" \
+  -H "Mcp-Session-Id: <session-id>" \
+  -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```

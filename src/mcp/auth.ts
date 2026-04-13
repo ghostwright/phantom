@@ -1,16 +1,34 @@
+import { statSync } from "node:fs";
+import { loadMcpConfig } from "./config.ts";
 import type { AuthResult, McpConfig, McpScope } from "./types.ts";
 
-export class AuthMiddleware {
-	private tokenMap: Map<string, { name: string; scopes: McpScope[] }>;
+type TokenEntry = {
+	name: string;
+	scopes: McpScope[];
+};
 
-	constructor(config: McpConfig) {
-		this.tokenMap = new Map();
-		for (const token of config.tokens) {
-			this.tokenMap.set(token.hash, { name: token.name, scopes: token.scopes });
+export class AuthMiddleware {
+	private tokenMap: Map<string, TokenEntry>;
+	private configPath: string | null;
+	private lastConfigFingerprint: string | null;
+
+	constructor(configOrPath: McpConfig | string = "config/mcp.yaml") {
+		if (typeof configOrPath === "string") {
+			const config = loadMcpConfig(configOrPath);
+			this.tokenMap = buildTokenMap(config);
+			this.configPath = configOrPath;
+			this.lastConfigFingerprint = getConfigFingerprint(configOrPath);
+			return;
 		}
+
+		this.tokenMap = buildTokenMap(configOrPath);
+		this.configPath = null;
+		this.lastConfigFingerprint = null;
 	}
 
 	async authenticate(req: Request): Promise<AuthResult> {
+		this.reloadConfigIfNeeded();
+
 		const authHeader = req.headers.get("Authorization");
 		if (!authHeader) {
 			return { authenticated: false, error: "Missing Authorization header" };
@@ -51,6 +69,42 @@ export class AuthMiddleware {
 			.map((b) => b.toString(16).padStart(2, "0"))
 			.join("");
 		return `sha256:${hex}`;
+	}
+
+	private reloadConfigIfNeeded(): void {
+		if (!this.configPath) return;
+
+		const fingerprint = getConfigFingerprint(this.configPath);
+		if (!fingerprint || fingerprint === this.lastConfigFingerprint) {
+			return;
+		}
+
+		try {
+			const config = loadMcpConfig(this.configPath);
+			this.tokenMap = buildTokenMap(config);
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`[mcp] Failed to reload auth config from ${this.configPath}: ${msg}`);
+		} finally {
+			this.lastConfigFingerprint = fingerprint;
+		}
+	}
+}
+
+function buildTokenMap(config: McpConfig): Map<string, TokenEntry> {
+	const tokenMap = new Map<string, TokenEntry>();
+	for (const token of config.tokens) {
+		tokenMap.set(token.hash, { name: token.name, scopes: token.scopes });
+	}
+	return tokenMap;
+}
+
+function getConfigFingerprint(path: string): string | null {
+	try {
+		const stats = statSync(path);
+		return `${stats.mtimeMs}:${stats.size}`;
+	} catch {
+		return null;
 	}
 }
 

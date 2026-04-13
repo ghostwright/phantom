@@ -77,6 +77,8 @@ describe("phantom token", () => {
 
 		expect(logs.some((l) => l.includes("Token created for 'claude-code'"))).toBe(true);
 		expect(logs.some((l) => l.includes("Token (save this"))).toBe(true);
+		expect(logs.some((l) => l.includes('"method":"initialize"'))).toBe(true);
+		expect(logs.some((l) => l.includes("Mcp-Session-Id"))).toBe(true);
 
 		// Verify the config file was updated
 		const raw = readFileSync(`${TEST_DIR}/config/mcp.yaml`, "utf-8");
