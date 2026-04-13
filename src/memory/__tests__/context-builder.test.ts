@@ -88,6 +88,37 @@ describe("MemoryContextBuilder", () => {
 		expect(result).toContain("[confidence: 0.9]");
 	});
 
+	test("includes semantic reinforcement and contradiction context", async () => {
+		const memory = createMockMemorySystem({
+			facts: Promise.resolve([
+				{
+					id: "f1",
+					subject: "staging",
+					predicate: "runs on",
+					object: "port 3001",
+					natural_language: "The staging server runs on port 3001",
+					source_episode_ids: [],
+					confidence: 0.9,
+					valid_from: new Date().toISOString(),
+					valid_until: null,
+					version: 2,
+					reinforcement_count: 2,
+					contradiction_note: "The staging server runs on port 3000",
+					previous_version_id: "f0",
+					superseded_by_fact_id: null,
+					category: "domain_knowledge" as const,
+					tags: [],
+				},
+			]),
+		});
+
+		const builder = new MemoryContextBuilder(memory, TEST_CONFIG);
+		const result = await builder.build("staging");
+
+		expect(result).toContain("repeated: 3x");
+		expect(result).toContain("Recent contradictions: The staging server runs on port 3000");
+	});
+
 	test("formats episodes section correctly", async () => {
 		const memory = createMockMemorySystem({
 			episodes: Promise.resolve([
