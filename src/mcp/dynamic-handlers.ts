@@ -19,14 +19,21 @@ function getHandlerLimits(): HandlerLimits {
  * Safe environment for subprocess execution.
  * Only expose what dynamic tools legitimately need.
  * Secrets (API keys, tokens) are never passed to subprocesses.
+ *
+ * @param input - Tool input to serialize as TOOL_INPUT env var
+ * @param explicitEnv - Optional explicit env vars to include (e.g., GH_TOKEN for phantom_gh_exec)
  */
-export function buildSafeEnv(input: Record<string, unknown>): Record<string, string> {
+export function buildSafeEnv(
+	input: Record<string, unknown>,
+	explicitEnv?: Record<string, string>,
+): Record<string, string> {
 	return {
 		PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
 		HOME: process.env.HOME ?? "/tmp",
 		LANG: process.env.LANG ?? "en_US.UTF-8",
 		TERM: process.env.TERM ?? "xterm-256color",
 		TOOL_INPUT: JSON.stringify(input),
+		...explicitEnv,
 	};
 }
 

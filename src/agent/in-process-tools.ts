@@ -1,6 +1,8 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { getInstallationToken } from "../integrations/github-app.ts";
+import { buildSafeEnv } from "../mcp/dynamic-handlers.ts";
 import type { DynamicToolRegistry } from "../mcp/dynamic-tools.ts";
 
 /**
@@ -115,5 +117,127 @@ export function createInProcessToolServer(registry: DynamicToolRegistry): McpSdk
 	return createSdkMcpServer({
 		name: "phantom-dynamic-tools",
 		tools: [registerTool, unregisterTool, listTool],
+	});
+}
+
+// Shell metacharacters that could enable injection attacks
+const SHELL_METACHARACTERS = /[;|&$`><(){}[\]]/;
+
+/**
+ * Validate that args don't contain shell metacharacters.
+ * Since we use Bun.spawn with args array, the shell doesn't interpret these,
+ * but we reject them anyway as defense in depth.
+ */
+export function validateGhExecArgs(args: string[]): { valid: true } | { valid: false; error: string } {
+	for (const arg of args) {
+		if (SHELL_METACHARACTERS.test(arg)) {
+			return {
+				valid: false,
+				error: `Argument contains shell metacharacter: "${arg}". This is not allowed for security reasons.`,
+			};
+		}
+	}
+	return { valid: true };
+}
+
+type GhExecInput = {
+	binary: "gh" | "git";
+	args: string[];
+	cwd?: string;
+};
+
+type GhExecOptions = {
+	tokenGetter?: () => Promise<string>;
+};
+
+/**
+ * Execute a gh or git command with GitHub App authentication.
+ * Exported for testing - the MCP tool wraps this.
+ *
+ * @param input - The command input
+ * @param options - Optional configuration. tokenGetter allows dependency injection for testing.
+ */
+export async function executeGhExec(
+	input: GhExecInput,
+	options?: GhExecOptions,
+): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
+	const tokenGetter = options?.tokenGetter ?? getInstallationToken;
+
+	// Validate args for shell metacharacters
+	const validation = validateGhExecArgs(input.args);
+	if (!validation.valid) {
+		return {
+			content: [{ type: "text" as const, text: JSON.stringify({ error: validation.error }) }],
+			isError: true,
+		};
+	}
+
+	try {
+		// Get the installation token (cached, refreshes automatically)
+		const token = await tokenGetter();
+
+		// Build safe environment with only GH_TOKEN added
+		const env = buildSafeEnv({}, { GH_TOKEN: token });
+
+		// Spawn the process with args as array (no shell interpretation)
+		const proc = Bun.spawn([input.binary, ...input.args], {
+			stdout: "pipe",
+			stderr: "pipe",
+			env,
+			cwd: input.cwd,
+		});
+
+		// Read stdout and stderr
+		const stdoutText = await new Response(proc.stdout).text();
+		const stderrText = await new Response(proc.stderr).text();
+		const exitCode = await proc.exited;
+
+		// Build result - NEVER include the token
+		const result = {
+			stdout: stdoutText.trim(),
+			stderr: stderrText.trim(),
+			exitCode,
+		};
+
+		if (exitCode !== 0) {
+			return {
+				content: [{ type: "text" as const, text: JSON.stringify(result) }],
+				isError: true,
+			};
+		}
+
+		return {
+			content: [{ type: "text" as const, text: JSON.stringify(result) }],
+		};
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		return {
+			content: [{ type: "text" as const, text: JSON.stringify({ error: msg }) }],
+			isError: true,
+		};
+	}
+}
+
+/**
+ * Creates an in-process SDK MCP server that exposes GitHub CLI tools.
+ * The GH_TOKEN is injected into the subprocess environment, never exposed to the model.
+ */
+export function createGitHubToolServer(): McpSdkServerConfigWithInstance {
+	const ghExecTool = tool(
+		"phantom_gh_exec",
+		"Execute gh or git commands with GitHub App authentication. " +
+			"The authentication token is injected into the subprocess environment and never returned in the result. " +
+			"Use this for all GitHub operations: cloning repos, creating PRs, managing issues, etc.",
+		{
+			binary: z.enum(["gh", "git"]).describe("The binary to execute: 'gh' for GitHub CLI, 'git' for git commands"),
+			args: z.array(z.string()).describe("Arguments to pass to the binary"),
+			cwd: z.string().optional().describe("Working directory for the command"),
+		},
+		(input) => executeGhExec(input),
+	);
+
+	return createSdkMcpServer({
+		name: "phantom-github",
+		tools: [ghExecTool],
 	});
 }
