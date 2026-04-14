@@ -152,4 +152,19 @@ export const MIGRATIONS: string[] = [
 	)`,
 
 	"CREATE INDEX IF NOT EXISTS idx_plugin_install_audit_log_plugin ON plugin_install_audit_log(plugin_name, marketplace, id DESC)",
+
+	// PR3 dashboard: subagent editor audit log. Every create/update/delete from
+	// the UI API writes a row here. Agent-originated edits via the Write tool
+	// bypass this path; a future PR may add a file watcher to capture those.
+	`CREATE TABLE IF NOT EXISTS subagent_audit_log (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		subagent_name TEXT NOT NULL,
+		action TEXT NOT NULL,
+		previous_body TEXT,
+		new_body TEXT,
+		actor TEXT NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`,
+
+	"CREATE INDEX IF NOT EXISTS idx_subagent_audit_log_name ON subagent_audit_log(subagent_name, id DESC)",
 ];

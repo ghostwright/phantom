@@ -9,6 +9,7 @@ import { getSecretRequest, saveSecrets, validateMagicToken } from "../secrets/st
 import { handleMemoryFilesApi } from "./api/memory-files.ts";
 import { type PluginsApiDeps, handlePluginsApi } from "./api/plugins.ts";
 import { handleSkillsApi } from "./api/skills.ts";
+import { handleSubagentsApi } from "./api/subagents.ts";
 
 const COOKIE_NAME = "phantom_session";
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60; // 7 days in seconds
@@ -168,6 +169,13 @@ export async function handleUiRequest(req: Request): Promise<Response> {
 			return Response.json({ error: "Dashboard API not initialized" }, { status: 503 });
 		}
 		const apiResponse = await handlePluginsApi(req, url, { db: dashboardDb, ...pluginsApiOverrides });
+		if (apiResponse) return apiResponse;
+	}
+	if (url.pathname.startsWith("/ui/api/subagents")) {
+		if (!dashboardDb) {
+			return Response.json({ error: "Dashboard API not initialized" }, { status: 503 });
+		}
+		const apiResponse = await handleSubagentsApi(req, url, { db: dashboardDb });
 		if (apiResponse) return apiResponse;
 	}
 

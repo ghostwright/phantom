@@ -181,34 +181,39 @@
 		container.setAttribute("data-active", "true");
 		var labels = {
 			sessions: {
-				eyebrow: "PR2",
+				eyebrow: "soon",
 				title: "Sessions",
 				body: "A live view of every session the agent has had, with channels, costs, turn counts, and outcomes. Click through for full transcripts and the memories consolidated from each run.",
 			},
 			cost: {
-				eyebrow: "PR2",
+				eyebrow: "soon",
 				title: "Cost",
 				body: "Daily and weekly cost breakdowns with model-level detail. Charts across time so you can see where the agent's budget actually goes, and alerts when anything drifts out of its baseline.",
 			},
 			scheduler: {
-				eyebrow: "PR3",
+				eyebrow: "soon",
 				title: "Scheduler",
 				body: "Every cron and one-shot job the agent has created, with next-run times, recent outcomes, and the ability to edit or pause a schedule without asking the agent to do it for you.",
 			},
 			evolution: {
-				eyebrow: "PR3",
+				eyebrow: "soon",
 				title: "Evolution timeline",
 				body: "The 6-step self-evolution pipeline rendered as a timeline: reflections, judges, validated changes, version bumps, and rollback points. You see exactly how the agent is changing itself over time.",
 			},
 			memory: {
-				eyebrow: "PR4",
+				eyebrow: "soon",
 				title: "Memory explorer",
 				body: "A read view over every episode, fact, and procedure the agent has consolidated. Search, filter by decay, inspect provenance, and watch memories get reinforced as they get reused.",
 			},
 			settings: {
-				eyebrow: "PR3",
+				eyebrow: "soon",
 				title: "Settings",
 				body: "A curated form over the agent's Claude Code settings: permissions, MCP servers, hooks, and the knobs that actually change how it thinks. Raw JSON escape hatch for the power users.",
+			},
+			hooks: {
+				eyebrow: "soon",
+				title: "Hooks",
+				body: "A visual rule builder for the 26 Claude Agent SDK hook events: command, prompt, agent, and http hooks with matchers and per-event lists. Trust modal on first install, audit log on every change.",
 			},
 		};
 		var meta = labels[name] || { eyebrow: "Soon", title: name, body: "Coming in a later PR." };
@@ -246,8 +251,8 @@
 		var name = parsed.route;
 		deactivateAllRoutes();
 
-		var liveRoutes = ["skills", "memory-files", "plugins"];
-		var comingSoon = ["sessions", "cost", "scheduler", "evolution", "memory", "settings"];
+		var liveRoutes = ["skills", "memory-files", "plugins", "subagents"];
+		var comingSoon = ["sessions", "cost", "scheduler", "evolution", "memory", "settings", "hooks"];
 
 		if (liveRoutes.indexOf(name) >= 0 && routes[name]) {
 			var containerId = "route-" + name;
