@@ -58,6 +58,34 @@ describe("UpstreamPluginSchema", () => {
 		});
 		expect(parsed.name).toBe("notion");
 	});
+
+	test("accepts lspServers as a record keyed by server name (real upstream shape)", () => {
+		const parsed = UpstreamPluginSchema.parse({
+			name: "clangd-lsp",
+			description: "C/C++ language server",
+			lspServers: {
+				clangd: {
+					command: "clangd",
+					args: ["--background-index"],
+					extensionToLanguage: { ".c": "c", ".cpp": "cpp" },
+				},
+			},
+		});
+		expect(parsed.name).toBe("clangd-lsp");
+	});
+
+	test("accepts lspServers as an object with multiple servers", () => {
+		const parsed = UpstreamPluginSchema.parse({
+			name: "polyglot-lsp",
+			description: "many languages",
+			lspServers: {
+				clangd: { command: "clangd" },
+				rust_analyzer: { command: "rust-analyzer" },
+				gopls: { command: "gopls" },
+			},
+		});
+		expect(parsed.name).toBe("polyglot-lsp");
+	});
 });
 
 describe("MarketplaceSchema", () => {

@@ -84,7 +84,11 @@ export const UpstreamPluginSchema = z
 		tags: z.array(z.string()).optional(),
 		keywords: z.array(z.string()).optional(),
 		skills: z.array(z.string()).optional(),
-		lspServers: z.array(z.unknown()).optional(),
+		// Upstream lspServers is a Record<string, LspServerConfig> keyed by server name
+		// (e.g. {"clangd": {...}}), not an array. We do not render this field anywhere,
+		// so accept any shape and let .passthrough() keep it on the parsed object for
+		// future use. Strict typing here would reject ~12 real plugins from the catalog.
+		lspServers: z.unknown().optional(),
 		strict: z.boolean().optional(),
 	})
 	.passthrough();
