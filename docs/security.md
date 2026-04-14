@@ -47,6 +47,10 @@ These are configured automatically by the [app manifest](../slack-app-manifest.y
 | `SLACK_APP_TOKEN` | For Slack | App-level token for Socket Mode (`xapp-`) |
 | `SLACK_CHANNEL_ID` | For Slack | Default channel for intro message on first start |
 | `TELEGRAM_BOT_TOKEN` | For Telegram | Telegram bot token from @BotFather |
+| `GITHUB_APP_ID` | For GitHub | GitHub App ID (see GitHub App section) |
+| `GITHUB_APP_CLIENT_ID` | For GitHub | GitHub App Client ID |
+| `GITHUB_APP_INSTALLATION_ID` | For GitHub | Installation ID for your org/account |
+| `GITHUB_APP_PRIVATE_KEY_B64` | For GitHub | Base64-encoded private key |
 | `PORT` | No (default 3100) | HTTP server port |
 
 ## MCP Authentication
@@ -92,7 +96,7 @@ The agent runtime includes safety hooks:
 
 ## Constitution
 
-The self-evolution engine has 8 immutable principles in `phantom-config/constitution.md` that cannot be modified by the evolution process:
+The self-evolution engine has 9 immutable principles in `phantom-config/constitution.md` that cannot be modified by the evolution process:
 
 - Never exfiltrate data
 - Never modify its own safety hooks
@@ -154,6 +158,54 @@ Dynamic tools (registered at runtime by the agent) execute code in isolated subp
 - Subprocesses run with a sanitized environment containing only PATH, HOME, LANG, TERM, and TOOL_INPUT. API keys, tokens, and other secrets are never passed to dynamic tool subprocesses.
 - Bun script handlers use `--env-file=` to prevent automatic loading of `.env` files
 - Tool input is passed via the TOOL_INPUT environment variable (JSON string)
+
+## GitHub App Authentication
+
+Phantom can use a GitHub App for authenticated access to GitHub repositories via the `phantom_gh_exec` tool. The installation token is injected into subprocess environments - it never appears in model context or tool results.
+
+### Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `GITHUB_APP_ID` | GitHub App ID (numeric) |
+| `GITHUB_APP_CLIENT_ID` | GitHub App Client ID (Iv1.xxx format) |
+| `GITHUB_APP_INSTALLATION_ID` | Installation ID for your organization/account |
+| `GITHUB_APP_PRIVATE_KEY_B64` | Base64-encoded private key (.pem file) |
+
+To encode the private key:
+```bash
+base64 -w 0 < your-app.private-key.pem
+```
+
+### Token Rotation Playbook
+
+**When to rotate:**
+- Private key compromise (leaked .pem file)
+- Suspicious commit activity from the bot account
+- Employee with key access leaving the organization
+- Routine rotation (recommended: every 90 days)
+
+**How to rotate:**
+
+1. Go to GitHub App settings: `https://github.com/settings/apps/<app-name>`
+2. Under "Private keys", click "Generate a private key"
+3. Download the new .pem file
+4. Encode it: `base64 -w 0 < new-key.pem`
+5. Update `GITHUB_APP_PRIVATE_KEY_B64` in your `.env` file
+6. Restart Phantom: `systemctl restart phantom` (or `docker compose restart phantom`)
+7. (Optional) Revoke the old key in GitHub App settings
+
+The cached installation token will be automatically rejected on next use and a fresh token will be minted with the new key.
+
+**Audit trail:**
+- Key generation events are logged in the GitHub App's settings page under "Private keys"
+- Installation tokens are short-lived (1 hour) and automatically refreshed
+- All `phantom_gh_exec` invocations are logged in the agent's audit trail
+
+**Security notes:**
+- Never commit .pem files or base64-encoded keys to git
+- Store keys in `.env.local` (gitignored) or inject via secrets manager
+- The `phantom doctor` command warns if GitHub App credentials are missing but does not fail - this allows Phantom to run without GitHub access
 
 ## Webhook Callback URL Validation
 
