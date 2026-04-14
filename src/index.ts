@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { createInProcessToolServer } from "./agent/in-process-tools.ts";
+import { createGitHubToolServer, createInProcessToolServer } from "./agent/in-process-tools.ts";
 import { AgentRuntime } from "./agent/runtime.ts";
 import type { RuntimeEvent } from "./agent/runtime.ts";
 import { slackContextStore } from "./agent/slack-context.ts";
@@ -37,6 +37,7 @@ import { runMigrations } from "./db/migrate.ts";
 import { createEmailToolServer } from "./email/tool.ts";
 import { EvolutionEngine } from "./evolution/engine.ts";
 import type { SessionSummary } from "./evolution/types.ts";
+import { validateGitHubAppEnv } from "./integrations/github-app.ts";
 import { LoopRunner } from "./loop/runner.ts";
 import { createLoopToolServer } from "./loop/tool.ts";
 import { PeerHealthMonitor } from "./mcp/peer-health.ts";
@@ -232,6 +233,7 @@ async function main(): Promise<void> {
 			"phantom-loop": () => createLoopToolServer(loopRunner),
 			"phantom-web-ui": () => createWebUiToolServer(config.public_url),
 			"phantom-secrets": () => createSecretToolServer({ db, baseUrl: secretsBaseUrl }),
+			...(validateGitHubAppEnv().success ? { "phantom-github": createGitHubToolServer } : {}),
 			...(process.env.RESEND_API_KEY
 				? {
 						"phantom-email": () =>

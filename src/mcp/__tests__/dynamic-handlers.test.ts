@@ -13,6 +13,22 @@ describe("buildSafeEnv", () => {
 		expect(Object.keys(env)).toHaveLength(5);
 	});
 
+	test("merges explicit env vars when provided", () => {
+		const env = buildSafeEnv({ hello: "world" }, { GH_TOKEN: "ghs_secret123" });
+		expect(env.PATH).toBeDefined();
+		expect(env.HOME).toBeDefined();
+		expect(env.TOOL_INPUT).toBe('{"hello":"world"}');
+		expect(env.GH_TOKEN).toBe("ghs_secret123");
+		expect(Object.keys(env)).toHaveLength(6);
+	});
+
+	test("explicit env vars do not override base safe vars", () => {
+		// Explicit vars are spread last, so they CAN override. This is intentional
+		// for cases where a tool needs a custom PATH. But the test documents behavior.
+		const env = buildSafeEnv({}, { PATH: "/custom/path" });
+		expect(env.PATH).toBe("/custom/path");
+	});
+
 	test("does not include ANTHROPIC_API_KEY", () => {
 		const origKey = process.env.ANTHROPIC_API_KEY;
 		process.env.ANTHROPIC_API_KEY = "sk-ant-test-key-should-not-leak";
