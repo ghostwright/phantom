@@ -208,6 +208,37 @@ async function checkPhantomHealth(port: number): Promise<CheckResult> {
 	}
 }
 
+async function checkGitHubApp(): Promise<CheckResult> {
+	const requiredVars = [
+		"GITHUB_APP_ID",
+		"GITHUB_APP_CLIENT_ID",
+		"GITHUB_APP_INSTALLATION_ID",
+		"GITHUB_APP_PRIVATE_KEY_B64",
+	];
+
+	const missing = requiredVars.filter((v) => !process.env[v]);
+
+	if (missing.length === requiredVars.length) {
+		return {
+			name: "GitHub App",
+			status: "warn",
+			message: "Not configured (phantom_gh_exec unavailable)",
+			fix: "Add GitHub App credentials to .env - see docs/security.md",
+		};
+	}
+
+	if (missing.length > 0) {
+		return {
+			name: "GitHub App",
+			status: "warn",
+			message: `Missing: ${missing.join(", ")}`,
+			fix: "Complete GitHub App configuration in .env - see docs/security.md",
+		};
+	}
+
+	return { name: "GitHub App", status: "ok", message: "Credentials configured" };
+}
+
 export async function runDoctor(args: string[]): Promise<void> {
 	const { values } = parseArgs({
 		args,
@@ -241,6 +272,7 @@ export async function runDoctor(args: string[]): Promise<void> {
 		checkDatabase(),
 		checkEvolvedConfig(),
 		checkEvolutionPipeline(),
+		checkGitHubApp(),
 		checkPhantomHealth(port),
 	]);
 
