@@ -1,8 +1,8 @@
 ---
 name: show-my-tools
 x-phantom-source: built-in
-description: List the agent's current skills, memory files, and dashboard URLs. The user-facing discovery path for everything the operator can edit.
-when_to_use: Use when the user says "what can you do", "what skills do you have", "show me your skills", "what can I edit", "how do I customize you", "what memory files do you have", "what is in your .claude", "where is the dashboard", or any similar discovery question.
+description: List the agent's current skills, memory files, plugins, and dashboard URLs. The user-facing discovery path for everything the operator can edit.
+when_to_use: Use when the user says "what can you do", "what skills do you have", "show me your skills", "what can I edit", "how do I customize you", "what memory files do you have", "what plugins do you have", "what is in your .claude", "where is the dashboard", or any similar discovery question.
 allowed-tools:
   - Read
   - Glob
@@ -30,7 +30,13 @@ Use Glob to find every `.md` file directly under `/home/phantom/.claude/` (depth
 
 **Success criteria**: you have a list of memory file paths with sizes.
 
-### 3. Render as three sections
+### 2.5 List plugins
+
+Use Read to open `/home/phantom/.claude/settings.json`. Parse it as JSON. If there is no `enabledPlugins` field, skip this section. Otherwise, for each `key: value` in `enabledPlugins` where the value is truthy (true, an object, or a non-empty array), record the `plugin-id@marketplace-id` and a short fallback description.
+
+**Success criteria**: you have a list of currently active plugin keys, or you know the list is empty.
+
+### 3. Render as four sections
 
 Format the response like this:
 
@@ -49,7 +55,14 @@ Format the response like this:
 > - **rules/...** - any rule files you have written
 > - **memory/...** - any free-form notes you have written
 >
-> **Dashboard.** You can see and edit all of the above at `<public_url>/ui/dashboard/`. Skills tab is for creating, editing, and deleting skills. Memory files tab is for everything else under .claude/. The other tabs (sessions, cost, scheduler, evolution, memory explorer, settings) are coming in later releases.
+> **Plugins.** I have K plugins enabled from claude-plugins-official:
+>
+> - **linear** - Linear issue tracking
+> - **notion** - Notion workspace knowledge
+> - **slack** - Slack workspace messages
+> - **claude-md-management** - CLAUDE.md maintenance
+>
+> **Dashboard.** You can see and edit all of the above at `<public_url>/ui/dashboard/`. Skills tab is for creating, editing, and deleting skills. Memory files tab is for everything else under .claude/. Plugins tab is for browsing and installing third-party plugins with a trust modal. The other tabs (sessions, cost, scheduler, evolution, memory explorer, settings) are coming in later releases.
 
 If `public_url` is not available, use `http://localhost:<port>/ui/dashboard/` or whatever matches the operator's known URL.
 

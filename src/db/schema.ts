@@ -132,4 +132,24 @@ export const MIGRATIONS: string[] = [
 	)`,
 
 	"CREATE INDEX IF NOT EXISTS idx_memory_file_audit_log_path ON memory_file_audit_log(file_path, id DESC)",
+
+	// PR2 dashboard: plugin install audit log. Every install/uninstall from the
+	// UI API writes a row here so the operator can see the history of what was
+	// enabled or disabled, who did it, and what the marketplace source was at
+	// install time. Agent-originated writes to settings.json bypass this path
+	// today; a future PR may add a file watcher to capture those.
+	`CREATE TABLE IF NOT EXISTS plugin_install_audit_log (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		plugin_name TEXT NOT NULL,
+		marketplace TEXT NOT NULL,
+		action TEXT NOT NULL,
+		source_type TEXT,
+		source_url TEXT,
+		previous_value TEXT,
+		new_value TEXT,
+		actor TEXT NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`,
+
+	"CREATE INDEX IF NOT EXISTS idx_plugin_install_audit_log_plugin ON plugin_install_audit_log(plugin_name, marketplace, id DESC)",
 ];

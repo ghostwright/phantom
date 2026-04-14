@@ -25,6 +25,16 @@ if [ -d /app/skills-builtin ]; then
   done
 fi
 
+# Seed Phantom's four default plugins into the user-scope settings.json on
+# first run. The seeder preserves operator choices: any plugin key that is
+# already mentioned (true or false) is left alone. Only missing keys are
+# added with value true. Other settings.json fields are preserved untouched.
+if [ -f /app/src/plugins/seed.ts ]; then
+  mkdir -p /home/phantom/.claude
+  echo "[phantom] Seeding default plugins..."
+  bun run /app/src/plugins/seed.ts --apply || echo "[phantom] WARNING: plugin seeding failed (continuing)"
+fi
+
 # Determine service URLs from environment (with Docker Compose defaults)
 QDRANT_URL="${QDRANT_URL:-http://qdrant:6333}"
 OLLAMA_URL="${OLLAMA_URL:-http://ollama:11434}"

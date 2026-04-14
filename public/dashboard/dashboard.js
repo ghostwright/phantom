@@ -246,7 +246,7 @@
 		var name = parsed.route;
 		deactivateAllRoutes();
 
-		var liveRoutes = ["skills", "memory-files"];
+		var liveRoutes = ["skills", "memory-files", "plugins"];
 		var comingSoon = ["sessions", "cost", "scheduler", "evolution", "memory", "settings"];
 
 		if (liveRoutes.indexOf(name) >= 0 && routes[name]) {

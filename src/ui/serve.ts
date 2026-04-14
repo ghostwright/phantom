@@ -7,6 +7,7 @@ import { consumeMagicLink, createSession, isValidSession } from "./session.ts";
 import { secretsExpiredHtml, secretsFormHtml } from "../secrets/form-page.ts";
 import { getSecretRequest, saveSecrets, validateMagicToken } from "../secrets/store.ts";
 import { handleMemoryFilesApi } from "./api/memory-files.ts";
+import { type PluginsApiDeps, handlePluginsApi } from "./api/plugins.ts";
 import { handleSkillsApi } from "./api/skills.ts";
 
 const COOKIE_NAME = "phantom_session";
@@ -15,6 +16,7 @@ const COOKIE_MAX_AGE = 7 * 24 * 60 * 60; // 7 days in seconds
 let publicDir = resolve(process.cwd(), "public");
 let secretsDb: Database | null = null;
 let dashboardDb: Database | null = null;
+let pluginsApiOverrides: Pick<PluginsApiDeps, "fetcher" | "settingsPath" | "overlayPath"> = {};
 
 type SecretSavedCallback = (requestId: string, secretNames: string[]) => Promise<void>;
 let onSecretSaved: SecretSavedCallback | null = null;
@@ -25,6 +27,19 @@ export function setSecretsDb(db: Database): void {
 
 export function setDashboardDb(db: Database): void {
 	dashboardDb = db;
+}
+
+// Test-only seam. Production wiring leaves these undefined and the plugins
+// API uses the default GitHub fetcher and the canonical settings.json /
+// curated overlay paths.
+export function setPluginsApiOverridesForTests(
+	overrides: Pick<PluginsApiDeps, "fetcher" | "settingsPath" | "overlayPath">,
+): void {
+	pluginsApiOverrides = overrides;
+}
+
+export function clearPluginsApiOverridesForTests(): void {
+	pluginsApiOverrides = {};
 }
 
 export function setSecretSavedCallback(fn: SecretSavedCallback): void {
@@ -146,6 +161,13 @@ export async function handleUiRequest(req: Request): Promise<Response> {
 			return Response.json({ error: "Dashboard API not initialized" }, { status: 503 });
 		}
 		const apiResponse = await handleMemoryFilesApi(req, url, { db: dashboardDb });
+		if (apiResponse) return apiResponse;
+	}
+	if (url.pathname.startsWith("/ui/api/plugins")) {
+		if (!dashboardDb) {
+			return Response.json({ error: "Dashboard API not initialized" }, { status: 503 });
+		}
+		const apiResponse = await handlePluginsApi(req, url, { db: dashboardDb, ...pluginsApiOverrides });
 		if (apiResponse) return apiResponse;
 	}
 

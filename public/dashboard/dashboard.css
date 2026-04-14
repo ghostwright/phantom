@@ -966,3 +966,420 @@ body {
 	flex-direction: column;
 	gap: 8px;
 }
+
+/* ==== Plugins tab ==== */
+.plugins-filters {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	margin-bottom: var(--space-5);
+}
+.plugins-tabs {
+	display: flex;
+	gap: var(--space-2);
+	flex-wrap: wrap;
+}
+.plugins-tab {
+	font-family: Inter, sans-serif;
+	font-size: 12px;
+	font-weight: 500;
+	padding: 7px 14px;
+	border: 1px solid var(--color-base-300);
+	border-radius: var(--radius-pill);
+	background: transparent;
+	color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
+	cursor: pointer;
+	transition: border-color var(--motion-fast) var(--ease-out),
+		background-color var(--motion-fast) var(--ease-out),
+		color var(--motion-fast) var(--ease-out);
+}
+.plugins-tab:hover {
+	border-color: color-mix(in oklab, var(--color-primary) 40%, var(--color-base-300));
+	color: var(--color-base-content);
+}
+.plugins-tab[aria-current="true"] {
+	background: var(--color-primary);
+	color: var(--color-primary-content);
+	border-color: var(--color-primary);
+}
+.plugins-tab:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 28%, transparent);
+}
+.plugins-cats {
+	display: flex;
+	gap: 6px;
+	flex-wrap: wrap;
+}
+.plugins-cat-chip {
+	font-family: Inter, sans-serif;
+	font-size: 11px;
+	padding: 4px 10px;
+	border: 1px solid var(--color-base-300);
+	border-radius: var(--radius-pill);
+	background: var(--color-base-200);
+	color: color-mix(in oklab, var(--color-base-content) 65%, transparent);
+	cursor: pointer;
+	transition: border-color var(--motion-fast), background-color var(--motion-fast);
+}
+.plugins-cat-chip:hover {
+	border-color: color-mix(in oklab, var(--color-primary) 35%, var(--color-base-300));
+}
+.plugins-cat-chip[data-active="true"] {
+	border-color: var(--color-primary);
+	color: var(--color-primary);
+	background: color-mix(in oklab, var(--color-primary) 6%, var(--color-base-200));
+}
+.plugins-search {
+	position: relative;
+	max-width: 420px;
+}
+.plugins-search input {
+	width: 100%;
+	box-sizing: border-box;
+	font-family: Inter, sans-serif;
+	font-size: 13px;
+	background: var(--color-base-200);
+	color: var(--color-base-content);
+	border: 1px solid var(--color-base-300);
+	border-radius: var(--radius-md);
+	padding: 9px 12px 9px 34px;
+	transition: border-color var(--motion-base) var(--ease-out), box-shadow var(--motion-base) var(--ease-out);
+}
+.plugins-search input:focus {
+	outline: none;
+	border-color: var(--color-primary);
+	box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 18%, transparent);
+}
+.plugins-search svg {
+	position: absolute;
+	left: 11px;
+	top: 50%;
+	transform: translateY(-50%);
+	width: 14px;
+	height: 14px;
+	color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
+	pointer-events: none;
+}
+
+.plugins-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+	gap: var(--space-4);
+}
+.plugins-stale {
+	font-size: 12px;
+	color: color-mix(in oklab, var(--color-warning) 90%, var(--color-base-content));
+	margin: 0 0 var(--space-3);
+}
+.plugins-hidden-note {
+	font-size: 11px;
+	color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
+	margin: var(--space-4) 0 0;
+}
+
+.plugins-card {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	padding: var(--space-4);
+	border: 1px solid var(--color-base-300);
+	border-radius: var(--radius-lg);
+	background: var(--color-base-200);
+	transition: border-color var(--motion-base) var(--ease-out),
+		transform var(--motion-base) var(--ease-out),
+		box-shadow var(--motion-base) var(--ease-out);
+}
+.plugins-card:hover {
+	border-color: color-mix(in oklab, var(--color-primary) 30%, var(--color-base-300));
+	transform: translateY(-1px);
+	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.05);
+}
+.plugins-card-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: var(--space-2);
+}
+.plugins-card-title {
+	font-family: 'JetBrains Mono', monospace;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--color-base-content);
+	margin: 0;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.plugins-card-status {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-shrink: 0;
+}
+.plugins-status-installed {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	font-size: 10px;
+	font-weight: 500;
+	letter-spacing: 0.03em;
+	text-transform: uppercase;
+	padding: 3px 8px;
+	border-radius: var(--radius-pill);
+	background: color-mix(in oklab, var(--color-success) 12%, transparent);
+	color: var(--color-success);
+}
+.plugins-status-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--color-success);
+}
+.plugins-pin {
+	font-family: 'JetBrains Mono', monospace;
+	font-size: 10px;
+	padding: 3px 8px;
+	border-radius: var(--radius-pill);
+	background: color-mix(in oklab, var(--color-primary) 12%, transparent);
+	color: var(--color-primary);
+}
+.plugins-card-desc {
+	font-size: 12.5px;
+	line-height: 1.5;
+	color: color-mix(in oklab, var(--color-base-content) 65%, transparent);
+	margin: 0;
+	overflow: hidden;
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	line-clamp: 3;
+	-webkit-box-orient: vertical;
+}
+.plugins-card-note {
+	font-size: 11.5px;
+	line-height: 1.5;
+	color: color-mix(in oklab, var(--color-primary) 90%, var(--color-base-content));
+	margin: 0;
+	padding: 6px 10px;
+	border-left: 2px solid var(--color-primary);
+	background: color-mix(in oklab, var(--color-primary) 5%, transparent);
+	border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.plugins-card-badges {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 5px;
+}
+.plugins-source-badge {
+	font-family: 'JetBrains Mono', monospace;
+	font-size: 10px;
+	padding: 3px 7px;
+	border-radius: var(--radius-pill);
+	background: color-mix(in oklab, var(--color-base-content) 6%, transparent);
+	color: color-mix(in oklab, var(--color-base-content) 65%, transparent);
+}
+.plugins-source-url {
+	background: color-mix(in oklab, var(--color-primary) 12%, transparent);
+	color: var(--color-primary);
+}
+.plugins-source-github {
+	background: color-mix(in oklab, var(--color-info) 12%, transparent);
+	color: var(--color-info);
+}
+.plugins-source-local {
+	background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+	color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
+}
+.plugins-category-badge {
+	font-family: Inter, sans-serif;
+	font-size: 10px;
+	font-weight: 500;
+	letter-spacing: 0.03em;
+	padding: 3px 8px;
+	border-radius: var(--radius-pill);
+	background: color-mix(in oklab, var(--color-base-content) 5%, transparent);
+	color: color-mix(in oklab, var(--color-base-content) 60%, transparent);
+}
+.plugins-curated-tag {
+	font-family: Inter, sans-serif;
+	font-size: 10px;
+	font-weight: 500;
+	letter-spacing: 0.03em;
+	padding: 3px 8px;
+	border-radius: var(--radius-pill);
+}
+.plugins-curated-phantom-recommended {
+	background: color-mix(in oklab, var(--color-primary) 14%, transparent);
+	color: var(--color-primary);
+}
+.plugins-curated-production-tested {
+	background: color-mix(in oklab, var(--color-success) 14%, transparent);
+	color: var(--color-success);
+}
+.plugins-curated-experimental {
+	background: color-mix(in oklab, var(--color-warning) 14%, transparent);
+	color: var(--color-warning);
+}
+.plugins-curated-deprecated {
+	background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+	color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
+}
+.plugins-card-actions {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+	margin-top: auto;
+	padding-top: var(--space-2);
+}
+.plugins-history-link {
+	background: transparent;
+	border: 0;
+	padding: 6px 4px;
+	font-family: Inter, sans-serif;
+	font-size: 11px;
+	color: color-mix(in oklab, var(--color-base-content) 55%, transparent);
+	cursor: pointer;
+	text-decoration: underline;
+	text-decoration-color: color-mix(in oklab, var(--color-base-content) 25%, transparent);
+	text-underline-offset: 3px;
+	transition: color var(--motion-fast) var(--ease-out);
+}
+.plugins-history-link:hover {
+	color: var(--color-base-content);
+}
+
+/* Plugins modal contents */
+.plugins-modal-key {
+	font-family: 'JetBrains Mono', monospace;
+	font-size: 12px;
+	color: var(--color-primary);
+	margin: 0 0 var(--space-2);
+	padding: 6px 10px;
+	background: color-mix(in oklab, var(--color-primary) 6%, transparent);
+	border-radius: var(--radius-sm);
+}
+.plugins-modal-source {
+	font-size: 11.5px;
+	color: color-mix(in oklab, var(--color-base-content) 60%, transparent);
+	margin: 0 0 var(--space-2);
+	word-break: break-all;
+}
+.plugins-modal-desc {
+	font-size: 13px;
+	line-height: 1.55;
+	color: color-mix(in oklab, var(--color-base-content) 75%, transparent);
+	margin: 0 0 var(--space-3);
+}
+.plugins-modal-warning {
+	border: 1px solid color-mix(in oklab, var(--color-warning) 35%, var(--color-base-300));
+	background: color-mix(in oklab, var(--color-warning) 5%, transparent);
+	border-radius: var(--radius-md);
+	padding: var(--space-3) var(--space-4);
+	margin: 0 0 var(--space-3);
+}
+.plugins-modal-warning-title {
+	font-size: 12px;
+	font-weight: 600;
+	color: color-mix(in oklab, var(--color-warning) 95%, var(--color-base-content));
+	margin: 0 0 6px;
+}
+.plugins-modal-warning ul {
+	margin: 0 0 8px;
+	padding-left: 18px;
+	font-size: 12px;
+	line-height: 1.6;
+	color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
+}
+.plugins-modal-warning-foot {
+	font-size: 11.5px;
+	line-height: 1.5;
+	color: color-mix(in oklab, var(--color-base-content) 65%, transparent);
+	margin: 0;
+}
+.plugins-trust-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	font-size: 13px;
+	color: var(--color-base-content);
+	cursor: pointer;
+	user-select: none;
+}
+.plugins-trust-row input[type="checkbox"] {
+	width: 16px;
+	height: 16px;
+	accent-color: var(--color-primary);
+	cursor: pointer;
+}
+
+/* Audit timeline */
+.plugins-audit-list {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	max-height: 320px;
+	overflow-y: auto;
+}
+.plugins-audit-row {
+	display: grid;
+	grid-template-columns: auto auto auto 1fr;
+	align-items: center;
+	gap: var(--space-2);
+	padding: 8px 10px;
+	font-family: 'JetBrains Mono', monospace;
+	font-size: 11px;
+	border: 1px solid var(--color-base-300);
+	border-radius: var(--radius-sm);
+	background: var(--color-base-100);
+}
+.plugins-audit-time { color: color-mix(in oklab, var(--color-base-content) 55%, transparent); }
+.plugins-audit-action {
+	font-weight: 600;
+	padding: 2px 7px;
+	border-radius: var(--radius-pill);
+	font-size: 10px;
+	letter-spacing: 0.03em;
+	text-transform: uppercase;
+}
+.plugins-audit-install { background: color-mix(in oklab, var(--color-success) 14%, transparent); color: var(--color-success); }
+.plugins-audit-uninstall { background: color-mix(in oklab, var(--color-warning) 14%, transparent); color: var(--color-warning); }
+.plugins-audit-reinstall { background: color-mix(in oklab, var(--color-info) 14%, transparent); color: var(--color-info); }
+.plugins-audit-seed { background: color-mix(in oklab, var(--color-primary) 12%, transparent); color: var(--color-primary); }
+.plugins-audit-actor { color: color-mix(in oklab, var(--color-base-content) 60%, transparent); }
+.plugins-audit-diff { color: color-mix(in oklab, var(--color-base-content) 70%, transparent); }
+
+/* Find modal */
+.plugins-find-eyebrow {
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.09em;
+	text-transform: uppercase;
+	color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
+	margin: var(--space-3) 0 var(--space-2);
+}
+.plugins-find-row {
+	padding: 10px 12px;
+	border: 1px solid var(--color-base-300);
+	border-radius: var(--radius-md);
+	background: var(--color-base-100);
+	margin-bottom: 6px;
+}
+.plugins-find-row-head {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin-bottom: 4px;
+}
+.plugins-find-name {
+	font-family: 'JetBrains Mono', monospace;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--color-base-content);
+}
+.plugins-find-row-desc {
+	font-size: 11.5px;
+	line-height: 1.5;
+	color: color-mix(in oklab, var(--color-base-content) 65%, transparent);
+}
