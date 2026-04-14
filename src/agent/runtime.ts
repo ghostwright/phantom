@@ -9,6 +9,7 @@ import type { RoleTemplate } from "../roles/types.ts";
 import { CostTracker } from "./cost-tracker.ts";
 import { type AgentCost, type AgentResponse, emptyCost } from "./events.ts";
 import { createDangerousCommandBlocker, createFileTracker } from "./hooks.ts";
+import { emitPluginInitSnapshot } from "./init-plugin-snapshot.ts";
 import { type JudgeQueryOptions, type JudgeQueryResult, runJudgeQuery } from "./judge-query.ts";
 import { extractCost, extractTextFromMessage } from "./message-utils.ts";
 import { assemblePrompt } from "./prompt-assembler.ts";
@@ -225,6 +226,11 @@ export class AgentRuntime {
 							sdkSessionId = message.session_id;
 							this.sessionStore.updateSdkSessionId(sessionKey, sdkSessionId);
 							onEvent?.({ type: "init", sessionId: sdkSessionId });
+							// Emit the init-resolved plugin snapshot to the dashboard SSE bus so
+							// plugin cards optimistically flipped to "installing..." can settle
+							// to "installed". The helper is wrapped so a telemetry failure never
+							// propagates into the agent main loop.
+							emitPluginInitSnapshot(message);
 						}
 						break;
 					}

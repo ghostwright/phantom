@@ -506,5 +506,46 @@
 		return loadCatalog(false);
 	}
 
+	// Live install snapshot hook. Called by dashboard.js whenever the agent's
+	// SDK init message reports the enabled-plugin set for a freshly-kicked
+	// query. The emit side publishes fully-qualified keys in the format
+	// `${name}@${marketplace}` (from cli.js, the init message constructor).
+	// We match against the card's synthetic key computed the same way so
+	// cards across marketplaces never collapse onto each other when two
+	// share a bare plugin name. On a match we flip the card to
+	// "installed" and surface a gentle toast.
+	function onInitSnapshot(payload) {
+		if (!payload || !Array.isArray(payload.keys) || payload.keys.length === 0) return;
+		if (!state.catalog || !Array.isArray(state.catalog.plugins)) return;
+		var seen = Object.create(null);
+		for (var i = 0; i < payload.keys.length; i++) {
+			seen[payload.keys[i]] = true;
+		}
+		var flipped = [];
+		state.catalog.plugins.forEach(function (p) {
+			var fqKey = (p.name || "") + "@" + (p.marketplace || "");
+			if (seen[fqKey] && !p.enabled) {
+				p.enabled = true;
+				flipped.push(p.name || fqKey);
+			}
+		});
+		if (flipped.length > 0) {
+			// Re-render if we are currently mounted (root has content).
+			if (root && root.getAttribute("data-active") === "true") {
+				// Small delay so the card flip animation is perceptible
+				// rather than instantaneous on fast connections.
+				setTimeout(render, 120);
+			}
+			if (ctx && ctx.toast) {
+				if (flipped.length === 1) {
+					ctx.toast("success", "Plugin live", flipped[0] + " is now active.");
+				} else {
+					ctx.toast("success", "Plugins live", flipped.length + " plugins are now active.");
+				}
+			}
+		}
+	}
+
 	window.PhantomDashboard.registerRoute("plugins", { mount: mount });
+	window.PhantomPluginsModule = { onInitSnapshot: onInitSnapshot };
 })();

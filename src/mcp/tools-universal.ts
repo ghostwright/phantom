@@ -21,7 +21,9 @@ export function registerUniversalTools(server: McpServer, deps: ToolDependencies
 	registerPhantomConfig(server, deps);
 	registerPhantomMetrics(server, deps);
 	registerPhantomHistory(server, deps);
+	registerPhantomListSessions(server, deps);
 	registerPhantomMemoryQuery(server, deps);
+	registerPhantomMemorySearch(server, deps);
 	registerPhantomAsk(server, deps);
 	registerPhantomTaskCreate(server, deps);
 	registerPhantomTaskStatus(server, deps);
@@ -170,27 +172,120 @@ function registerPhantomMetrics(server: McpServer, deps: ToolDependencies): void
 	);
 }
 
+// Shared session-listing core for phantom_history (original name, backwards
+// compatible) and phantom_list_sessions (new name with channel and days_back
+// filters). Keeping both names registered is a deliberate non-breaking change
+// for external MCP clients that already adopted the old name.
+function listRecentSessionsCore(
+	deps: ToolDependencies,
+	options: { limit: number; channel?: string; daysBack?: number },
+): CallToolResult {
+	const wheres: string[] = [];
+	const params: Array<string | number> = [];
+	if (options.channel && options.channel.length > 0) {
+		wheres.push("channel_id = ?");
+		params.push(options.channel);
+	}
+	if (options.daysBack != null && options.daysBack > 0) {
+		wheres.push("last_active_at >= datetime('now', ?)");
+		params.push(`-${options.daysBack} days`);
+	}
+	const whereSql = wheres.length > 0 ? `WHERE ${wheres.join(" AND ")}` : "";
+	params.push(options.limit);
+	const sessions = deps.db
+		.query(
+			`SELECT session_key, sdk_session_id, channel_id, conversation_id, status,
+			 total_cost_usd, input_tokens, output_tokens, turn_count, created_at, last_active_at
+			 FROM sessions ${whereSql} ORDER BY last_active_at DESC LIMIT ?`,
+		)
+		.all(...params);
+	return {
+		content: [{ type: "text", text: JSON.stringify({ sessions, count: sessions.length }, null, 2) }],
+	};
+}
+
 function registerPhantomHistory(server: McpServer, deps: ToolDependencies): void {
 	server.registerTool(
 		"phantom_history",
 		{
-			description: "Get recent session history with outcomes, costs, and durations.",
+			description:
+				"Get recent session history with outcomes, costs, and durations. Prefer phantom_list_sessions for new integrations: it accepts channel and days_back filters. phantom_history stays registered so existing clients do not break.",
 			inputSchema: z.object({
 				limit: z.number().int().min(1).max(100).optional().default(10).describe("Number of sessions to return"),
 			}),
 		},
-		async ({ limit }): Promise<CallToolResult> => {
-			const sessions = deps.db
-				.query(
-					`SELECT session_key, sdk_session_id, channel_id, conversation_id, status,
-				 total_cost_usd, input_tokens, output_tokens, turn_count, created_at, last_active_at
-				 FROM sessions ORDER BY last_active_at DESC LIMIT ?`,
-				)
-				.all(limit);
-
-			return { content: [{ type: "text", text: JSON.stringify({ sessions, count: sessions.length }, null, 2) }] };
-		},
+		async ({ limit }): Promise<CallToolResult> => listRecentSessionsCore(deps, { limit }),
 	);
+}
+
+function registerPhantomListSessions(server: McpServer, deps: ToolDependencies): void {
+	server.registerTool(
+		"phantom_list_sessions",
+		{
+			description:
+				"List recent agent sessions with metadata. Supports optional channel filter (e.g. 'slack', 'telegram', 'cli', 'scheduler', 'mcp', 'trigger', 'webhook') and a days_back window. Aliases phantom_history with a richer parameter set; existing clients of phantom_history are unaffected.",
+			inputSchema: z.object({
+				limit: z.number().int().min(1).max(100).optional().default(10).describe("Number of sessions to return"),
+				channel: z.string().optional().describe("Filter by channel_id exactly"),
+				days_back: z
+					.number()
+					.int()
+					.min(1)
+					.max(365)
+					.optional()
+					.describe("Only return sessions active within the last N days"),
+			}),
+		},
+		async ({ limit, channel, days_back }): Promise<CallToolResult> =>
+			listRecentSessionsCore(deps, { limit, channel, daysBack: days_back }),
+	);
+}
+
+type MemoryType = "episodic" | "semantic" | "procedural" | "all";
+
+// Shared memory-search core used by both phantom_memory_query (original name,
+// backwards compatible) and phantom_memory_search (new name with days_back
+// soft filter). The days_back filter is applied client-side by walking the
+// returned episodes' started_at timestamps; the underlying recall APIs stay
+// untouched so PR2 memory tests pass byte-for-byte.
+async function searchMemoryCore(
+	deps: ToolDependencies,
+	options: { query: string; memoryType: MemoryType; limit: number; daysBack?: number },
+): Promise<CallToolResult> {
+	if (!deps.memory || !deps.memory.isReady()) {
+		return {
+			content: [{ type: "text", text: JSON.stringify({ error: "Memory system not available", results: [] }) }],
+		};
+	}
+
+	const results: Record<string, unknown[]> = {};
+
+	if (options.memoryType === "all" || options.memoryType === "episodic") {
+		const episodes = await deps.memory.recallEpisodes(options.query, { limit: options.limit }).catch(() => []);
+		const daysBack = options.daysBack;
+		if (daysBack != null && daysBack > 0) {
+			const cutoff = Date.now() - daysBack * 24 * 60 * 60 * 1000;
+			results.episodes = episodes.filter((ep) => {
+				const startedAt = (ep as { started_at?: unknown }).started_at;
+				if (typeof startedAt !== "string") return true;
+				const parsed = Date.parse(startedAt);
+				if (Number.isNaN(parsed)) return true;
+				return parsed >= cutoff;
+			});
+		} else {
+			results.episodes = episodes;
+		}
+	}
+	if (options.memoryType === "all" || options.memoryType === "semantic") {
+		results.facts = await deps.memory.recallFacts(options.query, { limit: options.limit }).catch(() => []);
+	}
+	if (options.memoryType === "all" || options.memoryType === "procedural") {
+		const proc = await deps.memory.findProcedure(options.query).catch(() => null);
+		results.procedures = proc ? [proc] : [];
+	}
+
+	const totalMatches = Object.values(results).reduce((sum, arr) => sum + arr.length, 0);
+	return { content: [{ type: "text", text: JSON.stringify({ results, totalMatches }, null, 2) }] };
 }
 
 function registerPhantomMemoryQuery(server: McpServer, deps: ToolDependencies): void {
@@ -198,7 +293,7 @@ function registerPhantomMemoryQuery(server: McpServer, deps: ToolDependencies): 
 		"phantom_memory_query",
 		{
 			description:
-				"Search the Phantom's persistent memory for knowledge on a topic. Returns relevant episodic, semantic, and procedural memories.",
+				"Search the Phantom's persistent memory for knowledge on a topic. Returns relevant episodic, semantic, and procedural memories. Prefer phantom_memory_search for new integrations: it accepts a days_back filter. phantom_memory_query stays registered so existing clients do not break.",
 			inputSchema: z.object({
 				query: z.string().min(1).describe("The search query"),
 				memory_type: z
@@ -209,29 +304,36 @@ function registerPhantomMemoryQuery(server: McpServer, deps: ToolDependencies): 
 				limit: z.number().int().min(1).max(50).optional().default(10).describe("Maximum results"),
 			}),
 		},
-		async ({ query, memory_type, limit }): Promise<CallToolResult> => {
-			if (!deps.memory || !deps.memory.isReady()) {
-				return {
-					content: [{ type: "text", text: JSON.stringify({ error: "Memory system not available", results: [] }) }],
-				};
-			}
+		async ({ query, memory_type, limit }): Promise<CallToolResult> =>
+			searchMemoryCore(deps, { query, memoryType: memory_type, limit }),
+	);
+}
 
-			const results: Record<string, unknown[]> = {};
-
-			if (memory_type === "all" || memory_type === "episodic") {
-				results.episodes = await deps.memory.recallEpisodes(query, { limit }).catch(() => []);
-			}
-			if (memory_type === "all" || memory_type === "semantic") {
-				results.facts = await deps.memory.recallFacts(query, { limit }).catch(() => []);
-			}
-			if (memory_type === "all" || memory_type === "procedural") {
-				const proc = await deps.memory.findProcedure(query).catch(() => null);
-				results.procedures = proc ? [proc] : [];
-			}
-
-			const totalMatches = Object.values(results).reduce((sum, arr) => sum + arr.length, 0);
-			return { content: [{ type: "text", text: JSON.stringify({ results, totalMatches }, null, 2) }] };
+function registerPhantomMemorySearch(server: McpServer, deps: ToolDependencies): void {
+	server.registerTool(
+		"phantom_memory_search",
+		{
+			description:
+				"Search the Phantom's persistent memory with an optional recency window. Aliases phantom_memory_query with a richer parameter set; existing clients of phantom_memory_query are unaffected.",
+			inputSchema: z.object({
+				query: z.string().min(1).describe("The search query"),
+				memory_type: z
+					.enum(["episodic", "semantic", "procedural", "all"])
+					.optional()
+					.default("all")
+					.describe("Type of memory to search"),
+				limit: z.number().int().min(1).max(50).optional().default(10).describe("Maximum results"),
+				days_back: z
+					.number()
+					.int()
+					.min(1)
+					.max(365)
+					.optional()
+					.describe("Only return episodes with started_at within the last N days"),
+			}),
 		},
+		async ({ query, memory_type, limit, days_back }): Promise<CallToolResult> =>
+			searchMemoryCore(deps, { query, memoryType: memory_type, limit, daysBack: days_back }),
 	);
 }
 

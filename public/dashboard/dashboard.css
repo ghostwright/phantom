@@ -1383,3 +1383,144 @@ body {
 	line-height: 1.5;
 	color: color-mix(in oklab, var(--color-base-content) 65%, transparent);
 }
+
+/* Hooks tab (PR3): visual rule builder and event-grouped card list. */
+.dash-hook-list { display: flex; flex-direction: column; gap: var(--space-5); }
+.dash-hook-event-section {
+	border: 1px solid var(--color-base-300);
+	border-radius: var(--radius-lg);
+	background: var(--color-base-100);
+	padding: var(--space-4);
+}
+.dash-hook-event-header { margin-bottom: var(--space-3); }
+.dash-hook-event-title {
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--color-base-content);
+	margin: 0 0 4px;
+	font-family: 'JetBrains Mono', monospace;
+}
+.dash-hook-event-summary {
+	font-size: 12px;
+	color: color-mix(in oklab, var(--color-base-content) 60%, transparent);
+	margin: 0;
+}
+.dash-hook-event-cards { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.dash-hook-builder {
+	border: 1px solid var(--color-base-300);
+	border-radius: var(--radius-lg);
+	background: var(--color-base-100);
+	padding: var(--space-5);
+}
+.dash-hook-builder-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: var(--space-4);
+}
+.dash-hook-builder-title {
+	font-size: 16px;
+	font-weight: 600;
+	margin: 0;
+}
+.dash-hook-columns {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: var(--space-4);
+	margin-bottom: var(--space-4);
+}
+@media (max-width: 960px) { .dash-hook-columns { grid-template-columns: 1fr; } }
+.dash-hook-column {
+	border: 1px solid var(--color-base-300);
+	border-radius: var(--radius-md);
+	padding: var(--space-3);
+	background: var(--color-base-200);
+}
+.dash-hook-column-eyebrow {
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.09em;
+	text-transform: uppercase;
+	color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
+	margin-bottom: var(--space-1);
+}
+.dash-hook-column-title {
+	font-size: 13px;
+	font-weight: 600;
+	margin: 0 0 var(--space-3);
+}
+.dash-hook-column-help {
+	font-size: 11.5px;
+	color: color-mix(in oklab, var(--color-base-content) 60%, transparent);
+	margin-top: var(--space-2);
+	line-height: 1.5;
+}
+.dash-hook-column-disabled {
+	font-size: 12px;
+	color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
+	font-style: italic;
+}
+.dash-hook-action-form { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-3); }
+.dash-hook-preview {
+	border: 1px solid var(--color-base-300);
+	border-radius: var(--radius-md);
+	background: var(--color-base-200);
+	padding: var(--space-3);
+}
+.dash-hook-preview-summary {
+	cursor: pointer;
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: color-mix(in oklab, var(--color-base-content) 55%, transparent);
+	user-select: none;
+}
+.dash-hook-preview-code {
+	margin-top: var(--space-3);
+	font-family: 'JetBrains Mono', monospace;
+	font-size: 11.5px;
+	line-height: 1.55;
+	background: var(--color-base-100);
+	border-radius: var(--radius-sm);
+	padding: var(--space-3);
+	overflow-x: auto;
+	color: var(--color-base-content);
+}
+.dash-audit-row {
+	padding: 8px 10px;
+	border: 1px solid var(--color-base-300);
+	border-radius: var(--radius-sm);
+	background: var(--color-base-100);
+	margin-bottom: 6px;
+}
+.dash-audit-row-top { font-size: 12px; }
+.dash-audit-row-body { font-size: 11px; color: color-mix(in oklab, var(--color-base-content) 60%, transparent); margin-top: 4px; }
+
+/* Settings tab (PR3): grouped sections and a bottom save bar. */
+.dash-settings-section {
+	border: 1px solid var(--color-base-300);
+	border-radius: var(--radius-lg);
+	background: var(--color-base-100);
+	padding: var(--space-4);
+	margin-bottom: var(--space-4);
+}
+.dash-settings-section header { margin-bottom: var(--space-3); }
+.dash-save-bar {
+	position: sticky;
+	bottom: 0;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: var(--space-3) var(--space-4);
+	background: var(--color-base-200);
+	border-top: 1px solid var(--color-base-300);
+	margin-top: var(--space-4);
+	backdrop-filter: blur(6px);
+}
+.dash-save-bar-status {
+	font-size: 12px;
+	color: color-mix(in oklab, var(--color-base-content) 65%, transparent);
+}
+.dash-save-bar-actions { display: flex; gap: var(--space-2); }

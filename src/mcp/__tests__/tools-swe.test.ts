@@ -184,14 +184,19 @@ describe("SWE MCP Tools", () => {
 		expect(toolNames).toContain("phantom_repo_info");
 	});
 
-	test("total tool count is 17 (8 universal + 6 SWE + 3 dynamic management)", async () => {
+	test("total tool count is 19 (10 universal + 6 SWE + 3 dynamic management)", async () => {
+		// PR3 adds phantom_list_sessions and phantom_memory_search as new tool
+		// aliases on the universal server, alongside the original phantom_history
+		// and phantom_memory_query registrations. The alias pair keeps existing
+		// external clients working while exposing richer parameter sets to new
+		// ones; count therefore grows from 17 to 19.
 		const sessionId = await initSession(mcpServer, adminToken);
 		const res = await mcpServer.handleRequest(
 			mcpRequest(adminToken, { jsonrpc: "2.0", id: 11, method: "tools/list" }, sessionId),
 		);
 		const body = (await res.json()) as Record<string, unknown>;
 		const result = body.result as { tools: Array<{ name: string }> };
-		expect(result.tools).toHaveLength(17);
+		expect(result.tools).toHaveLength(19);
 	});
 
 	test("phantom_codebase_query returns domain knowledge", async () => {

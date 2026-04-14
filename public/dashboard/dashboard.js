@@ -181,34 +181,29 @@
 		container.setAttribute("data-active", "true");
 		var labels = {
 			sessions: {
-				eyebrow: "PR2",
+				eyebrow: "soon",
 				title: "Sessions",
 				body: "A live view of every session the agent has had, with channels, costs, turn counts, and outcomes. Click through for full transcripts and the memories consolidated from each run.",
 			},
 			cost: {
-				eyebrow: "PR2",
+				eyebrow: "soon",
 				title: "Cost",
 				body: "Daily and weekly cost breakdowns with model-level detail. Charts across time so you can see where the agent's budget actually goes, and alerts when anything drifts out of its baseline.",
 			},
 			scheduler: {
-				eyebrow: "PR3",
+				eyebrow: "soon",
 				title: "Scheduler",
 				body: "Every cron and one-shot job the agent has created, with next-run times, recent outcomes, and the ability to edit or pause a schedule without asking the agent to do it for you.",
 			},
 			evolution: {
-				eyebrow: "PR3",
+				eyebrow: "soon",
 				title: "Evolution timeline",
 				body: "The 6-step self-evolution pipeline rendered as a timeline: reflections, judges, validated changes, version bumps, and rollback points. You see exactly how the agent is changing itself over time.",
 			},
 			memory: {
-				eyebrow: "PR4",
+				eyebrow: "soon",
 				title: "Memory explorer",
 				body: "A read view over every episode, fact, and procedure the agent has consolidated. Search, filter by decay, inspect provenance, and watch memories get reinforced as they get reused.",
-			},
-			settings: {
-				eyebrow: "PR3",
-				title: "Settings",
-				body: "A curated form over the agent's Claude Code settings: permissions, MCP servers, hooks, and the knobs that actually change how it thinks. Raw JSON escape hatch for the power users.",
 			},
 		};
 		var meta = labels[name] || { eyebrow: "Soon", title: name, body: "Coming in a later PR." };
@@ -246,8 +241,8 @@
 		var name = parsed.route;
 		deactivateAllRoutes();
 
-		var liveRoutes = ["skills", "memory-files", "plugins"];
-		var comingSoon = ["sessions", "cost", "scheduler", "evolution", "memory", "settings"];
+		var liveRoutes = ["skills", "memory-files", "plugins", "subagents", "hooks", "settings"];
+		var comingSoon = ["sessions", "cost", "scheduler", "evolution", "memory"];
 
 		if (liveRoutes.indexOf(name) >= 0 && routes[name]) {
 			var containerId = "route-" + name;
@@ -304,9 +299,61 @@
 		if (el) el.textContent = new Date().toISOString().split("T")[0];
 	}
 
+	// Server-sent events for live dashboard updates. PR3 adds a
+	// "plugin_init_snapshot" event that fires when the agent sees the SDK init
+	// message and resolves the enabled-plugin set. The plugins module flips
+	// optimistically-installed cards to their real state.
+	//
+	// Connection health: the browser auto-reconnects on transport errors
+	// but not on HTTP 401 or 503, which happens on session expiry or
+	// cold boot. We paint a small status dot in the sidebar that shows
+	// live / reconnecting / disconnected so the operator knows whether
+	// live updates are actually arriving.
+	function updateSSEDot(statusClass, label) {
+		var dot = document.getElementById("dashboard-sse-dot");
+		if (!dot) return;
+		dot.setAttribute("data-status", statusClass);
+		dot.setAttribute("title", label);
+	}
+
+	function openEventStream() {
+		if (!window.EventSource) return null;
+		try {
+			var es = new EventSource("/ui/api/events");
+			es.addEventListener("open", function () {
+				updateSSEDot("live", "Live updates connected");
+			});
+			es.addEventListener("plugin_init_snapshot", function (e) {
+				try {
+					var data = JSON.parse(e.data);
+					if (window.PhantomPluginsModule && typeof window.PhantomPluginsModule.onInitSnapshot === "function") {
+						window.PhantomPluginsModule.onInitSnapshot(data);
+					}
+				} catch (_) {
+					// SSE payload was malformed; nothing useful to show the user.
+				}
+			});
+			es.onerror = function (e) {
+				// EventSource auto-reconnects on transport errors. Log a
+				// soft warning for debuggers; do not toast the user.
+				console.warn("SSE error, browser will attempt reconnect", e);
+				if (es.readyState === EventSource.CONNECTING) {
+					updateSSEDot("reconnecting", "Live updates reconnecting");
+				} else if (es.readyState === EventSource.CLOSED) {
+					updateSSEDot("disconnected", "Live updates disconnected");
+				}
+			};
+			return es;
+		} catch (_) {
+			updateSSEDot("disconnected", "Live updates unavailable");
+			return null;
+		}
+	}
+
 	function init() {
 		setNavDate();
 		initThemeToggle();
+		openEventStream();
 
 		window.addEventListener("beforeunload", function (e) {
 			if (anyDirty()) {

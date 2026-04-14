@@ -152,4 +152,62 @@ export const MIGRATIONS: string[] = [
 	)`,
 
 	"CREATE INDEX IF NOT EXISTS idx_plugin_install_audit_log_plugin ON plugin_install_audit_log(plugin_name, marketplace, id DESC)",
+
+	// PR3 dashboard: subagent editor audit log. Every create/update/delete from
+	// the UI API writes a row here. Agent-originated edits via the Write tool
+	// bypass this path; a future PR may add a file watcher to capture those.
+	`CREATE TABLE IF NOT EXISTS subagent_audit_log (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		subagent_name TEXT NOT NULL,
+		action TEXT NOT NULL,
+		previous_body TEXT,
+		new_body TEXT,
+		actor TEXT NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`,
+
+	"CREATE INDEX IF NOT EXISTS idx_subagent_audit_log_name ON subagent_audit_log(subagent_name, id DESC)",
+
+	// PR3 dashboard: hooks editor audit log. Captures every install, update,
+	// uninstall, and first-install trust acceptance via the UI API. Each row
+	// stores the full previous and new hooks slice as JSON so a human can
+	// diff and recover. Agent-originated Write tool edits bypass this path.
+	`CREATE TABLE IF NOT EXISTS hook_audit_log (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		event TEXT NOT NULL,
+		matcher TEXT,
+		hook_type TEXT,
+		action TEXT NOT NULL,
+		previous_slice TEXT,
+		new_slice TEXT,
+		definition_json TEXT,
+		actor TEXT NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`,
+
+	"CREATE INDEX IF NOT EXISTS idx_hook_audit_log_created ON hook_audit_log(id DESC)",
+
+	// PR3 dashboard: curated settings audit log. One row per dirty field per
+	// save captures the key, previous JSON value, and new JSON value so a
+	// human can diff and recover. Agent-originated Write tool edits to
+	// settings.json bypass this path.
+	`CREATE TABLE IF NOT EXISTS settings_audit_log (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		field TEXT NOT NULL,
+		previous_value TEXT,
+		new_value TEXT,
+		actor TEXT NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`,
+
+	"CREATE INDEX IF NOT EXISTS idx_settings_audit_log_field ON settings_audit_log(field, id DESC)",
+
+	// PR3 fix pass: extend the subagent audit log to capture frontmatter
+	// changes. An edit that only touches tools or model would otherwise
+	// show previous_body == new_body and become invisible in the audit
+	// timeline. These columns default to NULL so pre-existing rows remain
+	// valid. SQLite ALTER TABLE with a default is idempotent under the
+	// _migrations gate.
+	"ALTER TABLE subagent_audit_log ADD COLUMN previous_frontmatter_json TEXT",
+	"ALTER TABLE subagent_audit_log ADD COLUMN new_frontmatter_json TEXT",
 ];
