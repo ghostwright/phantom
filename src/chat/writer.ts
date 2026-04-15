@@ -1,4 +1,6 @@
-import type { MessageParam } from "@anthropic-ai/sdk/resources";
+import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+
+type MessageParam = SDKUserMessage["message"];
 import type { AgentRuntime } from "../agent/runtime.ts";
 import { autoRenameSession } from "./auto-rename.ts";
 import type { ChatEventLog } from "./event-log.ts";

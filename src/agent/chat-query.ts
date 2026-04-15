@@ -3,7 +3,8 @@
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { McpServerConfig, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { MessageParam } from "@anthropic-ai/sdk/resources";
+
+type MessageParam = SDKUserMessage["message"];
 import { buildProviderEnv } from "../config/providers.ts";
 import type { PhantomConfig } from "../config/types.ts";
 import type { EvolvedConfig } from "../evolution/types.ts";

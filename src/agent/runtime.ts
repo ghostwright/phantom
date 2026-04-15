@@ -1,7 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { McpServerConfig, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { MessageParam } from "@anthropic-ai/sdk/resources";
+import type { McpServerConfig, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+
+type MessageParam = SDKUserMessage["message"];
 import { buildProviderEnv } from "../config/providers.ts";
 import type { PhantomConfig } from "../config/types.ts";
 import type { EvolvedConfig } from "../evolution/types.ts";
@@ -129,26 +130,26 @@ export class AgentRuntime {
 		}
 		this.activeSessions.add(sessionKey);
 
+		const contentBlocks = Array.isArray(message.content) ? message.content : [];
 		const textContent =
 			typeof message.content === "string"
 				? message.content
-				: Array.isArray(message.content)
-					? message.content
-							.filter((b) => typeof b === "object" && "type" in b && b.type === "text")
-							.map((b) => (b as { text: string }).text)
-							.join("\n")
-					: "";
+				: contentBlocks
+						.filter(
+							(b): b is { type: "text"; text: string } =>
+								typeof b === "object" && b !== null && "type" in b && b.type === "text",
+						)
+						.map((b) => b.text)
+						.join("\n");
 		const wrappedText = this.wrapWithSecurityContext(textContent);
 		const wrappedMessage: MessageParam = {
 			...message,
 			content:
 				typeof message.content === "string"
 					? wrappedText
-					: Array.isArray(message.content)
-						? message.content.map((b) =>
-								typeof b === "object" && "type" in b && b.type === "text" ? { ...b, text: wrappedText } : b,
-							)
-						: wrappedText,
+					: contentBlocks.map((b) =>
+							typeof b === "object" && b !== null && "type" in b && b.type === "text" ? { ...b, text: wrappedText } : b,
+						),
 		};
 
 		try {

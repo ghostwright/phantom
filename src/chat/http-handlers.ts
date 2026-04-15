@@ -1,7 +1,9 @@
 // Session-specific and streaming route handlers for the chat HTTP API.
 // Split from http.ts to keep both files under 300 lines.
 
-import type { MessageParam } from "@anthropic-ai/sdk/resources";
+import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+
+type MessageParam = SDKUserMessage["message"];
 import type { ChatHandlerDeps } from "./http.ts";
 import type { StreamBus } from "./stream-bus.ts";
 import type { ChatWireFrame } from "./types.ts";
