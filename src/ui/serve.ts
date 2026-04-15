@@ -92,6 +92,19 @@ function buildSetCookieHeader(sessionToken: string): string {
 	return `${COOKIE_NAME}=${sessionToken}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${COOKIE_MAX_AGE}`;
 }
 
+// Build a Headers object that sets the new cookie AND expires the old
+// Path=/ui cookie. Browsers that upgraded from the pre-PR1 cookie path
+// have both a Path=/ui and a Path=/ cookie. Per RFC 6265, the more
+// specific path takes precedence in the Cookie header, so the stale
+// token gets matched by getSessionCookie first. Expiring the old one
+// on every successful login clears this.
+function buildCookieHeaders(sessionToken: string): Headers {
+	const headers = new Headers();
+	headers.append("Set-Cookie", buildSetCookieHeader(sessionToken));
+	headers.append("Set-Cookie", `${COOKIE_NAME}=; Path=/ui; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
+	return headers;
+}
+
 export async function handleUiRequest(req: Request): Promise<Response> {
 	const url = new URL(req.url);
 
@@ -249,11 +262,10 @@ function handleSecretFormGet(_req: Request, url: URL, requestId: string): Respon
 	// Authenticate via magic token and set session cookie
 	if (magicToken && validateMagicToken(secretsDb, requestId, magicToken)) {
 		const { sessionToken } = createSession();
+		const cookieHeaders = buildCookieHeaders(sessionToken);
+		cookieHeaders.set("Content-Type", "text/html; charset=utf-8");
 		return new Response(secretsFormHtml(request), {
-			headers: {
-				"Content-Type": "text/html; charset=utf-8",
-				"Set-Cookie": buildSetCookieHeader(sessionToken),
-			},
+			headers: cookieHeaders,
 		});
 	}
 
@@ -320,21 +332,19 @@ async function handleLoginPost(req: Request): Promise<Response> {
 	// Try as magic link token first
 	const sessionToken = consumeMagicLink(body.token);
 	if (sessionToken) {
+		const cookieHeaders = buildCookieHeaders(sessionToken);
+		cookieHeaders.set("Content-Type", "application/json");
 		return new Response(JSON.stringify({ ok: true }), {
-			headers: {
-				"Content-Type": "application/json",
-				"Set-Cookie": buildSetCookieHeader(sessionToken),
-			},
+			headers: cookieHeaders,
 		});
 	}
 
 	// Try as direct session token
 	if (isValidSession(body.token)) {
+		const cookieHeaders = buildCookieHeaders(body.token);
+		cookieHeaders.set("Content-Type", "application/json");
 		return new Response(JSON.stringify({ ok: true }), {
-			headers: {
-				"Content-Type": "application/json",
-				"Set-Cookie": buildSetCookieHeader(body.token),
-			},
+			headers: cookieHeaders,
 		});
 	}
 
