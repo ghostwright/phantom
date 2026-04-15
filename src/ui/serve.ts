@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { relative, resolve } from "node:path";
+import { checkBootstrapMagicHash } from "../chat/first-run.ts";
 import { createSSEResponse } from "./events.ts";
 import { loginPageHtml } from "./login-page.ts";
 import { consumeMagicLink, createSession, isValidSession } from "./session.ts";
@@ -19,10 +20,15 @@ const COOKIE_MAX_AGE = 7 * 24 * 60 * 60; // 7 days in seconds
 let publicDir = resolve(process.cwd(), "public");
 let secretsDb: Database | null = null;
 let dashboardDb: Database | null = null;
+let bootstrapDb: Database | null = null;
 let pluginsApiOverrides: Pick<PluginsApiDeps, "fetcher" | "settingsPath" | "overlayPath"> = {};
 
 type SecretSavedCallback = (requestId: string, secretNames: string[]) => Promise<void>;
 let onSecretSaved: SecretSavedCallback | null = null;
+
+export function setBootstrapDb(db: Database): void {
+	bootstrapDb = db;
+}
 
 export function setSecretsDb(db: Database): void {
 	secretsDb = db;
@@ -342,6 +348,16 @@ async function handleLoginPost(req: Request): Promise<Response> {
 	// Try as direct session token
 	if (isValidSession(body.token)) {
 		const cookieHeaders = buildCookieHeaders(body.token);
+		cookieHeaders.set("Content-Type", "application/json");
+		return new Response(JSON.stringify({ ok: true }), {
+			headers: cookieHeaders,
+		});
+	}
+
+	// Try as bootstrap token (survives process restarts via SQLite hash)
+	if (bootstrapDb && checkBootstrapMagicHash(bootstrapDb, body.token)) {
+		const { sessionToken: newToken } = createSession();
+		const cookieHeaders = buildCookieHeaders(newToken);
 		cookieHeaders.set("Content-Type", "application/json");
 		return new Response(JSON.stringify({ ok: true }), {
 			headers: cookieHeaders,

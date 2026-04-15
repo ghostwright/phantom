@@ -131,7 +131,19 @@ body { background:var(--color-base-100); color:var(--color-base-content); font-f
       <div class="divider-line"></div>
     </div>
 
-    <p class="helper">Ask ${safeName} in Slack for a magic link.<br>It is valid for 10 minutes and the resulting session lasts 7 days.</p>
+    <form id="email-form" autocomplete="off">
+      <div class="form-row">
+        <label class="field-label" for="email">Email me a login link</label>
+        <input class="field-input" id="email" name="email" type="email" placeholder="Your email address" autocomplete="email" spellcheck="false">
+      </div>
+      <button type="submit" id="email-btn" class="primary-button" style="background:transparent;color:var(--color-base-content);border:1px solid var(--color-base-300);">Send link</button>
+      <div id="email-success" class="alert-success">
+        <svg style="width:14px;height:14px;flex-shrink:0;margin-top:1px;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+        <span>If that email matches, a login link is on its way.</span>
+      </div>
+    </form>
+
+    <p class="helper" style="margin-top:24px;">Ask ${safeName} in Slack for a magic link, or use the email form above.<br>Links are valid for 10 minutes. Sessions last 7 days.</p>
 
   </div>
 </main>
@@ -154,17 +166,35 @@ body { background:var(--color-base-100); color:var(--color-base-content); font-f
   var magic=params.get('magic');
   function showError(text){ document.getElementById('error-text').textContent=text; document.getElementById('error-msg').classList.add('visible'); document.getElementById('success-msg').classList.remove('visible'); }
   function showSuccess(){ document.getElementById('success-msg').classList.add('visible'); document.getElementById('error-msg').classList.remove('visible'); }
+  var redirect=params.get('redirect')||'/ui/';
+  if(redirect&&(!/^\\//.test(redirect)||/^\\/\\//.test(redirect))){redirect='/ui/';}
   function authenticate(token){
     var btn=document.getElementById('submit-btn');
     btn.disabled=true;
     btn.innerHTML='<span class="btn-spinner"><\\/span> Signing in...';
     fetch('/ui/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:token}),credentials:'same-origin'}).then(function(res){
-      if(res.ok){ showSuccess(); setTimeout(function(){ location.href='/ui/'; },600); }
+      if(res.ok){ showSuccess(); setTimeout(function(){ location.href=redirect; },600); }
       else { return res.json().then(function(d){ showError(d.error||'Invalid token. Please try again.'); btn.disabled=false; btn.innerHTML='Continue'; }); }
     }).catch(function(){ showError('Unable to connect. Check your network and try again.'); btn.disabled=false; btn.innerHTML='Continue'; });
   }
   if(magic){ authenticate(magic); return; }
   document.getElementById('login-form').addEventListener('submit',function(e){ e.preventDefault(); var t=document.getElementById('token').value.trim(); if(!t){ showError('Please enter an access token.'); return; } authenticate(t); });
+  document.getElementById('email-form').addEventListener('submit',function(e){
+    e.preventDefault();
+    var emailInput=document.getElementById('email').value.trim();
+    if(!emailInput){return;}
+    var emailBtn=document.getElementById('email-btn');
+    emailBtn.disabled=true;
+    emailBtn.innerHTML='<span class="btn-spinner"><\\/span> Sending...';
+    fetch('/login/email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:emailInput}),credentials:'same-origin'}).then(function(){
+      document.getElementById('email-success').classList.add('visible');
+      emailBtn.disabled=false;
+      emailBtn.innerHTML='Send link';
+    }).catch(function(){
+      emailBtn.disabled=false;
+      emailBtn.innerHTML='Send link';
+    });
+  });
 })();
 <\/script>
 </body>

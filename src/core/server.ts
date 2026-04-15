@@ -1,5 +1,6 @@
 import type { AgentRuntime } from "../agent/runtime.ts";
 import type { SlackChannel } from "../channels/slack.ts";
+import { handleEmailLogin } from "../chat/email-login.ts";
 import type { PhantomConfig } from "../config/types.ts";
 import { AuthMiddleware } from "../mcp/auth.ts";
 import { loadMcpConfig } from "../mcp/config.ts";
@@ -151,6 +152,11 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 					return Response.json({ status: "error", message: "Webhook channel not configured" }, { status: 503 });
 				}
 				return webhookHandler(req);
+			}
+
+			if (url.pathname === "/login/email" && req.method === "POST") {
+				const publicUrl = config.public_url ?? `http://localhost:${config.port}`;
+				return handleEmailLogin(req, publicUrl);
 			}
 
 			if (url.pathname.startsWith("/chat") && chatHandler) {

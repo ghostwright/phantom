@@ -2,6 +2,7 @@
   "name": "Phantom",
   "short_name": "Phantom",
   "description": "Phantom AI co-worker",
+  "id": "/chat/",
   "start_url": "/chat/",
   "scope": "/chat/",
   "display": "standalone",
@@ -11,7 +12,8 @@
     {
       "src": "/chat/favicon.svg",
       "sizes": "any",
-      "type": "image/svg+xml"
+      "type": "image/svg+xml",
+      "purpose": "any"
     }
   ]
 }

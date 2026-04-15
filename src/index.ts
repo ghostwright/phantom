@@ -58,7 +58,7 @@ import { createSecretToolServer } from "./secrets/tools.ts";
 import { createBrowserToolServer } from "./ui/browser-mcp.ts";
 import { setLoginPageAgentName } from "./ui/login-page.ts";
 import { closePreviewResources, createPreviewToolServer, getOrCreatePreviewContext } from "./ui/preview.ts";
-import { setDashboardDb, setPublicDir, setSecretSavedCallback, setSecretsDb } from "./ui/serve.ts";
+import { setBootstrapDb, setDashboardDb, setPublicDir, setSecretSavedCallback, setSecretsDb } from "./ui/serve.ts";
 import { createWebUiToolServer } from "./ui/tools.ts";
 
 async function main(): Promise<void> {
@@ -90,6 +90,7 @@ async function main(): Promise<void> {
 	runMigrations(db);
 	setSecretsDb(db);
 	setDashboardDb(db);
+	setBootstrapDb(db);
 	console.log("[phantom] Database ready");
 
 	// Seed working memory file if it does not exist yet
@@ -374,12 +375,33 @@ async function main(): Promise<void> {
 	const { StreamBus } = await import("./chat/stream-bus.ts");
 	const { createChatHandler } = await import("./chat/http.ts");
 	const { startSweepInterval } = await import("./chat/sweep.ts");
+	const { SessionFocusMap } = await import("./chat/notifications/focus.ts");
+	const { getOrCreateVapidKeys } = await import("./chat/notifications/vapid.ts");
+	const { NotificationTriggerService } = await import("./chat/notifications/triggers.ts");
 
 	const chatSessionStore = new ChatSessionStore(db);
 	const chatMessageStore = new ChatMessageStore(db);
 	const chatEventLog = new ChatEventLog(db);
 	const chatAttachmentStore = new ChatAttachmentStore(db);
 	const chatStreamBus = new StreamBus();
+
+	// Initialize push notification subsystem
+	const focusMap = new SessionFocusMap();
+	let vapidKeys: Awaited<ReturnType<typeof getOrCreateVapidKeys>> | null = null;
+	let notificationTriggers: InstanceType<typeof NotificationTriggerService> | null = null;
+	try {
+		vapidKeys = await getOrCreateVapidKeys(db);
+		notificationTriggers = new NotificationTriggerService({
+			db,
+			vapidKeys,
+			focusMap,
+			ownerEmail: process.env.OWNER_EMAIL,
+		});
+		console.log("[push] Web Push notifications initialized");
+	} catch (err: unknown) {
+		const pushMsg = err instanceof Error ? err.message : String(err);
+		console.warn(`[push] Failed to initialize: ${pushMsg}. Running without push notifications.`);
+	}
 
 	const chatHandlerFn = createChatHandler({
 		runtime,
@@ -388,6 +410,11 @@ async function main(): Promise<void> {
 		eventLog: chatEventLog,
 		attachmentStore: chatAttachmentStore,
 		streamBus: chatStreamBus,
+		db,
+		vapidKeys: vapidKeys ?? undefined,
+		focusMap,
+		ownerEmail: process.env.OWNER_EMAIL,
+		notificationTriggers: notificationTriggers ?? undefined,
 		getBootstrapData: () => ({
 			agent_name: config.name,
 			evolution_gen: evolution?.getCurrentVersion() ?? 0,
@@ -674,6 +701,15 @@ async function main(): Promise<void> {
 
 	await router.connectAll();
 
+	// First-run email trigger when Slack is not configured
+	if (!slackChannel) {
+		const { handleFirstRun } = await import("./chat/first-run.ts");
+		handleFirstRun(db, config).catch((err: unknown) => {
+			const firstRunMsg = err instanceof Error ? err.message : String(err);
+			console.warn(`[first-run] Failed: ${firstRunMsg}`);
+		});
+	}
+
 	// Wire Slack into scheduler and /trigger now that channels are connected.
 	// The owner_user_id gate was removed in Phase 2.5 (C3): channel-id and
 	// user-id delivery targets do not need the owner; only target="owner"
@@ -683,6 +719,15 @@ async function main(): Promise<void> {
 		scheduler.setSlackChannel(slackChannel, channelsConfig?.slack?.owner_user_id ?? null);
 	}
 	if (scheduler) {
+		if (notificationTriggers) {
+			const nt = notificationTriggers;
+			scheduler.onJobComplete((jobName, status) => {
+				nt.onScheduledJobResult(jobName, status).catch((err: unknown) => {
+					const msg = err instanceof Error ? err.message : String(err);
+					console.warn(`[push] Scheduler trigger failed: ${msg}`);
+				});
+			});
+		}
 		await scheduler.start();
 	}
 

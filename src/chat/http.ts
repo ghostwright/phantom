@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import type { AgentRuntime } from "../agent/runtime.ts";
 import { isAuthenticated } from "../ui/serve.ts";
 import type { ChatAttachmentStore } from "./attachment-store.ts";
@@ -12,6 +13,12 @@ import {
 	handleUpdateSession,
 } from "./http-handlers.ts";
 import type { ChatMessageStore } from "./message-store.ts";
+import type { SessionFocusMap } from "./notifications/focus.ts";
+import { testPayload } from "./notifications/payload.ts";
+import { broadcastNotification } from "./notifications/sender.ts";
+import { isValidPushEndpoint, subscribe, unsubscribe } from "./notifications/subscriptions.ts";
+import type { NotificationTriggerService } from "./notifications/triggers.ts";
+import type { VapidKeyPair } from "./notifications/vapid.ts";
 import { handleChatStaticRequest } from "./serve.ts";
 import type { ChatSessionStore } from "./session-store.ts";
 import type { StreamBus } from "./stream-bus.ts";
@@ -24,6 +31,11 @@ export type ChatHandlerDeps = {
 	attachmentStore: ChatAttachmentStore;
 	streamBus: StreamBus;
 	getBootstrapData?: () => Record<string, unknown>;
+	db?: Database;
+	vapidKeys?: VapidKeyPair;
+	focusMap?: SessionFocusMap;
+	ownerEmail?: string;
+	notificationTriggers?: NotificationTriggerService;
 };
 
 export function createChatHandler(deps: ChatHandlerDeps): (req: Request) => Promise<Response | null> {
@@ -57,7 +69,8 @@ function isApiPath(path: string): boolean {
 		path === "/chat/stream" ||
 		path === "/chat/focus" ||
 		path.startsWith("/chat/sessions/") ||
-		path.startsWith("/chat/events/")
+		path.startsWith("/chat/events/") ||
+		path.startsWith("/chat/push/")
 	);
 }
 
@@ -79,7 +92,24 @@ async function routeApi(req: Request, url: URL, path: string, deps: ChatHandlerD
 	}
 
 	if (path === "/chat/focus" && req.method === "POST") {
-		return new Response(null, { status: 204 });
+		return handleFocusUpdate(req, deps);
+	}
+
+	if (path === "/chat/push/vapid-key" && req.method === "GET") {
+		if (!deps.vapidKeys) return Response.json({ error: "Push not configured" }, { status: 503 });
+		return Response.json({ publicKey: deps.vapidKeys.publicKey });
+	}
+
+	if (path === "/chat/push/subscribe" && req.method === "POST") {
+		return handlePushSubscribe(req, deps);
+	}
+
+	if (path === "/chat/push/subscribe" && req.method === "DELETE") {
+		return handlePushUnsubscribe(req, deps);
+	}
+
+	if (path === "/chat/push/test" && req.method === "POST") {
+		return handlePushTest(deps);
 	}
 
 	const sessionMatch = path.match(/^\/chat\/sessions\/([^/]+)(\/.*)?$/);
@@ -137,4 +167,65 @@ function handleListSessions(url: URL, deps: ChatHandlerDeps): Response {
 	const status = (url.searchParams.get("status") as "active" | "archived" | "deleted") ?? "active";
 	const result = deps.sessionStore.list({ limit, cursor, status });
 	return Response.json({ sessions: result.sessions, next_cursor: result.nextCursor });
+}
+
+async function handleFocusUpdate(req: Request, deps: ChatHandlerDeps): Promise<Response> {
+	if (!deps.focusMap) return new Response(null, { status: 204 });
+	let body: { session_id?: string; tab_id?: string; focused?: boolean } = {};
+	try {
+		body = (await req.json()) as typeof body;
+	} catch {
+		return new Response(null, { status: 204 });
+	}
+	if (body.session_id) {
+		deps.focusMap.updateFocus(body.session_id, body.tab_id ?? "default", body.focused ?? true);
+	}
+	return new Response(null, { status: 204 });
+}
+
+async function handlePushSubscribe(req: Request, deps: ChatHandlerDeps): Promise<Response> {
+	if (!deps.db) return Response.json({ error: "Push not configured" }, { status: 503 });
+	let body: { endpoint?: string; p256dh?: string; auth?: string; userAgent?: string } = {};
+	try {
+		body = (await req.json()) as typeof body;
+	} catch {
+		return Response.json({ error: "Invalid JSON" }, { status: 400 });
+	}
+	if (!body.endpoint || !body.p256dh || !body.auth) {
+		return Response.json({ error: "endpoint, p256dh, and auth are required" }, { status: 400 });
+	}
+	if (!isValidPushEndpoint(body.endpoint)) {
+		return Response.json({ error: "endpoint must be a valid https URL" }, { status: 400 });
+	}
+	subscribe(deps.db, {
+		endpoint: body.endpoint,
+		p256dh: body.p256dh,
+		auth: body.auth,
+		userAgent: body.userAgent,
+	});
+	return Response.json({ ok: true });
+}
+
+async function handlePushUnsubscribe(req: Request, deps: ChatHandlerDeps): Promise<Response> {
+	if (!deps.db) return Response.json({ error: "Push not configured" }, { status: 503 });
+	let body: { endpoint?: string } = {};
+	try {
+		body = (await req.json()) as typeof body;
+	} catch {
+		return Response.json({ error: "Invalid JSON" }, { status: 400 });
+	}
+	if (!body.endpoint) {
+		return Response.json({ error: "endpoint is required" }, { status: 400 });
+	}
+	unsubscribe(deps.db, body.endpoint);
+	return Response.json({ ok: true });
+}
+
+async function handlePushTest(deps: ChatHandlerDeps): Promise<Response> {
+	if (!deps.db || !deps.vapidKeys) {
+		return Response.json({ error: "Push not configured" }, { status: 503 });
+	}
+	const payload = testPayload();
+	const result = await broadcastNotification(deps.db, payload, deps.vapidKeys, deps.ownerEmail);
+	return Response.json({ ok: true, sent: result.sent, failed: result.failed });
 }

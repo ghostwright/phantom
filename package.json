@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.77",
+    "@block65/webcrypto-web-push": "^1.0.2",
     "@modelcontextprotocol/sdk": "^1.28.0",
     "@playwright/mcp": "0.0.70",
     "@slack/bolt": "^4.6.0",

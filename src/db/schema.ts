@@ -327,4 +327,31 @@ export const MIGRATIONS: string[] = [
 	)`,
 
 	"CREATE INDEX IF NOT EXISTS idx_chat_stream_events_session_seq ON chat_stream_events(session_id, seq)",
+
+	// -- Auth & Notifications Migrations (40-43) --
+
+	`CREATE TABLE IF NOT EXISTS first_run_state (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		email_sent_at TEXT,
+		stdout_printed_at TEXT,
+		bootstrap_magic_hash TEXT
+	)`,
+
+	`CREATE TABLE IF NOT EXISTS chat_push_subscriptions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		endpoint TEXT NOT NULL,
+		p256dh TEXT NOT NULL,
+		auth TEXT NOT NULL,
+		user_agent TEXT,
+		disabled INTEGER NOT NULL DEFAULT 0,
+		consecutive_errors INTEGER NOT NULL DEFAULT 0,
+		last_success_at TEXT,
+		last_error_at TEXT,
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`,
+
+	"CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_push_subscriptions_endpoint ON chat_push_subscriptions(endpoint)",
+
+	"CREATE INDEX IF NOT EXISTS idx_chat_push_subscriptions_user ON chat_push_subscriptions(disabled, created_at)",
 ];
