@@ -280,4 +280,68 @@ describe("phase 1+2 integration", () => {
 			cadence.stop();
 		}
 	});
+
+	test("retried session_key is counted exactly once across drains", async () => {
+		// Codex finding on PR #63: the C2 fix preserves a failed row in the
+		// queue, so a transient pipeline failure followed by a retry would
+		// re-enter `runCycle` under the same `session_key` and double-count
+		// `session_count`. The dedup guard in `runCycle` caps the increment at
+		// one per unique `session_key` for the engine's lifetime.
+		const db = newDb();
+		const runtime = fireGateRuntime();
+		const engine = new EvolutionEngine(CONFIG_PATH, runtime as unknown as AgentRuntime);
+		const queue = new EvolutionQueue(db);
+		const cadence = new EvolutionCadence(engine, queue, engine.getEvolutionConfig(), {
+			cadenceMinutes: 1_000_000,
+			demandTriggerDepth: 999,
+		});
+
+		let throwOnce = true;
+		const original = engine.runSingleSessionPipeline.bind(engine);
+		engine.runSingleSessionPipeline = async (session: SessionSummary) => {
+			if (throwOnce) {
+				throwOnce = false;
+				throw new Error("simulated transient pipeline failure");
+			}
+			return original(session);
+		};
+
+		engine.setQueueWiring(queue, () => cadence.onEnqueue());
+		cadence.start();
+		try {
+			await engine.enqueueIfWorthy(fireWorthySession({ session_id: "retry-once" }));
+
+			const firstDrain = await cadence.triggerNow();
+			expect(firstDrain?.failureCount).toBe(1);
+			// The first drain threw before reaching `updateAfterSession`, so
+			// `session_count` is still 0. The row is preserved for retry.
+			expect(engine.getMetrics().session_count).toBe(0);
+			expect(queue.depth()).toBe(1);
+
+			const secondDrain = await cadence.triggerNow();
+			expect(secondDrain?.successCount).toBe(1);
+			// The retry is the first call that reaches `updateAfterSession`,
+			// so it claims the dedup slot for this `session_key` and increments
+			// exactly once.
+			expect(engine.getMetrics().session_count).toBe(1);
+
+			// A subsequent enqueue under the SAME `session_key` must not
+			// increment again. Use a different `session_id` (which is what the
+			// queue dedup also uses to distinguish turns within a conversation)
+			// so the row is fresh but the dedup key is the same.
+			await engine.enqueueIfWorthy(fireWorthySession({ session_id: "retry-once-followup" }));
+			await cadence.triggerNow();
+			expect(engine.getMetrics().session_count).toBe(1);
+
+			// A new `session_key` is counted normally, proving the guard does
+			// not over-suppress.
+			await engine.enqueueIfWorthy(
+				fireWorthySession({ session_id: "other-session", session_key: "slack:Cint:Tother" }),
+			);
+			await cadence.triggerNow();
+			expect(engine.getMetrics().session_count).toBe(2);
+		} finally {
+			cadence.stop();
+		}
+	});
 });

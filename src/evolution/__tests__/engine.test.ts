@@ -246,6 +246,34 @@ describe("EvolutionEngine", () => {
 		expect(metrics.rollback_count).toBe(1);
 	});
 
+	test("rollback fires the runtime refresh callback with the rolled-back state", async () => {
+		// Codex finding on PR #63: the apply path refreshes the runtime via
+		// `notifyConfigApplied` but the auto-rollback branch was reverting disk
+		// state without firing the callback, leaving the runtime serving the
+		// rolled-forward snapshot. The fix wires the same callback into
+		// `rollback()` so any path that mutates disk state also refreshes the
+		// runtime. `getConfig()` re-reads from disk on every call, so the
+		// callback observes the post-rollback content.
+		const engine = new EvolutionEngine(CONFIG_PATH);
+		const refreshes: Array<{ version: number; userProfile: string }> = [];
+		engine.setOnConfigApplied(() => {
+			const config = engine.getConfig();
+			refreshes.push({ version: engine.getCurrentVersion(), userProfile: config.userProfile });
+		});
+
+		await engine.afterSession(makeSession({ user_messages: ["No, use TypeScript not JavaScript"] }));
+		expect(refreshes.length).toBe(1);
+		expect(refreshes[0].version).toBeGreaterThan(0);
+		expect(refreshes[0].userProfile).toContain("TypeScript");
+
+		engine.rollback(0);
+		// Two callback invocations now: one from the original apply, one from
+		// the rollback. The second sees the version-0 state on disk.
+		expect(refreshes.length).toBe(2);
+		expect(refreshes[1].version).toBe(0);
+		expect(refreshes[1].userProfile).not.toContain("TypeScript");
+	});
+
 	test("preference is detected and applied", async () => {
 		const engine = new EvolutionEngine(CONFIG_PATH);
 		const session = makeSession({

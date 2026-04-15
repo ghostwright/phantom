@@ -62,6 +62,15 @@ export class EvolutionEngine {
 	private activeCycleSessionId: string | null = null;
 	private activeCycleSkipCount = 0;
 
+	// Dedup set for the M1 single-count contract under the C2 retry path.
+	// A row that fails mid-cycle stays in the queue and re-enters runCycle
+	// under the same `session_key`; without this guard, `session_count` would
+	// be incremented once per retry. Bounded by unique session_keys ever seen
+	// by this engine instance (low thousands per year). Process restart clears
+	// it, which means a row pending retry across a restart double-counts on
+	// its first post-restart drain. Acceptable per-restart blip.
+	private countedSessionKeys = new Set<string>();
+
 	// Phase 1 + 2 wiring. The queue is optional so engine unit tests that do
 	// not care about batching can still construct a bare engine.
 	private queue: EvolutionQueue | null = null;
@@ -280,9 +289,14 @@ export class EvolutionEngine {
 			observations = extractObservations(session);
 		}
 
-		// Step 0: Update session metrics (after extraction so hadCorrections uses observation results)
+		// Step 0: Update session metrics (after extraction so hadCorrections uses observation results).
+		// Guarded by `countedSessionKeys` so a C2 retry of the same session_key
+		// does not double-count.
 		const hadCorrections = observations.some((o) => o.type === "correction");
-		updateAfterSession(this.config, session.outcome, hadCorrections);
+		if (!this.countedSessionKeys.has(session.session_key)) {
+			this.countedSessionKeys.add(session.session_key);
+			updateAfterSession(this.config, session.outcome, hadCorrections);
+		}
 
 		if (observations.length === 0) {
 			return { version: this.getCurrentVersion(), changes_applied: [], changes_rejected: [] };
@@ -508,6 +522,12 @@ export class EvolutionEngine {
 		versionRollback(this.config, toVersion);
 		updateAfterRollback(this.config);
 		console.log(`[evolution] Rolled back to version ${toVersion}`);
+		// The auto-rollback branch in `runCycle` reverts disk state without
+		// otherwise touching the runtime; without this refresh the agent keeps
+		// serving the now-reverted version's snapshot until process restart.
+		// `getConfig()` re-reads from disk on every call, so the callback picks
+		// up the rolled-back content.
+		this.notifyConfigApplied();
 	}
 
 	private resetDailyCostIfNewDay(): void {
