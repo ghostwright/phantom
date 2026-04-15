@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useLocation } from "react-router-dom";
+import { useAttachments } from "@/hooks/use-attachments";
 import { useChat } from "@/hooks/use-chat";
+import { useDragDrop } from "@/hooks/use-drag-drop";
 import { useFocusHeartbeat } from "@/hooks/use-focus-heartbeat";
+import { usePaste } from "@/hooks/use-paste";
 import { ChatInput } from "@/components/chat-input";
+import { DropOverlay } from "@/components/drop-overlay";
 import { MessageList } from "@/components/message-list";
 import { NotificationBanner } from "@/components/notification-banner";
 import { IosInstallBanner } from "@/components/ios-install-banner";
@@ -20,46 +24,53 @@ export function SessionRoute() {
     loadSession,
   } = useChat(sessionId ?? null);
 
+  const { files, addFiles, removeFile, clearFiles, uploadFiles, isUploading } =
+    useAttachments();
+
+  const { isDragging, dropRef } = useDragDrop(addFiles);
+  usePaste(addFiles);
   useFocusHeartbeat(sessionId ?? null);
 
-  // Track whether the user has sent at least one message in this session
   const [hasSentMessage, setHasSentMessage] = useState(false);
   const sentCountRef = useRef(0);
 
   useEffect(() => {
+    clearFiles();
     const state = location.state as { initialMessage?: string } | null;
     if (sessionId && !state?.initialMessage) {
       loadSession(sessionId);
     }
-  }, [sessionId, loadSession, location.state]);
+  }, [sessionId, loadSession, location.state, clearFiles]);
 
-  // Handle initial message passed from the welcome state
   useEffect(() => {
     const state = location.state as { initialMessage?: string } | null;
     if (state?.initialMessage && sessionId) {
       sendMessage(state.initialMessage);
       sentCountRef.current++;
       setHasSentMessage(true);
-      // Clear the state so it doesn't re-fire
       window.history.replaceState({}, "", location.pathname);
     }
   }, [sessionId, location.state, location.pathname, sendMessage]);
 
   const handleSend = useCallback(
-    (text: string) => {
-      sendMessage(text);
+    async (text: string) => {
+      if (!sessionId) return;
+      const attachmentIds = await uploadFiles(sessionId);
+      if (attachmentIds.length > 0) clearFiles();
+      sendMessage(text, attachmentIds.length > 0 ? attachmentIds : undefined);
       sentCountRef.current++;
       setHasSentMessage(true);
     },
-    [sendMessage],
+    [sessionId, uploadFiles, clearFiles, sendMessage],
   );
 
   return (
-    <>
+    <div ref={dropRef} className="flex min-h-0 flex-1 flex-col">
       <MessageList
         messages={messages}
         activeToolCalls={activeToolCalls}
         thinkingBlocks={thinkingBlocks}
+        isStreaming={isStreaming}
       />
       <NotificationBanner visible={hasSentMessage} />
       <IosInstallBanner />
@@ -67,7 +78,12 @@ export function SessionRoute() {
         onSend={handleSend}
         onStop={abort}
         isStreaming={isStreaming}
+        disabled={isUploading}
+        attachments={files}
+        onAddFiles={addFiles}
+        onRemoveFile={removeFile}
       />
-    </>
+      <DropOverlay visible={isDragging} />
+    </div>
   );
 }

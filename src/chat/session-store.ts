@@ -177,6 +177,17 @@ export class ChatSessionStore {
 		);
 	}
 
+	getExpiredSessionIds(olderThanDays: number): string[] {
+		const rows = this.db
+			.query(
+				`SELECT id FROM chat_sessions
+				 WHERE deleted_at IS NOT NULL
+				 AND deleted_at < datetime('now', ?)`,
+			)
+			.all(`-${olderThanDays} days`) as Array<{ id: string }>;
+		return rows.map((r) => r.id);
+	}
+
 	hardDeleteExpired(olderThanDays: number): number {
 		const expiredIds = this.db
 			.query(

@@ -1,4 +1,11 @@
-import { MessageSquarePlus, Moon, Search, Sun } from "lucide-react";
+import {
+  Keyboard,
+  MessageSquarePlus,
+  Moon,
+  Search,
+  Settings,
+  Sun,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   CommandDialog,
@@ -15,10 +22,12 @@ export function CommandPalette({
   sessions,
   onNewSession,
   onSessionClick,
+  onShowKeyboardHelp,
 }: {
   sessions: SessionSummary[];
   onNewSession: () => void;
   onSessionClick: (id: string) => void;
+  onShowKeyboardHelp?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
@@ -41,23 +50,31 @@ export function CommandPalette({
         onNewSession();
       } else if (value === "toggle-theme") {
         toggleTheme();
+      } else if (value === "settings") {
+        window.location.href = "/ui";
+      } else if (value === "keyboard-shortcuts") {
+        onShowKeyboardHelp?.();
       } else if (value.startsWith("session:")) {
         const id = value.slice(8).split(":")[0] ?? "";
         onSessionClick(id);
       }
     },
-    [onNewSession, onSessionClick, toggleTheme],
+    [onNewSession, onSessionClick, toggleTheme, onShowKeyboardHelp],
   );
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder="Search conversations..." />
+      <CommandInput placeholder="Search commands and conversations..." />
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
         <CommandGroup heading="Navigation">
           <CommandItem value="new-session" onSelect={handleSelect}>
             <MessageSquarePlus className="mr-2 h-4 w-4" />
             New conversation
+          </CommandItem>
+          <CommandItem value="settings" onSelect={handleSelect}>
+            <Settings className="mr-2 h-4 w-4" />
+            Settings
           </CommandItem>
           <CommandItem value="toggle-theme" onSelect={handleSelect}>
             {theme === "light" ? (
@@ -66,6 +83,12 @@ export function CommandPalette({
               <Sun className="mr-2 h-4 w-4" />
             )}
             Toggle theme
+          </CommandItem>
+        </CommandGroup>
+        <CommandGroup heading="Help">
+          <CommandItem value="keyboard-shortcuts" onSelect={handleSelect}>
+            <Keyboard className="mr-2 h-4 w-4" />
+            Keyboard shortcuts
           </CommandItem>
         </CommandGroup>
         {sessions.length > 0 && (

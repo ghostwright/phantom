@@ -43,6 +43,20 @@ export const shortcuts: Record<string, Shortcut> = {
     description: "Switch between light and dark mode",
     category: "global",
   },
+  commandPalette: {
+    key: "k",
+    meta: true,
+    label: "Command palette",
+    description: "Open command palette",
+    category: "global",
+  },
+  keyboardHelp: {
+    key: "/",
+    meta: true,
+    label: "Keyboard shortcuts",
+    description: "Show keyboard shortcuts",
+    category: "global",
+  },
   sidebarNavUp: {
     key: "k",
     label: "Previous session",

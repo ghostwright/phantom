@@ -15,6 +15,7 @@ export type ChatAttachment = {
 };
 
 export type ChatAttachmentCreateParams = {
+	id?: string;
 	sessionId?: string;
 	kind: string;
 	filename: string;
@@ -32,7 +33,7 @@ export class ChatAttachmentStore {
 	}
 
 	create(params: ChatAttachmentCreateParams): string {
-		const id = crypto.randomUUID();
+		const id = params.id ?? crypto.randomUUID();
 		this.db.run(
 			`INSERT INTO chat_attachments (id, session_id, kind, filename, mime_type, size_bytes, storage_path, sha256)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,

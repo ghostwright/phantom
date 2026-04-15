@@ -5,6 +5,8 @@ import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
 type MessageParam = SDKUserMessage["message"];
 import type { ChatHandlerDeps } from "./http.ts";
+import { buildUserMessageParam } from "./message-builder.ts";
+import { readAttachmentFile } from "./storage.ts";
 import type { StreamBus } from "./stream-bus.ts";
 import type { ChatWireFrame } from "./types.ts";
 import { ChatSessionWriter, getActiveWriter } from "./writer.ts";
@@ -75,7 +77,13 @@ export async function handleStream(req: Request, deps: ChatHandlerDeps): Promise
 	}
 
 	const tabId = body.tab_id ?? "default";
-	const message: MessageParam = { role: "user", content: body.text };
+	const attachmentIds = body.attachment_ids ?? [];
+	let message: MessageParam;
+	if (attachmentIds.length > 0) {
+		message = await buildUserMessageParam(body.text, attachmentIds, deps.attachmentStore);
+	} else {
+		message = { role: "user", content: body.text };
+	}
 
 	const writer = new ChatSessionWriter({
 		sessionId: body.session_id,
@@ -191,6 +199,31 @@ export function handleAbort(sessionId: string): Response {
 
 export function formatSSE(frame: ChatWireFrame, seq: number): string {
 	return `id: ${seq}\nevent: ${frame.event}\ndata: ${JSON.stringify(frame)}\n\n`;
+}
+
+export async function handleAttachmentPreview(attachmentId: string, deps: ChatHandlerDeps): Promise<Response> {
+	const att = deps.attachmentStore.getById(attachmentId);
+	if (!att) return Response.json({ error: "Attachment not found" }, { status: 404 });
+
+	try {
+		const data = await readAttachmentFile(att.storage_path);
+		const sanitized = (att.filename ?? "file").replace(/["\n\r]/g, "_");
+		const isImage = att.mime_type?.startsWith("image/");
+		const disposition = isImage ? `inline; filename="${sanitized}"` : `attachment; filename="${sanitized}"`;
+
+		return new Response(new Uint8Array(data), {
+			headers: {
+				"Content-Type": att.mime_type ?? "application/octet-stream",
+				"Content-Length": String(data.byteLength),
+				"Content-Disposition": disposition,
+				"X-Content-Type-Options": "nosniff",
+				"Content-Security-Policy": "sandbox",
+				"Cache-Control": "private, max-age=3600",
+			},
+		});
+	} catch {
+		return Response.json({ error: "File not found" }, { status: 404 });
+	}
 }
 
 function createSSEStream(sessionId: string, streamBus: StreamBus, writer: ChatSessionWriter): ReadableStream {

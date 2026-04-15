@@ -1,5 +1,5 @@
 import { ArrowDown } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import type { ChatMessage, ThinkingBlockState, ToolCallState } from "@/lib/chat-types";
 import { Button } from "@/ui/button";
@@ -10,12 +10,16 @@ export function MessageList({
   messages,
   activeToolCalls,
   thinkingBlocks,
+  isStreaming,
 }: {
   messages: ChatMessage[];
   activeToolCalls: Map<string, ToolCallState>;
   thinkingBlocks: Map<string, ThinkingBlockState>;
+  isStreaming?: boolean;
 }) {
   const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll();
+  const [liveText, setLiveText] = useState("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const toolCallsByMessage = useMemo(() => {
     const map = new Map<string, ToolCallState[]>();
@@ -36,6 +40,33 @@ export function MessageList({
     }
     return map;
   }, [thinkingBlocks]);
+
+  // Debounced aria-live updates during streaming
+  useEffect(() => {
+    if (!isStreaming) {
+      setLiveText("");
+      return;
+    }
+
+    const lastMsg = messages[messages.length - 1];
+    if (!lastMsg || lastMsg.role !== "assistant") return;
+
+    const fullText = lastMsg.content
+      .filter((b) => b.type === "text")
+      .map((b) => b.text ?? "")
+      .join("");
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      // Only announce the last 200 chars to avoid overwhelming screen readers
+      const tail = fullText.length > 200 ? fullText.slice(-200) : fullText;
+      setLiveText(tail);
+    }, 1000);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [messages, isStreaming]);
 
   return (
     <div className="relative flex-1 overflow-hidden">
@@ -72,6 +103,14 @@ export function MessageList({
           </Button>
         </div>
       )}
+
+      {/* Screen reader announcements for streaming */}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {isStreaming ? "Agent is typing..." : ""}
+      </div>
+      <div className="sr-only" aria-live="polite" aria-atomic="false">
+        {liveText}
+      </div>
     </div>
   );
 }

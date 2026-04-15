@@ -1,0 +1,3 @@
+[test]
+# Exclude the e2e directory which uses @playwright/test (not bun:test)
+root = "src"

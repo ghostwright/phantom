@@ -8,7 +8,7 @@ export function useChat(sessionId: string | null): {
   activeToolCalls: Map<string, ToolCallState>;
   thinkingBlocks: Map<string, ThinkingBlockState>;
   isStreaming: boolean;
-  sendMessage: (text: string) => void;
+  sendMessage: (text: string, attachmentIds?: string[]) => void;
   abort: () => void;
   loadSession: (id: string) => void;
 } {
@@ -72,7 +72,7 @@ export function useChat(sessionId: string | null): {
   );
 
   const sendMessage = useCallback(
-    (text: string) => {
+    (text: string, attachmentIds?: string[]) => {
       if (!sessionId) return;
 
       readerRef.current?.cancel();
@@ -84,15 +84,20 @@ export function useChat(sessionId: string | null): {
 
       store.update((s) => ({ ...s, isStreaming: true }));
 
+      const payload: Record<string, unknown> = {
+        session_id: sessionId,
+        text,
+        tab_id: "web-" + Date.now(),
+      };
+      if (attachmentIds && attachmentIds.length > 0) {
+        payload.attachment_ids = attachmentIds;
+      }
+
       fetch("/chat/stream", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: sessionId,
-          text,
-          tab_id: "web-" + Date.now(),
-        }),
+        body: JSON.stringify(payload),
         signal: controller.signal,
       })
         .then((res) => {

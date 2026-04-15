@@ -6,6 +6,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { CommandPalette } from "./command-palette";
 import { DeleteSessionDialog } from "./delete-session-dialog";
+import { KeyboardHelpSheet } from "./keyboard-help-sheet";
 import { SidebarPanel } from "./sidebar-panel";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -21,6 +22,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     id: string;
     title: string | null;
   } | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const handleNewSession = useCallback(async () => {
     const id = await createSession();
@@ -59,13 +61,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [deleteTarget, deleteSession, sessionId, navigate]);
 
+  const handleShowKeyboardHelp = useCallback(() => {
+    setHelpOpen(true);
+  }, []);
+
   useKeyboard({
     newSession: handleNewSession,
     toggleTheme,
+    keyboardHelp: handleShowKeyboardHelp,
   });
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
+      >
+        Skip to main content
+      </a>
+      <a
+        href="#chat-composer"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-14 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
+      >
+        Skip to composer
+      </a>
+
       {sidebarOpen && (
         <div className="w-64 shrink-0 border-r border-border">
           <SidebarPanel
@@ -106,14 +126,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <span className="text-sm font-medium text-foreground">Phantom</span>
         </header>
 
-        <main className="flex min-h-0 flex-1 flex-col">{children}</main>
+        <main id="main-content" className="flex min-h-0 flex-1 flex-col">{children}</main>
       </div>
 
       <CommandPalette
         sessions={sessions}
         onNewSession={handleNewSession}
         onSessionClick={handleSessionClick}
+        onShowKeyboardHelp={handleShowKeyboardHelp}
       />
+
+      <KeyboardHelpSheet open={helpOpen} onOpenChange={setHelpOpen} />
 
       <DeleteSessionDialog
         open={deleteTarget !== null}

@@ -5,6 +5,7 @@ import type { ChatAttachmentStore } from "./attachment-store.ts";
 import type { ChatEventLog } from "./event-log.ts";
 import {
 	handleAbort,
+	handleAttachmentPreview,
 	handleDeleteSession,
 	handleForkSession,
 	handleGetSession,
@@ -22,6 +23,7 @@ import type { VapidKeyPair } from "./notifications/vapid.ts";
 import { handleChatStaticRequest } from "./serve.ts";
 import type { ChatSessionStore } from "./session-store.ts";
 import type { StreamBus } from "./stream-bus.ts";
+import { handleUploadAttachments } from "./upload.ts";
 
 export type ChatHandlerDeps = {
 	runtime: AgentRuntime;
@@ -70,7 +72,8 @@ function isApiPath(path: string): boolean {
 		path === "/chat/focus" ||
 		path.startsWith("/chat/sessions/") ||
 		path.startsWith("/chat/events/") ||
-		path.startsWith("/chat/push/")
+		path.startsWith("/chat/push/") ||
+		path.startsWith("/chat/attachments/")
 	);
 }
 
@@ -119,6 +122,12 @@ async function routeApi(req: Request, url: URL, path: string, deps: ChatHandlerD
 		return routeSessionApi(req, sessionId, suffix, deps);
 	}
 
+	const attachmentMatch = path.match(/^\/chat\/attachments\/([^/]+)\/preview$/);
+	if (attachmentMatch && req.method === "GET") {
+		const attachmentId = attachmentMatch[1] ?? "";
+		return handleAttachmentPreview(attachmentId, deps);
+	}
+
 	const eventsMatch = path.match(/^\/chat\/events\/(\d+)\/full-output$/);
 	if (eventsMatch && req.method === "GET") {
 		return Response.json({ error: "Not implemented" }, { status: 501 });
@@ -146,6 +155,13 @@ async function routeSessionApi(
 
 	if (suffix === "/resume" && req.method === "POST") return handleResume(req, sessionId, deps);
 	if (suffix === "/abort" && req.method === "POST") return handleAbort(sessionId);
+
+	if (suffix === "/attachments" && req.method === "POST") {
+		return handleUploadAttachments(req, sessionId, {
+			sessionStore: deps.sessionStore,
+			attachmentStore: deps.attachmentStore,
+		});
+	}
 
 	return null;
 }
