@@ -1,5 +1,5 @@
 // Notification payload factories. Each returns a structured payload
-// under 2048 bytes cleartext for the push service.
+// under 3 KB cleartext for the push service.
 
 export type NotificationPayload = {
 	title: string;
@@ -12,12 +12,35 @@ export type NotificationPayload = {
 	};
 };
 
+const MAX_PAYLOAD_BYTES = 3072; // 3 KB - safe across push services
+const encoder = new TextEncoder();
+
+function byteLength(str: string): number {
+	return encoder.encode(str).length;
+}
+
+function truncateToByteLimit(text: string, maxBytes: number): string {
+	const encoded = encoder.encode(text);
+	if (encoded.length <= maxBytes) return text;
+	const decoder = new TextDecoder();
+	return `${decoder.decode(encoded.slice(0, maxBytes - 3))}...`;
+}
+
+function ensurePayloadFits(payload: NotificationPayload): NotificationPayload {
+	const json = JSON.stringify(payload);
+	if (byteLength(json) <= MAX_PAYLOAD_BYTES) return payload;
+	// Truncate body to bring payload under limit
+	const overhead = byteLength(json) - byteLength(payload.body);
+	const maxBodyBytes = MAX_PAYLOAD_BYTES - overhead - 10;
+	return { ...payload, body: truncateToByteLimit(payload.body, maxBodyBytes) };
+}
+
 export function sessionCompletePayload(sessionId: string, title: string, durationMs: number): NotificationPayload {
 	const durationSec = Math.round(durationMs / 1000);
 	const durationLabel = durationSec >= 60 ? `${Math.round(durationSec / 60)}m` : `${durationSec}s`;
 	const body = title ? `${title} (${durationLabel})` : `Task finished in ${durationLabel}`;
 
-	return {
+	return ensurePayloadFits({
 		title: "Task complete",
 		body,
 		tag: `session-complete-${sessionId}`,
@@ -26,12 +49,12 @@ export function sessionCompletePayload(sessionId: string, title: string, duratio
 			type: "session_complete",
 			sessionId,
 		},
-	};
+	});
 }
 
 export function agentMessagePayload(sessionId: string, preview: string): NotificationPayload {
 	const truncated = preview.length > 120 ? `${preview.slice(0, 117)}...` : preview;
-	return {
+	return ensurePayloadFits({
 		title: "New message",
 		body: truncated,
 		tag: `agent-message-${sessionId}`,
@@ -40,11 +63,11 @@ export function agentMessagePayload(sessionId: string, preview: string): Notific
 			type: "agent_message",
 			sessionId,
 		},
-	};
+	});
 }
 
 export function scheduledJobPayload(jobName: string, status: string): NotificationPayload {
-	return {
+	return ensurePayloadFits({
 		title: `Scheduled: ${jobName}`,
 		body: status,
 		tag: `scheduled-${jobName}`,
@@ -52,12 +75,12 @@ export function scheduledJobPayload(jobName: string, status: string): Notificati
 			url: "/chat/",
 			type: "scheduled_result",
 		},
-	};
+	});
 }
 
 export function hardErrorPayload(sessionId: string, error: string): NotificationPayload {
 	const truncated = error.length > 120 ? `${error.slice(0, 117)}...` : error;
-	return {
+	return ensurePayloadFits({
 		title: "Error",
 		body: truncated,
 		tag: `error-${sessionId}`,
@@ -66,7 +89,7 @@ export function hardErrorPayload(sessionId: string, error: string): Notification
 			type: "hard_error",
 			sessionId,
 		},
-	};
+	});
 }
 
 export function testPayload(): NotificationPayload {

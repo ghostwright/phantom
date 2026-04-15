@@ -119,33 +119,38 @@ describe("payload size assertions", () => {
 	const { sessionCompletePayload, agentMessagePayload, scheduledJobPayload, hardErrorPayload, testPayload } =
 		require("../payload.ts") as typeof import("../payload.ts");
 
-	test("sessionCompletePayload is under 2048 bytes", () => {
+	function payloadByteSize(p: Record<string, unknown>): number {
+		return new TextEncoder().encode(JSON.stringify(p)).length;
+	}
+
+	test("sessionCompletePayload is under 3072 bytes", () => {
 		const p = sessionCompletePayload("abc-123", "Build the widget factory", 120_000);
-		const json = JSON.stringify(p);
-		expect(json.length).toBeLessThan(2048);
+		expect(payloadByteSize(p)).toBeLessThan(3072);
 	});
 
-	test("agentMessagePayload is under 2048 bytes", () => {
+	test("agentMessagePayload is under 3072 bytes", () => {
 		const p = agentMessagePayload("abc-123", "Here is a very long message preview ".repeat(3));
-		const json = JSON.stringify(p);
-		expect(json.length).toBeLessThan(2048);
+		expect(payloadByteSize(p)).toBeLessThan(3072);
 	});
 
-	test("scheduledJobPayload is under 2048 bytes", () => {
+	test("scheduledJobPayload is under 3072 bytes", () => {
 		const p = scheduledJobPayload("daily-report", "completed successfully");
-		const json = JSON.stringify(p);
-		expect(json.length).toBeLessThan(2048);
+		expect(payloadByteSize(p)).toBeLessThan(3072);
 	});
 
-	test("hardErrorPayload is under 2048 bytes", () => {
+	test("hardErrorPayload is under 3072 bytes", () => {
 		const p = hardErrorPayload("abc-123", "Error: unexpected end of input in file xyz.ts at line 42");
-		const json = JSON.stringify(p);
-		expect(json.length).toBeLessThan(2048);
+		expect(payloadByteSize(p)).toBeLessThan(3072);
 	});
 
-	test("testPayload is under 2048 bytes", () => {
+	test("testPayload is under 3072 bytes", () => {
 		const p = testPayload();
-		const json = JSON.stringify(p);
-		expect(json.length).toBeLessThan(2048);
+		expect(payloadByteSize(p)).toBeLessThan(3072);
+	});
+
+	test("payload with multi-byte characters stays under limit", () => {
+		const cjkTitle = "\u4f60\u597d\u4e16\u754c".repeat(30);
+		const p = sessionCompletePayload("abc-123", cjkTitle, 120_000);
+		expect(payloadByteSize(p)).toBeLessThan(3072);
 	});
 });

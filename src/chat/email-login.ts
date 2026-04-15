@@ -56,6 +56,14 @@ export async function handleEmailLogin(req: Request, publicUrl: string): Promise
 
 	await sendLoginEmail(ownerEmail, magicUrl, process.env.PHANTOM_AGENT_NAME ?? "Phantom");
 
+	// Evict expired entries to prevent unbounded map growth
+	if (rateLimitMap.size > 1000) {
+		const cutoff = Date.now() - RATE_LIMIT_MS;
+		for (const [entryIp, entryVal] of rateLimitMap) {
+			if (entryVal.lastSent < cutoff) rateLimitMap.delete(entryIp);
+		}
+	}
+
 	return Response.json({ ok: true });
 }
 
@@ -92,5 +100,6 @@ export async function sendLoginEmail(email: string, magicLink: string, agentName
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
 		console.error(`[email-login] Failed to send: ${msg}`);
+		throw err;
 	}
 }

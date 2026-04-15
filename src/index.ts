@@ -58,7 +58,7 @@ import { createSecretToolServer } from "./secrets/tools.ts";
 import { createBrowserToolServer } from "./ui/browser-mcp.ts";
 import { setLoginPageAgentName } from "./ui/login-page.ts";
 import { closePreviewResources, createPreviewToolServer, getOrCreatePreviewContext } from "./ui/preview.ts";
-import { setDashboardDb, setPublicDir, setSecretSavedCallback, setSecretsDb } from "./ui/serve.ts";
+import { setBootstrapDb, setDashboardDb, setPublicDir, setSecretSavedCallback, setSecretsDb } from "./ui/serve.ts";
 import { createWebUiToolServer } from "./ui/tools.ts";
 
 async function main(): Promise<void> {
@@ -90,6 +90,7 @@ async function main(): Promise<void> {
 	runMigrations(db);
 	setSecretsDb(db);
 	setDashboardDb(db);
+	setBootstrapDb(db);
 	console.log("[phantom] Database ready");
 
 	// Seed working memory file if it does not exist yet
@@ -718,6 +719,15 @@ async function main(): Promise<void> {
 		scheduler.setSlackChannel(slackChannel, channelsConfig?.slack?.owner_user_id ?? null);
 	}
 	if (scheduler) {
+		if (notificationTriggers) {
+			const nt = notificationTriggers;
+			scheduler.onJobComplete((jobName, status) => {
+				nt.onScheduledJobResult(jobName, status).catch((err: unknown) => {
+					const msg = err instanceof Error ? err.message : String(err);
+					console.warn(`[push] Scheduler trigger failed: ${msg}`);
+				});
+			});
+		}
 		await scheduler.start();
 	}
 

@@ -17,6 +17,15 @@ export type PushSubscriptionRow = {
 	updated_at: string;
 };
 
+export function isValidPushEndpoint(endpoint: string): boolean {
+	try {
+		const url = new URL(endpoint);
+		return url.protocol === "https:";
+	} catch {
+		return false;
+	}
+}
+
 export function subscribe(
 	db: Database,
 	sub: { endpoint: string; p256dh: string; auth: string; userAgent?: string },

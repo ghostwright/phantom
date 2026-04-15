@@ -36,12 +36,17 @@ export class Scheduler {
 	private timer: ReturnType<typeof setTimeout> | null = null;
 	private running = false;
 	private executing = false;
+	private jobCompleteCallbacks: ((jobName: string, status: string) => void)[] = [];
 
 	constructor(deps: SchedulerDeps) {
 		this.db = deps.db;
 		this.runtime = deps.runtime;
 		this.slackChannel = deps.slackChannel;
 		this.ownerUserId = deps.ownerUserId ?? null;
+	}
+
+	onJobComplete(cb: (jobName: string, status: string) => void): void {
+		this.jobCompleteCallbacks.push(cb);
 	}
 
 	/**
@@ -249,15 +254,26 @@ export class Scheduler {
 					continue;
 				}
 				try {
-					await this.runExecutor(job);
+					const result = await this.runExecutor(job);
+					const status = result.startsWith("Error:") ? "error" : "completed";
+					this.fireJobCompleteCallbacks(job.name, status);
 				} catch (err: unknown) {
 					const msg = err instanceof Error ? err.message : String(err);
 					console.error(`[scheduler] Job ${job.id} (${job.name}) failed: ${msg}`);
+					this.fireJobCompleteCallbacks(job.name, "error");
 				}
 			}
 		} finally {
 			this.executing = false;
 			this.armTimer();
+		}
+	}
+
+	private fireJobCompleteCallbacks(name: string, status: string): void {
+		for (const cb of this.jobCompleteCallbacks) {
+			try {
+				cb(name, status);
+			} catch {}
 		}
 	}
 

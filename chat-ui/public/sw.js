@@ -43,7 +43,7 @@ self.addEventListener("fetch", function (event) {
   // Never intercept SSE stream
   if (url.pathname === "/chat/stream") return;
 
-  // API calls: network-only, no cache
+  // API calls: let the browser handle normally (no SW interception)
   if (
     url.pathname.startsWith("/chat/push/") ||
     url.pathname === "/chat/bootstrap" ||
@@ -52,7 +52,6 @@ self.addEventListener("fetch", function (event) {
     url.pathname.startsWith("/chat/events/") ||
     url.pathname === "/chat/focus"
   ) {
-    event.respondWith(fetch(event.request));
     return;
   }
 

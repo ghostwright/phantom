@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import { useChat } from "@/hooks/use-chat";
+import { useFocusHeartbeat } from "@/hooks/use-focus-heartbeat";
 import { ChatInput } from "@/components/chat-input";
 import { MessageList } from "@/components/message-list";
 import { NotificationBanner } from "@/components/notification-banner";
@@ -18,6 +19,8 @@ export function SessionRoute() {
     abort,
     loadSession,
   } = useChat(sessionId ?? null);
+
+  useFocusHeartbeat(sessionId ?? null);
 
   // Track whether the user has sent at least one message in this session
   const [hasSentMessage, setHasSentMessage] = useState(false);

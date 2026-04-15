@@ -27,9 +27,9 @@ function ensureFirstRunRow(db: Database): void {
 export async function handleFirstRun(db: Database, config: { name: string; public_url?: string }): Promise<void> {
 	const ownerEmail = process.env.OWNER_EMAIL;
 	if (!ownerEmail) {
-		console.error("[first-run] No OWNER_EMAIL set and no Slack configured.");
-		console.error("[first-run] Set OWNER_EMAIL in .env to receive a login link.");
-		console.error("[first-run] The chat is still accessible via direct token login.");
+		console.warn("[first-run] No OWNER_EMAIL set and no Slack configured.");
+		console.warn("[first-run] The web chat UI requires a login token. Set OWNER_EMAIL in .env for email-based login.");
+		console.warn("[first-run] MCP and CLI channels are not affected.");
 		return;
 	}
 

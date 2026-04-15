@@ -16,7 +16,7 @@ import type { ChatMessageStore } from "./message-store.ts";
 import type { SessionFocusMap } from "./notifications/focus.ts";
 import { testPayload } from "./notifications/payload.ts";
 import { broadcastNotification } from "./notifications/sender.ts";
-import { subscribe, unsubscribe } from "./notifications/subscriptions.ts";
+import { isValidPushEndpoint, subscribe, unsubscribe } from "./notifications/subscriptions.ts";
 import type { NotificationTriggerService } from "./notifications/triggers.ts";
 import type { VapidKeyPair } from "./notifications/vapid.ts";
 import { handleChatStaticRequest } from "./serve.ts";
@@ -193,6 +193,9 @@ async function handlePushSubscribe(req: Request, deps: ChatHandlerDeps): Promise
 	}
 	if (!body.endpoint || !body.p256dh || !body.auth) {
 		return Response.json({ error: "endpoint, p256dh, and auth are required" }, { status: 400 });
+	}
+	if (!isValidPushEndpoint(body.endpoint)) {
+		return Response.json({ error: "endpoint must be a valid https URL" }, { status: 400 });
 	}
 	subscribe(deps.db, {
 		endpoint: body.endpoint,

@@ -5,6 +5,7 @@ import type { AgentRuntime } from "../agent/runtime.ts";
 import { autoRenameSession } from "./auto-rename.ts";
 import type { ChatEventLog } from "./event-log.ts";
 import type { ChatMessageStore } from "./message-store.ts";
+import type { NotificationTriggerService } from "./notifications/triggers.ts";
 import { createTranslationContext, translateSdkMessage } from "./sdk-to-wire.ts";
 import type { ChatSessionStore } from "./session-store.ts";
 import type { StreamBus } from "./stream-bus.ts";
@@ -17,6 +18,7 @@ export type ChatSessionWriterDeps = {
 	messageStore: ChatMessageStore;
 	sessionStore: ChatSessionStore;
 	streamBus: StreamBus;
+	notificationTriggers?: NotificationTriggerService;
 };
 
 // Active writers keyed by sessionId for abort and busy-check lookups
@@ -119,6 +121,17 @@ export class ChatSessionWriter {
 					console.warn(`[chat-writer] Auto-rename failed: ${msg}`);
 				},
 			);
+
+			// Fire push notification trigger (non-blocking)
+			if (this.deps.notificationTriggers) {
+				const title = this.deps.sessionStore.get(this.deps.sessionId)?.title ?? "";
+				this.deps.notificationTriggers
+					.onSessionDone(this.deps.sessionId, response.durationMs, title)
+					.catch((triggerErr: unknown) => {
+						const msg = triggerErr instanceof Error ? triggerErr.message : String(triggerErr);
+						console.warn(`[push] trigger failed: ${msg}`);
+					});
+			}
 		} catch (err: unknown) {
 			const isAbort = err instanceof Error && err.name === "AbortError";
 			const errorMsg = err instanceof Error ? err.message : String(err);
@@ -157,6 +170,13 @@ export class ChatSessionWriter {
 					duration_ms: Date.now() - startTime,
 				};
 				this.emitFrame(errorFrame, seqCounter);
+
+				if (this.deps.notificationTriggers) {
+					this.deps.notificationTriggers.onHardError(this.deps.sessionId, errorMsg).catch((triggerErr: unknown) => {
+						const msg = triggerErr instanceof Error ? triggerErr.message : String(triggerErr);
+						console.warn(`[push] trigger failed: ${msg}`);
+					});
+				}
 			}
 		} finally {
 			this.running = false;

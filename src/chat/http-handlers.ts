@@ -84,6 +84,7 @@ export async function handleStream(req: Request, deps: ChatHandlerDeps): Promise
 		messageStore: deps.messageStore,
 		sessionStore: deps.sessionStore,
 		streamBus: deps.streamBus,
+		notificationTriggers: deps.notificationTriggers,
 	});
 	writer.claim();
 
