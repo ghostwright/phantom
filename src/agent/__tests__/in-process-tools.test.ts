@@ -205,6 +205,14 @@ describe("validateGhSubcommand", () => {
 			expect(result.valid).toBe(false);
 		});
 
+		test("blocks git --config (space-separated)", () => {
+			const result = validateGhSubcommand("git", ["--config", "alias.x=!env", "x"]);
+			expect(result.valid).toBe(false);
+			if (!result.valid) {
+				expect(result.error).toContain("--config");
+			}
+		});
+
 		test("allows git push", () => {
 			const result = validateGhSubcommand("git", ["push", "origin", "main"]);
 			expect(result.valid).toBe(true);
