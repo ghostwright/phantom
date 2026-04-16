@@ -12,47 +12,14 @@ let sessionToken: string;
 
 type CostResponse = {
 	range: { from: string | null; to: string; days: number | "all" };
-	headline: {
-		today: number;
-		yesterday: number;
-		this_week: number;
-		this_month: number;
-		all_time: number;
-		day_delta_pct: number;
-		week_delta_pct: number;
-	};
-	daily: Array<{
-		day: string;
-		cost_usd: number;
-		input_tokens: number;
-		output_tokens: number;
-		by_model: Array<{ model: string; cost_usd: number }>;
-	}>;
-	by_model: Array<{
-		model: string;
-		cost_usd: number;
-		pct: number;
-		input_tokens: number;
-		output_tokens: number;
-		events: number;
-	}>;
-	by_channel: Array<{
-		channel_id: string;
-		cost_usd: number;
-		sessions: number;
-		avg_per_session: number;
-		input_tokens: number;
-		output_tokens: number;
-	}>;
-	top_sessions: Array<{
-		session_key: string;
-		channel_id: string;
-		conversation_id: string;
-		total_cost_usd: number;
-		turn_count: number;
-		last_active_at: string;
-	}>;
-	limits: { top_sessions: number };
+	headline: Record<
+		"today" | "yesterday" | "this_week" | "this_month" | "all_time" | "day_delta_pct" | "week_delta_pct",
+		number
+	>;
+	daily: Array<{ day: string; cost_usd: number; by_model: Array<{ model: string; cost_usd: number }> }>;
+	by_model: Array<{ model: string; cost_usd: number; pct: number }>;
+	by_channel: Array<{ channel_id: string; cost_usd: number; sessions: number; avg_per_session: number }>;
+	top_sessions: Array<{ session_key: string; total_cost_usd: number }>;
 };
 
 function runMigrations(target: Database): void {
@@ -312,9 +279,7 @@ describe("cost API", () => {
 		expect(body.top_sessions[0].session_key).toBe("k0");
 		expect(body.top_sessions[0].total_cost_usd).toBeCloseTo(7.5, 6);
 		for (let i = 1; i < body.top_sessions.length; i++) {
-			expect(body.top_sessions[i].total_cost_usd).toBeLessThanOrEqual(
-				body.top_sessions[i - 1].total_cost_usd,
-			);
+			expect(body.top_sessions[i].total_cost_usd).toBeLessThanOrEqual(body.top_sessions[i - 1].total_cost_usd);
 		}
 	});
 

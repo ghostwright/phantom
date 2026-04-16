@@ -4,10 +4,7 @@
 
 import type { Database } from "bun:sqlite";
 
-export type CostForPeriod = {
-	total: number;
-	events: number;
-};
+export type CostForPeriod = { total: number; events: number };
 
 export type CostHeadline = {
 	today: number;
@@ -56,14 +53,21 @@ export type TopSessionRow = {
 
 // Percent change from `prior` to `now`, or 0 when prior is 0 (avoids NaN).
 function deltaPct(now: number, prior: number): number {
-	if (prior === 0) return 0;
-	return ((now - prior) / prior) * 100;
+	return prior === 0 ? 0 : ((now - prior) / prior) * 100;
+}
+
+// Helper: run a single-row `SELECT COALESCE(SUM(cost_usd), 0) AS total`
+// scoped by an inlined date expression. `dateExpr` is a trusted constant,
+// never interpolated from user input.
+function sumCost(db: Database, dateExpr: string): number {
+	const row = db.query(`SELECT COALESCE(SUM(cost_usd), 0) AS total FROM cost_events WHERE ${dateExpr}`).get() as {
+		total: number;
+	};
+	return row.total;
 }
 
 // Shared by MCP cost resource and universal metrics tool. `dateFilter` is
-// an inlined SQLite date expression (e.g. "date('now', '-7 days')"). It is
-// NEVER interpolated from user input; callers pass one of a small set of
-// trusted constants.
+// an inlined SQLite date expression (e.g. "date('now', '-7 days')").
 export function getCostForPeriod(db: Database, dateFilter: string): CostForPeriod {
 	const row = db
 		.query(
@@ -71,48 +75,20 @@ export function getCostForPeriod(db: Database, dateFilter: string): CostForPerio
 			 FROM cost_events WHERE created_at >= ${dateFilter}`,
 		)
 		.get() as { total: number; events: number };
-	return { total: row.total, events: row.events };
+	return row;
 }
 
 export function getCostHeadline(db: Database): CostHeadline {
-	const today = (
-		db
-			.query(
-				"SELECT COALESCE(SUM(cost_usd), 0) AS total FROM cost_events WHERE date(created_at) = date('now')",
-			)
-			.get() as { total: number }
-	).total;
-	const yesterday = (
-		db
-			.query(
-				"SELECT COALESCE(SUM(cost_usd), 0) AS total FROM cost_events WHERE date(created_at) = date('now', '-1 day')",
-			)
-			.get() as { total: number }
-	).total;
-	const thisWeek = (
-		db
-			.query(
-				"SELECT COALESCE(SUM(cost_usd), 0) AS total FROM cost_events WHERE created_at >= datetime('now', '-7 days')",
-			)
-			.get() as { total: number }
-	).total;
-	const priorWeek = (
-		db
-			.query(
-				"SELECT COALESCE(SUM(cost_usd), 0) AS total FROM cost_events WHERE created_at >= datetime('now', '-14 days') AND created_at < datetime('now', '-7 days')",
-			)
-			.get() as { total: number }
-	).total;
-	const thisMonth = (
-		db
-			.query(
-				"SELECT COALESCE(SUM(cost_usd), 0) AS total FROM cost_events WHERE created_at >= datetime('now', '-30 days')",
-			)
-			.get() as { total: number }
-	).total;
-	const allTime = (
-		db.query("SELECT COALESCE(SUM(cost_usd), 0) AS total FROM cost_events").get() as { total: number }
-	).total;
+	const today = sumCost(db, "date(created_at) = date('now')");
+	const yesterday = sumCost(db, "date(created_at) = date('now', '-1 day')");
+	const thisWeek = sumCost(db, "created_at >= datetime('now', '-7 days')");
+	const priorWeek = sumCost(
+		db,
+		"created_at >= datetime('now', '-14 days') AND created_at < datetime('now', '-7 days')",
+	);
+	const thisMonth = sumCost(db, "created_at >= datetime('now', '-30 days')");
+	const allTime = (db.query("SELECT COALESCE(SUM(cost_usd), 0) AS total FROM cost_events").get() as { total: number })
+		.total;
 
 	return {
 		today,
@@ -125,10 +101,10 @@ export function getCostHeadline(db: Database): CostHeadline {
 	};
 }
 
-// `days` is `null` for all-time, otherwise clamped by the caller. Returns
+// `days` is null for all-time, otherwise clamped by the caller. Returns
 // only days that have events; the chart skips missing days on its x-axis.
 export function getDailyCost(db: Database, days: number | null): DailyCostRow[] {
-	const whereSql = days === null ? "" : "WHERE created_at >= datetime('now', ?)";
+	const where = days === null ? "" : "WHERE created_at >= datetime('now', ?)";
 	const params: string[] = days === null ? [] : [`-${days} days`];
 
 	const dayRows = db
@@ -137,118 +113,72 @@ export function getDailyCost(db: Database, days: number | null): DailyCostRow[] 
 			        COALESCE(SUM(cost_usd), 0) AS cost_usd,
 			        COALESCE(SUM(input_tokens), 0) AS input_tokens,
 			        COALESCE(SUM(output_tokens), 0) AS output_tokens
-			 FROM cost_events ${whereSql}
-			 GROUP BY day
-			 ORDER BY day ASC`,
+			 FROM cost_events ${where} GROUP BY day ORDER BY day ASC`,
 		)
 		.all(...params) as Array<{ day: string; cost_usd: number; input_tokens: number; output_tokens: number }>;
 
 	const modelRows = db
 		.query(
 			`SELECT date(created_at) AS day, model, COALESCE(SUM(cost_usd), 0) AS cost_usd
-			 FROM cost_events ${whereSql}
-			 GROUP BY day, model
-			 ORDER BY day ASC, cost_usd DESC`,
+			 FROM cost_events ${where} GROUP BY day, model ORDER BY day ASC, cost_usd DESC`,
 		)
 		.all(...params) as Array<{ day: string; model: string; cost_usd: number }>;
 
-	const byDay: Map<string, Array<{ model: string; cost_usd: number }>> = new Map();
+	const byDay = new Map<string, Array<{ model: string; cost_usd: number }>>();
 	for (const mr of modelRows) {
 		const list = byDay.get(mr.day) ?? [];
 		list.push({ model: mr.model, cost_usd: mr.cost_usd });
 		byDay.set(mr.day, list);
 	}
 
-	return dayRows.map((r) => ({
-		day: r.day,
-		cost_usd: r.cost_usd,
-		input_tokens: r.input_tokens,
-		output_tokens: r.output_tokens,
-		by_model: byDay.get(r.day) ?? [],
-	}));
+	return dayRows.map((r) => ({ ...r, by_model: byDay.get(r.day) ?? [] }));
 }
 
 export function getByModel(db: Database, days: number | null): ByModelRow[] {
-	const whereSql = days === null ? "" : "WHERE created_at >= datetime('now', ?)";
+	const where = days === null ? "" : "WHERE created_at >= datetime('now', ?)";
 	const params: string[] = days === null ? [] : [`-${days} days`];
 
 	const rows = db
 		.query(
-			`SELECT model,
-			        COALESCE(SUM(cost_usd), 0) AS cost_usd,
+			`SELECT model, COALESCE(SUM(cost_usd), 0) AS cost_usd,
 			        COALESCE(SUM(input_tokens), 0) AS input_tokens,
-			        COALESCE(SUM(output_tokens), 0) AS output_tokens,
-			        COUNT(*) AS events
-			 FROM cost_events ${whereSql}
-			 GROUP BY model
-			 ORDER BY cost_usd DESC`,
+			        COALESCE(SUM(output_tokens), 0) AS output_tokens, COUNT(*) AS events
+			 FROM cost_events ${where} GROUP BY model ORDER BY cost_usd DESC`,
 		)
-		.all(...params) as Array<{
-		model: string;
-		cost_usd: number;
-		input_tokens: number;
-		output_tokens: number;
-		events: number;
-	}>;
+		.all(...params) as Array<Omit<ByModelRow, "pct">>;
 
 	const total = rows.reduce((acc, r) => acc + r.cost_usd, 0);
-	return rows.map((r) => ({
-		model: r.model,
-		cost_usd: r.cost_usd,
-		pct: total > 0 ? r.cost_usd / total : 0,
-		input_tokens: r.input_tokens,
-		output_tokens: r.output_tokens,
-		events: r.events,
-	}));
+	return rows.map((r) => ({ ...r, pct: total > 0 ? r.cost_usd / total : 0 }));
 }
 
 export function getByChannel(db: Database, days: number | null): ByChannelRow[] {
-	const whereSql = days === null ? "" : "WHERE ce.created_at >= datetime('now', ?)";
+	const where = days === null ? "" : "WHERE ce.created_at >= datetime('now', ?)";
 	const params: string[] = days === null ? [] : [`-${days} days`];
 
 	const rows = db
 		.query(
-			`SELECT s.channel_id AS channel_id,
-			        COALESCE(SUM(ce.cost_usd), 0) AS cost_usd,
+			`SELECT s.channel_id AS channel_id, COALESCE(SUM(ce.cost_usd), 0) AS cost_usd,
 			        COUNT(DISTINCT ce.session_key) AS sessions,
 			        COALESCE(SUM(ce.input_tokens), 0) AS input_tokens,
 			        COALESCE(SUM(ce.output_tokens), 0) AS output_tokens
-			 FROM cost_events ce
-			 JOIN sessions s ON ce.session_key = s.session_key
-			 ${whereSql}
-			 GROUP BY s.channel_id
-			 ORDER BY cost_usd DESC`,
+			 FROM cost_events ce JOIN sessions s ON ce.session_key = s.session_key
+			 ${where} GROUP BY s.channel_id ORDER BY cost_usd DESC`,
 		)
-		.all(...params) as Array<{
-		channel_id: string;
-		cost_usd: number;
-		sessions: number;
-		input_tokens: number;
-		output_tokens: number;
-	}>;
+		.all(...params) as Array<Omit<ByChannelRow, "avg_per_session">>;
 
-	return rows.map((r) => ({
-		channel_id: r.channel_id,
-		cost_usd: r.cost_usd,
-		sessions: r.sessions,
-		avg_per_session: r.sessions > 0 ? r.cost_usd / r.sessions : 0,
-		input_tokens: r.input_tokens,
-		output_tokens: r.output_tokens,
-	}));
+	return rows.map((r) => ({ ...r, avg_per_session: r.sessions > 0 ? r.cost_usd / r.sessions : 0 }));
 }
 
 export function getTopSessions(db: Database, limit: number, days: number | null): TopSessionRow[] {
-	const whereSql = days === null ? "" : "WHERE s.last_active_at >= datetime('now', ?)";
+	const where = days === null ? "" : "WHERE s.last_active_at >= datetime('now', ?)";
 	const params: Array<string | number> = days === null ? [] : [`-${days} days`];
 
 	return db
 		.query(
 			`SELECT s.session_key, s.channel_id, s.conversation_id,
 			        s.total_cost_usd, s.turn_count, s.last_active_at
-			 FROM sessions s
-			 ${whereSql}
-			 ORDER BY s.total_cost_usd DESC, s.last_active_at DESC
-			 LIMIT ?`,
+			 FROM sessions s ${where}
+			 ORDER BY s.total_cost_usd DESC, s.last_active_at DESC LIMIT ?`,
 		)
 		.all(...params, limit) as TopSessionRow[];
 }

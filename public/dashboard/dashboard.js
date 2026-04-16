@@ -265,8 +265,8 @@
 		var name = parsed.route;
 		deactivateAllRoutes();
 
-		var liveRoutes = ["skills", "memory-files", "plugins", "subagents", "hooks", "settings", "sessions"];
-		var comingSoon = ["cost", "scheduler", "evolution", "memory"];
+		var liveRoutes = ["skills", "memory-files", "plugins", "subagents", "hooks", "settings", "sessions", "cost"];
+		var comingSoon = ["scheduler", "evolution", "memory"];
 
 		if (liveRoutes.indexOf(name) >= 0 && routes[name]) {
 			var containerId = "route-" + name;

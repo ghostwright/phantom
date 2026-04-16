@@ -64,15 +64,14 @@
         <svg class="dash-sidebar-icon" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 14.15v4.098a2.25 2.25 0 0 1-2.25 2.25h-12a2.25 2.25 0 0 1-2.25-2.25V5.625a2.25 2.25 0 0 1 2.25-2.25h8.25M15.75 9l3.75-3.75m0 0L23.25 9m-3.75-3.75v9"/></svg>
         <span>Sessions</span>
       </a>
+      <a href="#/cost" class="dash-sidebar-item" data-route="cost">
+        <svg class="dash-sidebar-icon" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941"/></svg>
+        <span>Cost</span>
+      </a>
     </nav>
 
     <div class="dash-sidebar-eyebrow" style="margin-top:var(--space-5);">Coming soon</div>
     <nav class="dash-sidebar-nav">
-      <a href="#/cost" class="dash-sidebar-item dash-sidebar-item-soon" data-route="cost">
-        <svg class="dash-sidebar-icon" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941"/></svg>
-        <span>Cost</span>
-        <span class="dash-sidebar-soon-pill">soon</span>
-      </a>
       <a href="#/scheduler" class="dash-sidebar-item dash-sidebar-item-soon" data-route="scheduler">
         <svg class="dash-sidebar-icon" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
         <span>Scheduler</span>
@@ -104,6 +103,7 @@
     <div id="route-hooks" class="dash-route" hidden></div>
     <div id="route-settings" class="dash-route" hidden></div>
     <div id="route-sessions" class="dash-route" hidden></div>
+    <div id="route-cost" class="dash-route" hidden></div>
     <div id="route-soon" class="dash-route" hidden></div>
   </main>
 
@@ -119,6 +119,7 @@
 <script src="/ui/dashboard/hooks.js"></script>
 <script src="/ui/dashboard/settings.js"></script>
 <script src="/ui/dashboard/sessions.js"></script>
+<script src="/ui/dashboard/cost.js"></script>
 <script>window.PhantomDashboard.init();</script>
 </body>
 </html>

@@ -9,13 +9,7 @@
 
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
-import {
-	getByChannel,
-	getByModel,
-	getCostHeadline,
-	getDailyCost,
-	getTopSessions,
-} from "../../agent/cost-queries.ts";
+import { getByChannel, getByModel, getCostHeadline, getDailyCost, getTopSessions } from "../../agent/cost-queries.ts";
 
 type CostApiDeps = {
 	db: Database;
@@ -66,10 +60,7 @@ function handleGet(db: Database, filter: CostQuery): Response {
 	const top_sessions = getTopSessions(db, TOP_SESSIONS_LIMIT, days);
 
 	const now = new Date();
-	const from =
-		days === null
-			? null
-			: new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+	const from = days === null ? null : new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 	const to = now.toISOString().slice(0, 10);
 
 	return json({
