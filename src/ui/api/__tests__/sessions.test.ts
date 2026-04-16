@@ -325,6 +325,25 @@ describe("sessions API", () => {
 		expect(body.summary.active_count).toBe(2);
 	});
 
+	test("summary fields are 0 (not null) when no rows match", async () => {
+		seedSession(db, { session_key: "s1", channel_id: "slack", conversation_id: "1" });
+
+		const res = await handleUiRequest(req("/ui/api/sessions?channel=email"));
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			summary: {
+				total_sessions: number;
+				total_cost_usd: number;
+				avg_turns: number;
+				active_count: number;
+			};
+		};
+		expect(body.summary.total_sessions).toBe(0);
+		expect(body.summary.total_cost_usd).toBe(0);
+		expect(body.summary.avg_turns).toBe(0);
+		expect(body.summary.active_count).toBe(0);
+	});
+
 	test("summary by_channel groups correctly", async () => {
 		seedSession(db, {
 			session_key: "s1",

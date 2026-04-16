@@ -182,7 +182,7 @@ function listHandler(db: Database, filter: ListQuery): Response {
 			COUNT(*) AS total,
 			COALESCE(SUM(s.total_cost_usd), 0) AS cost,
 			COALESCE(AVG(s.turn_count), 0) AS avg_turns,
-			SUM(CASE WHEN s.status = 'active' THEN 1 ELSE 0 END) AS active
+			COALESCE(SUM(CASE WHEN s.status = 'active' THEN 1 ELSE 0 END), 0) AS active
 		FROM sessions s
 		${whereSql}
 	`;

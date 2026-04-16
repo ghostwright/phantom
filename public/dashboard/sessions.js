@@ -15,7 +15,6 @@
 	var SEARCH_DEBOUNCE_MS = 250;
 
 	var state = {
-		initialized: false,
 		loading: false,
 		detailLoading: false,
 		listError: null,
@@ -31,8 +30,8 @@
 	var searchDebounceTimer = null;
 	var drawerRoot = null;
 	var drawerKeyHandler = null;
-	var drawerTrapHandler = null;
 	var drawerFocusRestore = null;
+	var prevBodyOverflow = null;
 	var documentKeyHandler = null;
 
 	function esc(s) { return ctx.esc(s); }
@@ -568,11 +567,13 @@
 	}
 
 	function removeDrawerDom() {
-		if (drawerRoot && drawerRoot.parentNode) drawerRoot.parentNode.removeChild(drawerRoot);
+		if (!drawerRoot) return;
+		if (drawerRoot.parentNode) drawerRoot.parentNode.removeChild(drawerRoot);
 		drawerRoot = null;
 		if (drawerKeyHandler) document.removeEventListener("keydown", drawerKeyHandler, true);
 		drawerKeyHandler = null;
-		drawerTrapHandler = null;
+		document.body.style.overflow = prevBodyOverflow || "";
+		prevBodyOverflow = null;
 		if (drawerFocusRestore && typeof drawerFocusRestore.focus === "function") {
 			try { drawerFocusRestore.focus(); } catch (_) { /* ignore */ }
 		}
@@ -588,6 +589,8 @@
 			drawerRoot = document.createElement("div");
 			drawerRoot.setAttribute("data-sessions-drawer", "true");
 			document.body.appendChild(drawerRoot);
+			prevBodyOverflow = document.body.style.overflow;
+			document.body.style.overflow = "hidden";
 		}
 
 		var contentBody;
@@ -781,7 +784,10 @@
 			if (state.openKey) openDrawer(state.openKey);
 		});
 
-		// ARIA keyboard handling: Esc closes, Tab trap cycles.
+		// renderDrawer fires twice per open (skeleton then content), so detach
+		// the previous keydown handler before installing a new one to prevent
+		// document-level listener accumulation across the page lifetime.
+		if (drawerKeyHandler) document.removeEventListener("keydown", drawerKeyHandler, true);
 		drawerKeyHandler = function (e) {
 			if (e.key === "Escape") {
 				e.preventDefault();
