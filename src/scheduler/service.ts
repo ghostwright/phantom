@@ -133,6 +133,48 @@ export class Scheduler {
 	}
 
 	/**
+	 * Flip an active job to paused. armTimer already filters by
+	 * `status = 'active'` so the paused row stops firing automatically.
+	 * Returns the updated job, or null if the id does not exist.
+	 */
+	pauseJob(id: string): ScheduledJob | null {
+		const result = this.db.run(
+			"UPDATE scheduled_jobs SET status = 'paused', updated_at = datetime('now') WHERE id = ? AND status = 'active'",
+			[id],
+		);
+		if (result.changes === 0) {
+			return this.getJob(id);
+		}
+		this.armTimer();
+		return this.getJob(id);
+	}
+
+	/**
+	 * Flip a paused job back to active. Recomputes next_run_at from the stored
+	 * schedule so a job paused mid-interval resumes on a fresh cadence.
+	 * Resets consecutive_errors so a job paused in its backoff fan-out gets a
+	 * clean retry budget. Returns the updated job, or null if the id does not
+	 * exist.
+	 */
+	resumeJob(id: string): ScheduledJob | null {
+		const job = this.getJob(id);
+		if (!job) return null;
+		const nextRun = computeNextRunAt(job.schedule);
+		const nextRunIso = nextRun ? nextRun.toISOString() : null;
+		this.db.run(
+			`UPDATE scheduled_jobs
+				SET status = 'active',
+					next_run_at = ?,
+					consecutive_errors = 0,
+					updated_at = datetime('now')
+				WHERE id = ?`,
+			[nextRunIso, id],
+		);
+		this.armTimer();
+		return this.getJob(id);
+	}
+
+	/**
 	 * Defensive read: one corrupt row (a future kind, a truncated write) must
 	 * not brick the whole list. Bad rows are logged and skipped. See M8.
 	 */

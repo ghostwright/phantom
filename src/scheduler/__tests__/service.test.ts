@@ -336,4 +336,93 @@ describe("Scheduler", () => {
 		const updated = scheduler.getJob(job.id);
 		expect(updated?.status).toBe("completed");
 	});
+
+	test("pauseJob flips status from active to paused", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "Pauseable",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Hold",
+		});
+		expect(job.status).toBe("active");
+
+		const paused = scheduler.pauseJob(job.id);
+		expect(paused).not.toBeNull();
+		expect(paused?.status).toBe("paused");
+	});
+
+	test("pauseJob returns null for unknown id", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const paused = scheduler.pauseJob("does-not-exist");
+		expect(paused).toBeNull();
+	});
+
+	test("pauseJob is a no-op on an already-paused job", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "DoublePause",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Hold",
+		});
+		scheduler.pauseJob(job.id);
+		const again = scheduler.pauseJob(job.id);
+		expect(again?.status).toBe("paused");
+	});
+
+	test("resumeJob flips paused to active and recomputes next_run_at", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "Resumable",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Go",
+		});
+		scheduler.pauseJob(job.id);
+		const before = scheduler.getJob(job.id);
+		expect(before?.status).toBe("paused");
+
+		const resumed = scheduler.resumeJob(job.id);
+		expect(resumed?.status).toBe("active");
+		expect(resumed?.nextRunAt).toBeTruthy();
+		const nextMs = resumed?.nextRunAt ? new Date(resumed.nextRunAt).getTime() : 0;
+		expect(nextMs).toBeGreaterThan(Date.now() - 5_000);
+		expect(nextMs).toBeLessThan(Date.now() + 120_000);
+	});
+
+	test("resumeJob resets consecutive_errors", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "ErrorBurn",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Burn",
+		});
+		db.run("UPDATE scheduled_jobs SET consecutive_errors = 4 WHERE id = ?", [job.id]);
+
+		const resumed = scheduler.resumeJob(job.id);
+		expect(resumed?.consecutiveErrors).toBe(0);
+	});
+
+	test("resumeJob returns null for unknown id", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const resumed = scheduler.resumeJob("nope");
+		expect(resumed).toBeNull();
+	});
+
+	test("paused job is excluded from the armTimer MIN query", async () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		await scheduler.start();
+		const job = scheduler.createJob({
+			name: "Armed",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Fire",
+		});
+		scheduler.pauseJob(job.id);
+
+		const row = db
+			.query(
+				"SELECT MIN(next_run_at) as next FROM scheduled_jobs WHERE enabled = 1 AND status = 'active' AND next_run_at IS NOT NULL",
+			)
+			.get() as { next: string | null };
+		expect(row.next).toBeNull();
+		scheduler.stop();
+	});
 });
