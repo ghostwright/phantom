@@ -220,22 +220,36 @@ export async function handleUiRequest(req: Request): Promise<Response> {
 		return new Response("Forbidden", { status: 403 });
 	}
 
+	const headers = buildStaticHeaders(url.pathname);
+
 	const file = Bun.file(filePath);
 	if (await file.exists()) {
-		return new Response(file, {
-			headers: { "Cache-Control": "no-cache" },
-		});
+		return new Response(file, { headers });
 	}
 
 	// Try index.html for directory-like paths
 	const indexFile = Bun.file(resolve(filePath, "index.html"));
 	if (await indexFile.exists()) {
-		return new Response(indexFile, {
-			headers: { "Cache-Control": "no-cache" },
-		});
+		return new Response(indexFile, { headers });
 	}
 
 	return new Response("Not found", { status: 404 });
+}
+
+// Dashboard JS is image-owned and replaced on every deploy. no-store forbids
+// browser caching so a new deploy reaches every session on the next navigation
+// without a hard refresh. Other assets keep the existing revalidate-before-use
+// no-cache policy.
+function buildStaticHeaders(pathname: string): Record<string, string> {
+	const isDashboardJs = pathname.startsWith("/ui/dashboard/") && pathname.endsWith(".js");
+	if (isDashboardJs) {
+		return {
+			"Cache-Control": "no-store, no-cache, must-revalidate",
+			Pragma: "no-cache",
+			Expires: "0",
+		};
+	}
+	return { "Cache-Control": "no-cache" };
 }
 
 function handleSecretFormGet(_req: Request, url: URL, requestId: string): Response {

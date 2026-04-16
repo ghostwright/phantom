@@ -56,6 +56,11 @@ if [ -d /app/public-defaults ]; then
   echo "[phantom] Syncing public assets from image..."
   rm -rf /app/public/chat 2>/dev/null || true
   cp -r /app/public-defaults/chat /app/public/chat 2>/dev/null || true
+  if [ -d /app/public-defaults/dashboard ]; then
+    rm -rf /app/public/dashboard 2>/dev/null || true
+    cp -r /app/public-defaults/dashboard /app/public/dashboard 2>/dev/null || true
+    chown -R 999:999 /app/public/dashboard 2>/dev/null || true
+  fi
   for f in _base.html _components.html _agent-name.js index.html phantom-logo.svg; do
     [ -f "/app/public-defaults/$f" ] && cp "/app/public-defaults/$f" "/app/public/$f"
   done

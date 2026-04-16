@@ -8,6 +8,7 @@ import type { PhantomMcpServer } from "../mcp/server.ts";
 import type { MemoryHealth } from "../memory/types.ts";
 import type { SchedulerHealthSummary } from "../scheduler/health.ts";
 import { handleUiRequest } from "../ui/serve.ts";
+import { type HealthPayload, renderHealthHtml } from "./health-page.ts";
 
 const VERSION = "0.19.1";
 
@@ -86,6 +87,14 @@ export function setChatHandler(handler: ChatHandler): void {
 
 let triggerAuth: AuthMiddleware | null = null;
 
+// Content negotiation: return HTML only when the client accepts text/html.
+// curl defaults to Accept: */* (no match), Docker healthcheck uses curl, MCP
+// clients send application/json. Browsers lead with text/html.
+function wantsHtml(acceptHeader: string | null): boolean {
+	if (!acceptHeader) return false;
+	return acceptHeader.toLowerCase().includes("text/html");
+}
+
 export function startServer(config: PhantomConfig, startedAt: number): ReturnType<typeof Bun.serve> {
 	const mcpConfig = loadMcpConfig();
 	triggerAuth = new AuthMiddleware(mcpConfig);
@@ -114,7 +123,7 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 				const peers = peerHealthProvider ? peerHealthProvider() : null;
 				const scheduler = schedulerHealthProvider ? schedulerHealthProvider() : null;
 
-				return Response.json({
+				const payload: HealthPayload = {
 					status,
 					uptime: Math.floor((Date.now() - startedAt) / 1000),
 					version: VERSION,
@@ -123,13 +132,22 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 					role: roleInfo ?? { id: config.role, name: config.role },
 					channels,
 					memory,
-					evolution: {
-						generation: evolutionGeneration,
-					},
+					evolution: { generation: evolutionGeneration },
 					...(onboardingStatus ? { onboarding: onboardingStatus } : {}),
 					...(peers && Object.keys(peers).length > 0 ? { peers } : {}),
 					...(scheduler ? { scheduler } : {}),
-				});
+				};
+
+				// ?format=json overrides content negotiation so the HTML page can
+				// re-fetch itself as JSON without juggling Accept headers.
+				const formatOverride = url.searchParams.get("format");
+				if (formatOverride !== "json" && req.method === "GET" && wantsHtml(req.headers.get("Accept"))) {
+					return new Response(renderHealthHtml(payload), {
+						headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+					});
+				}
+
+				return Response.json(payload);
 			}
 
 			if (url.pathname === "/mcp") {
@@ -166,6 +184,10 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 
 			if (url.pathname.startsWith("/ui")) {
 				return handleUiRequest(req);
+			}
+
+			if (url.pathname === "/" || url.pathname === "") {
+				return Response.redirect("/ui/", 302);
 			}
 
 			return Response.json({ error: "Not found" }, { status: 404 });

@@ -181,6 +181,33 @@ describe("path traversal protection", () => {
 	});
 });
 
+describe("cache control", () => {
+	test("dashboard JS returns no-store cache control", async () => {
+		const { sessionToken } = createSession();
+		const res = await handleUiRequest(req("/ui/dashboard/dashboard.js", { cookie: `phantom_session=${sessionToken}` }));
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Cache-Control")).toBe("no-store, no-cache, must-revalidate");
+		expect(res.headers.get("Pragma")).toBe("no-cache");
+		expect(res.headers.get("Expires")).toBe("0");
+	});
+
+	test("non-dashboard assets keep no-cache", async () => {
+		const { sessionToken } = createSession();
+		const res = await handleUiRequest(req("/ui/index.html", { cookie: `phantom_session=${sessionToken}` }));
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Cache-Control")).toBe("no-cache");
+	});
+
+	test("dashboard non-JS assets keep no-cache", async () => {
+		const { sessionToken } = createSession();
+		const res = await handleUiRequest(
+			req("/ui/dashboard/dashboard.css", { cookie: `phantom_session=${sessionToken}` }),
+		);
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Cache-Control")).toBe("no-cache");
+	});
+});
+
 describe("SSE endpoint", () => {
 	test("/ui/api/events requires auth", async () => {
 		const res = await handleUiRequest(req("/ui/api/events", { headers: { Accept: "text/event-stream" } }));
