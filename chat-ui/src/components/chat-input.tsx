@@ -1,5 +1,5 @@
 import { ArrowUp, Square } from "lucide-react";
-import { useCallback, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "@/ui/button";
 import type { PendingAttachment } from "@/hooks/use-attachments";
 import { AttachmentStrip } from "./attachment-strip";
@@ -13,6 +13,7 @@ export function ChatInput({
   attachments,
   onAddFiles,
   onRemoveFile,
+  initialText,
 }: {
   onSend: (text: string) => void;
   onStop: () => void;
@@ -21,11 +22,29 @@ export function ChatInput({
   attachments?: PendingAttachment[];
   onAddFiles?: (files: File[]) => void;
   onRemoveFile?: (id: string) => void;
+  initialText?: string;
 }) {
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText ?? "");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const seededRef = useRef(false);
+
+  // Seed the composer from the landing-page ?prefill handler exactly once.
+  // The parent owns whether it fires at all; once the user starts editing we
+  // never stomp their work, even if the prop re-renders with the same value.
+  useEffect(() => {
+    if (seededRef.current) return;
+    if (!initialText) return;
+    seededRef.current = true;
+    setText(initialText);
+    const el = textareaRef.current;
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 200) + "px";
+      el.focus();
+    }
+  }, [initialText]);
 
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
