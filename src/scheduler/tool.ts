@@ -2,9 +2,8 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { Scheduler } from "./service.ts";
-import { AtScheduleSchema, CronScheduleSchema, EveryScheduleSchema, JobDeliverySchema } from "./types.ts";
-
-const ScheduleInputSchema = z.discriminatedUnion("kind", [AtScheduleSchema, EveryScheduleSchema, CronScheduleSchema]);
+import { ScheduleInputSchema } from "./tool-schema.ts";
+import { JobDeliverySchema } from "./types.ts";
 
 function ok(data: Record<string, unknown>): { content: Array<{ type: "text"; text: string }> } {
 	return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };

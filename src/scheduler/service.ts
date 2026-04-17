@@ -99,12 +99,13 @@ export class Scheduler {
 		}
 
 		this.db.run(
-			`INSERT INTO scheduled_jobs (id, name, description, schedule_kind, schedule_value, task, delivery_channel, delivery_target, next_run_at, delete_after_run, created_by)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO scheduled_jobs (id, name, description, enabled, schedule_kind, schedule_value, task, delivery_channel, delivery_target, next_run_at, delete_after_run, created_by)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			[
 				id,
 				input.name,
 				input.description ?? null,
+				input.enabled === false ? 0 : 1,
 				input.schedule.kind,
 				scheduleValue,
 				input.task,
@@ -130,6 +131,53 @@ export class Scheduler {
 			return true;
 		}
 		return false;
+	}
+
+	/**
+	 * Flip an active job to paused. armTimer already filters by
+	 * `status = 'active'` so the paused row stops firing automatically.
+	 * Returns the updated job, or null if the id does not exist.
+	 */
+	pauseJob(id: string): ScheduledJob | null {
+		const result = this.db.run(
+			"UPDATE scheduled_jobs SET status = 'paused', updated_at = datetime('now') WHERE id = ? AND status = 'active'",
+			[id],
+		);
+		if (result.changes === 0) {
+			return this.getJob(id);
+		}
+		this.armTimer();
+		return this.getJob(id);
+	}
+
+	/**
+	 * Flip a paused job back to active. Recomputes next_run_at from the stored
+	 * schedule so a job paused mid-interval resumes on a fresh cadence.
+	 * Resets consecutive_errors so a job paused in its backoff fan-out gets a
+	 * clean retry budget. Returns the updated job, or null if the id does not
+	 * exist.
+	 */
+	resumeJob(id: string): ScheduledJob | null {
+		const job = this.getJob(id);
+		if (!job) return null;
+		// Only paused jobs may be resumed. Failed and completed are terminal
+		// states; force-reviving them would bypass the lifecycle (e.g.,
+		// re-running a one-shot that already deleted itself, or restarting a
+		// circuit-broken job without addressing the failure).
+		if (job.status !== "paused") return job;
+		const nextRun = computeNextRunAt(job.schedule);
+		const nextRunIso = nextRun ? nextRun.toISOString() : null;
+		this.db.run(
+			`UPDATE scheduled_jobs
+				SET status = 'active',
+					next_run_at = ?,
+					consecutive_errors = 0,
+					updated_at = datetime('now')
+				WHERE id = ? AND status = 'paused'`,
+			[nextRunIso, id],
+		);
+		this.armTimer();
+		return this.getJob(id);
 	}
 
 	/**

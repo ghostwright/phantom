@@ -58,7 +58,14 @@ import { createSecretToolServer } from "./secrets/tools.ts";
 import { createBrowserToolServer } from "./ui/browser-mcp.ts";
 import { setLoginPageAgentName } from "./ui/login-page.ts";
 import { closePreviewResources, createPreviewToolServer, getOrCreatePreviewContext } from "./ui/preview.ts";
-import { setBootstrapDb, setDashboardDb, setPublicDir, setSecretSavedCallback, setSecretsDb } from "./ui/serve.ts";
+import {
+	setBootstrapDb,
+	setDashboardDb,
+	setPublicDir,
+	setSchedulerInstance,
+	setSecretSavedCallback,
+	setSecretsDb,
+} from "./ui/serve.ts";
 import { createWebUiToolServer } from "./ui/tools.ts";
 
 async function main(): Promise<void> {
@@ -218,6 +225,7 @@ async function main(): Promise<void> {
 		// Wire scheduler into the agent (Slack channel set later after channel init)
 		scheduler = new Scheduler({ db, runtime });
 		setSchedulerHealthProvider(() => scheduler?.getHealthSummary() ?? null);
+		setSchedulerInstance(scheduler, runtime);
 
 		// Pass factories (not singletons) so each query() gets fresh MCP server instances.
 		// The underlying registries (DynamicToolRegistry, Scheduler) are singletons.

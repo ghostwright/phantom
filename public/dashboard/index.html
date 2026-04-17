@@ -36,6 +36,10 @@
   <aside class="dash-sidebar" aria-label="Dashboard sections">
     <div class="dash-sidebar-eyebrow">Workspace</div>
     <nav class="dash-sidebar-nav" id="sidebar-nav">
+      <a href="#/scheduler" class="dash-sidebar-item" data-route="scheduler">
+        <svg class="dash-sidebar-icon" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+        <span>Scheduler</span>
+      </a>
       <a href="#/skills" class="dash-sidebar-item" data-route="skills">
         <svg class="dash-sidebar-icon" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25"/></svg>
         <span>Skills</span>
@@ -72,11 +76,6 @@
 
     <div class="dash-sidebar-eyebrow" style="margin-top:var(--space-5);">Coming soon</div>
     <nav class="dash-sidebar-nav">
-      <a href="#/scheduler" class="dash-sidebar-item dash-sidebar-item-soon" data-route="scheduler">
-        <svg class="dash-sidebar-icon" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
-        <span>Scheduler</span>
-        <span class="dash-sidebar-soon-pill">soon</span>
-      </a>
       <a href="#/evolution" class="dash-sidebar-item dash-sidebar-item-soon" data-route="evolution">
         <svg class="dash-sidebar-icon" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
         <span>Evolution</span>
@@ -104,6 +103,7 @@
     <div id="route-settings" class="dash-route" hidden></div>
     <div id="route-sessions" class="dash-route" hidden></div>
     <div id="route-cost" class="dash-route" hidden></div>
+    <div id="route-scheduler" class="dash-route" hidden></div>
     <div id="route-soon" class="dash-route" hidden></div>
   </main>
 
@@ -120,6 +120,7 @@
 <script src="/ui/dashboard/settings.js"></script>
 <script src="/ui/dashboard/sessions.js"></script>
 <script src="/ui/dashboard/cost.js"></script>
+<script src="/ui/dashboard/scheduler.js"></script>
 <script>window.PhantomDashboard.init();</script>
 </body>
 </html>

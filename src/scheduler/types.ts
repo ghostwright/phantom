@@ -68,6 +68,7 @@ export type JobCreateInput = {
 	task: string;
 	delivery?: JobDelivery;
 	deleteAfterRun?: boolean;
+	enabled?: boolean;
 	createdBy?: string;
 };
 

@@ -214,11 +214,6 @@
 				title: "Cost",
 				body: "Daily and weekly cost breakdowns with model-level detail. Charts across time so you can see where the agent's budget actually goes, and alerts when anything drifts out of its baseline.",
 			},
-			scheduler: {
-				eyebrow: "soon",
-				title: "Scheduler",
-				body: "Every cron and one-shot job the agent has created, with next-run times, recent outcomes, and the ability to edit or pause a schedule without asking the agent to do it for you.",
-			},
 			evolution: {
 				eyebrow: "soon",
 				title: "Evolution timeline",
@@ -265,8 +260,8 @@
 		var name = parsed.route;
 		deactivateAllRoutes();
 
-		var liveRoutes = ["skills", "memory-files", "plugins", "subagents", "hooks", "settings", "sessions", "cost"];
-		var comingSoon = ["scheduler", "evolution", "memory"];
+		var liveRoutes = ["skills", "memory-files", "plugins", "subagents", "hooks", "settings", "sessions", "cost", "scheduler"];
+		var comingSoon = ["evolution", "memory"];
 
 		if (liveRoutes.indexOf(name) >= 0 && routes[name]) {
 			var containerId = "route-" + name;

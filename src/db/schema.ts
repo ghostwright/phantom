@@ -354,4 +354,23 @@ export const MIGRATIONS: string[] = [
 	"CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_push_subscriptions_endpoint ON chat_push_subscriptions(endpoint)",
 
 	"CREATE INDEX IF NOT EXISTS idx_chat_push_subscriptions_user ON chat_push_subscriptions(disabled, created_at)",
+
+	// PR4 dashboard: scheduler action audit log. Every create/pause/resume/run/
+	// delete from the UI API writes a row here so the operator can see the
+	// history of what was scheduled, paused, run, or removed. Agent-originated
+	// writes via phantom_schedule bypass this path; a future PR may hook the
+	// service layer directly.
+	`CREATE TABLE IF NOT EXISTS scheduler_audit_log (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		job_id TEXT NOT NULL,
+		job_name TEXT,
+		action TEXT NOT NULL,
+		previous_status TEXT,
+		new_status TEXT,
+		actor TEXT NOT NULL,
+		detail TEXT,
+		created_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`,
+
+	"CREATE INDEX IF NOT EXISTS idx_scheduler_audit_log_job ON scheduler_audit_log(job_id, id DESC)",
 ];
