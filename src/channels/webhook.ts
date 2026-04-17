@@ -42,6 +42,13 @@ type PendingResponse = {
 	timer: ReturnType<typeof setTimeout>;
 };
 
+type CompletedResponse = {
+	response: string;
+	completedAt: number;
+};
+
+type WaitResult = { type: "success"; text: string } | { type: "timeout"; taskId: string } | { type: "error" };
+
 export class WebhookChannel implements Channel {
 	readonly id = "webhook";
 	readonly name = "Webhook";
@@ -59,6 +66,14 @@ export class WebhookChannel implements Channel {
 	private pendingResponses = new Map<string, PendingResponse>();
 	// Track async callback URLs: conversationId -> callbackUrl
 	private callbackUrls = new Map<string, string>();
+	// Track completed responses for polling: taskId -> response
+	private completedResponses = new Map<string, CompletedResponse>();
+	// Track pending poll requests: taskId -> conversationId
+	private pendingPolls = new Map<string, string>();
+	// Reverse lookup: conversationId -> taskId
+	private conversationToTaskId = new Map<string, string>();
+	// Cleanup interval for expired responses
+	private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
 	constructor(config: WebhookChannelConfig) {
 		this.config = config;
@@ -66,10 +81,17 @@ export class WebhookChannel implements Channel {
 
 	async connect(): Promise<void> {
 		this.connected = true;
+		// Start cleanup interval (every minute, remove responses older than 5 minutes)
+		this.cleanupInterval = setInterval(() => this.cleanupExpiredResponses(), 60_000);
 		console.log("[webhook] Channel ready");
 	}
 
 	async disconnect(): Promise<void> {
+		// Stop cleanup interval
+		if (this.cleanupInterval) {
+			clearInterval(this.cleanupInterval);
+			this.cleanupInterval = null;
+		}
 		// Clean up pending responses
 		for (const [, pending] of this.pendingResponses) {
 			clearTimeout(pending.timer);
@@ -77,6 +99,9 @@ export class WebhookChannel implements Channel {
 		}
 		this.pendingResponses.clear();
 		this.callbackUrls.clear();
+		this.completedResponses.clear();
+		this.pendingPolls.clear();
+		this.conversationToTaskId.clear();
 		this.connected = false;
 		console.log("[webhook] Disconnected");
 	}
@@ -88,6 +113,17 @@ export class WebhookChannel implements Channel {
 			clearTimeout(pending.timer);
 			pending.resolve(message.text);
 			this.pendingResponses.delete(conversationId);
+		}
+
+		// Check if this conversation is waiting for polling
+		const taskId = this.conversationToTaskId.get(conversationId);
+		if (taskId) {
+			this.completedResponses.set(taskId, {
+				response: message.text,
+				completedAt: Date.now(),
+			});
+			this.pendingPolls.delete(taskId);
+			this.conversationToTaskId.delete(conversationId);
 		}
 
 		// Check if there's an async callback URL
@@ -191,15 +227,25 @@ export class WebhookChannel implements Channel {
 
 		// Sync mode: wait for the response
 		const timeoutMs = this.config.syncTimeoutMs ?? 25_000;
-		const responseText = await this.waitForResponse(conversationId, inbound, timeoutMs);
+		const result = await this.waitForResponse(conversationId, inbound, timeoutMs);
 
-		if (responseText === null) {
+		if (result.type === "timeout") {
+			return Response.json(
+				{
+					status: "accepted",
+					task_id: result.taskId,
+				} satisfies WebhookResponse,
+				{ status: 202 },
+			);
+		}
+
+		if (result.type === "error") {
 			return Response.json({ status: "error", message: "Response timeout" } satisfies WebhookResponse, { status: 504 });
 		}
 
 		return Response.json({
 			status: "ok",
-			response: responseText,
+			response: result.text,
 		} satisfies WebhookResponse);
 	}
 
@@ -207,15 +253,19 @@ export class WebhookChannel implements Channel {
 		conversationId: string,
 		inbound: InboundMessage,
 		timeoutMs: number,
-	): Promise<string | null> {
-		return new Promise<string | null>((resolve) => {
+	): Promise<WaitResult> {
+		return new Promise<WaitResult>((resolve) => {
 			const timer = setTimeout(() => {
+				// Generate task ID for polling
+				const taskId = randomUUID();
+				this.pendingPolls.set(taskId, conversationId);
+				this.conversationToTaskId.set(conversationId, taskId);
 				this.pendingResponses.delete(conversationId);
-				resolve(null);
+				resolve({ type: "timeout", taskId });
 			}, timeoutMs);
 
 			this.pendingResponses.set(conversationId, {
-				resolve: (text: string) => resolve(text),
+				resolve: (text: string) => resolve({ type: "success", text }),
 				timer,
 			});
 
@@ -225,9 +275,41 @@ export class WebhookChannel implements Channel {
 				this.pendingResponses.delete(conversationId);
 				const msg = err instanceof Error ? err.message : String(err);
 				console.error(`[webhook] Error handling sync message: ${msg}`);
-				resolve(null);
+				resolve({ type: "error" });
 			});
 		});
+	}
+
+	/**
+	 * Handle a polling request for async task results.
+	 * Called from the HTTP server's GET /webhook/poll route.
+	 */
+	async handlePollRequest(req: Request): Promise<Response> {
+		const url = new URL(req.url);
+		const taskId = url.searchParams.get("task_id");
+
+		if (!taskId) {
+			return Response.json({ status: "error", message: "Missing task_id parameter" }, { status: 400 });
+		}
+
+		// Check completed responses first
+		const completed = this.completedResponses.get(taskId);
+		if (completed) {
+			this.completedResponses.delete(taskId);
+			return Response.json({
+				status: "ok",
+				response: completed.response,
+				metadata: { duration_ms: completed.completedAt - (completed.completedAt - 1) },
+			} satisfies WebhookResponse);
+		}
+
+		// Check if still processing
+		if (this.pendingPolls.has(taskId)) {
+			return Response.json({ status: "accepted", task_id: taskId } satisfies WebhookResponse, { status: 202 });
+		}
+
+		// Unknown task
+		return Response.json({ status: "error", message: "Unknown task_id" }, { status: 404 });
 	}
 
 	private async sendCallback(url: string, conversationId: string, text: string): Promise<void> {
@@ -247,13 +329,31 @@ export class WebhookChannel implements Channel {
 		}
 	}
 
-	private verifySignature(body: string, timestamp: string, signature: string): boolean {
-		const payload = `${timestamp}.${body}`;
-		const hmac = new Bun.CryptoHasher("sha256", this.config.secret);
-		hmac.update(payload);
-		const expected = hmac.digest("hex");
+	/**
+	 * Remove completed responses older than 5 minutes.
+	 */
+	private cleanupExpiredResponses(): void {
+		const now = Date.now();
+		const expiryMs = 5 * 60 * 1000; // 5 minutes
 
+		for (const [taskId, completed] of this.completedResponses) {
+			if (now - completed.completedAt > expiryMs) {
+				this.completedResponses.delete(taskId);
+			}
+		}
+	}
+
+	private verifySignature(body: string, timestamp: string, signature: string): boolean {
 		try {
+			// Parse and remove signature field to compute HMAC over body without signature
+			const parsed = JSON.parse(body);
+			const { signature: _sig, ...rest } = parsed;
+			const bodyWithoutSig = JSON.stringify(rest);
+			const payload = `${timestamp}.${bodyWithoutSig}`;
+			const hmac = new Bun.CryptoHasher("sha256", this.config.secret);
+			hmac.update(payload);
+			const expected = hmac.digest("hex");
+
 			return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
 		} catch {
 			return false;
