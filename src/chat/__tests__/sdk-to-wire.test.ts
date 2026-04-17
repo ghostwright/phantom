@@ -430,6 +430,322 @@ describe("sdk-to-wire translator", () => {
 		expect(frames.length).toBe(0);
 	});
 
+	// Regression tests for the v0.20.1 chat duplication fix. The SDK emits stream
+	// deltas and then re-asserts the final content as a redundant assistant
+	// message. Pre-fix, handleAssistant re-emitted text_start + text_delta,
+	// producing two text blocks with the same block id in the client reducer.
+	// Post-fix, streamed blocks reconcile via a single message.text_reconcile
+	// frame.
+
+	test("stream_event + assistant combined: final assistant emits a single text_reconcile frame, not text_start/text_delta", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_start", content_block: { type: "text" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_delta", delta: { type: "text_delta", text: "Hello" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_delta", delta: { type: "text_delta", text: " world" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{ type: "stream_event", event: { type: "content_block_stop", index: 0 }, parent_tool_use_id: null },
+			ctx,
+		);
+		translateSdkMessage({ type: "stream_event", event: { type: "message_stop" }, parent_tool_use_id: null }, ctx);
+		const frames = translateSdkMessage(
+			{
+				type: "assistant",
+				message: { content: [{ type: "text", text: "Hello world" }] },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(frames.length).toBe(1);
+		expect(frames[0].event).toBe("message.text_reconcile");
+		if (frames[0].event === "message.text_reconcile") {
+			expect(frames[0].text_block_id).toBe("tb_0_0");
+			expect(frames[0].full_text).toBe("Hello world");
+		}
+		expect(frames.some((f) => f.event === "message.text_start")).toBe(false);
+		expect(frames.some((f) => f.event === "message.text_delta")).toBe(false);
+	});
+
+	test("stream_event + assistant combined: divergent final text is reconciled to canonical", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_start", content_block: { type: "text" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_delta", delta: { type: "text_delta", text: "Hello world" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		const frames = translateSdkMessage(
+			{
+				type: "assistant",
+				message: { content: [{ type: "text", text: "Hello, world!" }] },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(frames.length).toBe(1);
+		expect(frames[0].event).toBe("message.text_reconcile");
+		if (frames[0].event === "message.text_reconcile") {
+			expect(frames[0].full_text).toBe("Hello, world!");
+		}
+	});
+
+	test("assistant-only path (no prior stream_event): original diff emit is preserved", () => {
+		const ctx = makeCtx();
+		const frames = translateSdkMessage(
+			{
+				type: "assistant",
+				message: { content: [{ type: "text", text: "Hello" }] },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(frames.length).toBe(3);
+		expect(frames[0].event).toBe("message.assistant_start");
+		expect(frames[1].event).toBe("message.text_start");
+		expect(frames[2].event).toBe("message.text_delta");
+		expect(frames.some((f) => f.event === "message.text_reconcile")).toBe(false);
+	});
+
+	test("stream_event + assistant combined: thinking final emits start+delta(fullText) which the Map-indirect client reducer replaces idempotently", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_start", content_block: { type: "thinking" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "Let me think" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{ type: "stream_event", event: { type: "content_block_stop", index: 0 }, parent_tool_use_id: null },
+			ctx,
+		);
+		const frames = translateSdkMessage(
+			{
+				type: "assistant",
+				message: { content: [{ type: "thinking", thinking: "Let me think" }] },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(frames.length).toBe(2);
+		expect(frames[0].event).toBe("message.thinking_start");
+		expect(frames[1].event).toBe("message.thinking_delta");
+		if (frames[1].event === "message.thinking_delta") {
+			expect(frames[1].delta).toBe("Let me think");
+		}
+	});
+
+	test("stream_event + assistant combined: thinking final snaps to canonical when deltas diverge (stream='abc', final='abcd')", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_start", content_block: { type: "thinking" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "abc" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{ type: "stream_event", event: { type: "content_block_stop", index: 0 }, parent_tool_use_id: null },
+			ctx,
+		);
+		const frames = translateSdkMessage(
+			{
+				type: "assistant",
+				message: { content: [{ type: "thinking", thinking: "abcd" }] },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		// thinking_start replaces the client's Map entry, thinking_delta fills
+		// with the canonical "abcd". The "d" missing from the stream is restored.
+		expect(frames.length).toBe(2);
+		expect(frames[0].event).toBe("message.thinking_start");
+		expect(frames[1].event).toBe("message.thinking_delta");
+		if (frames[1].event === "message.thinking_delta") {
+			expect(frames[1].delta).toBe("abcd");
+		}
+	});
+
+	test("stream_event + assistant combined: tool_use block still guarded by startedToolIds", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_start",
+					content_block: { type: "tool_use", id: "toolu_abc", name: "Read" },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		const frames = translateSdkMessage(
+			{
+				type: "assistant",
+				message: {
+					content: [{ type: "tool_use", id: "toolu_abc", name: "Read", input: { file: "/tmp/x" } }],
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(frames.some((f) => f.event === "message.tool_call_start")).toBe(false);
+		expect(frames.some((f) => f.event === "message.tool_call_input_end")).toBe(false);
+	});
+
+	test("stream_event + assistant combined: interleaved [text, tool_use, text] reconciles each text block independently", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_start", content_block: { type: "text" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_delta", delta: { type: "text_delta", text: "Part one" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{ type: "stream_event", event: { type: "content_block_stop", index: 0 }, parent_tool_use_id: null },
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_start",
+					content_block: { type: "tool_use", id: "toolu_x", name: "Read" },
+					index: 1,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{ type: "stream_event", event: { type: "content_block_stop", index: 1 }, parent_tool_use_id: null },
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_start", content_block: { type: "text" }, index: 2 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_delta", delta: { type: "text_delta", text: "Part two" }, index: 2 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{ type: "stream_event", event: { type: "content_block_stop", index: 2 }, parent_tool_use_id: null },
+			ctx,
+		);
+		const frames = translateSdkMessage(
+			{
+				type: "assistant",
+				message: {
+					content: [
+						{ type: "text", text: "Part one" },
+						{ type: "tool_use", id: "toolu_x", name: "Read", input: { f: 1 } },
+						{ type: "text", text: "Part two" },
+					],
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		const reconciles = frames.filter((f) => f.event === "message.text_reconcile");
+		expect(reconciles.length).toBe(2);
+		if (reconciles[0].event === "message.text_reconcile") {
+			expect(reconciles[0].text_block_id).toBe("tb_0_0");
+			expect(reconciles[0].full_text).toBe("Part one");
+		}
+		if (reconciles[1].event === "message.text_reconcile") {
+			expect(reconciles[1].text_block_id).toBe("tb_0_2");
+			expect(reconciles[1].full_text).toBe("Part two");
+		}
+		expect(frames.some((f) => f.event === "message.text_start")).toBe(false);
+		expect(frames.some((f) => f.event === "message.text_delta")).toBe(false);
+		expect(frames.some((f) => f.event === "message.tool_call_start")).toBe(false);
+	});
+
+	test("assistant-only path: empty text block emits start but no delta", () => {
+		const ctx = makeCtx();
+		const frames = translateSdkMessage(
+			{
+				type: "assistant",
+				message: { content: [{ type: "text", text: "" }] },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(frames.length).toBe(2);
+		expect(frames[0].event).toBe("message.assistant_start");
+		expect(frames[1].event).toBe("message.text_start");
+		expect(frames.some((f) => f.event === "message.text_delta")).toBe(false);
+		expect(frames.some((f) => f.event === "message.text_reconcile")).toBe(false);
+	});
+
 	test("input_json_delta uses real tool_call_id from content_block_start", () => {
 		const ctx = makeCtx();
 		translateSdkMessage(

@@ -2890,6 +2890,14 @@ body {
 	padding: var(--space-3);
 	border-bottom: 1px solid var(--color-base-300);
 }
+/* .dash-filter-search was authored for a horizontal .dash-filter-bar. Inside
+   the Memory rail (flex column) its flex: 1 grows vertically and pushes the
+   first list row off-screen. Clamp it back to content height here. */
+.dash-split-pane-rail > .dash-filter-search {
+	flex: 0 0 auto;
+	max-width: none;
+	margin-left: 0;
+}
 .dash-memory-list {
 	overflow-y: auto;
 	flex: 1;

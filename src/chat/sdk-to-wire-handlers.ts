@@ -39,24 +39,45 @@ export function handleAssistant(msg: Record<string, unknown>, ctx: TranslationCo
 
 		if (blockType === "text") {
 			const fullText = (block.text as string) ?? "";
-			const prevLen = ctx.seenBlockLengths.get(i) ?? 0;
-			if (prevLen === 0) {
+			if (ctx.blockTypes.get(i) === "text") {
+				// Stream deltas already shipped this block. Emit a single reconcile
+				// frame so the client replaces the accumulated text with the
+				// canonical final text. No-op at the UI if they already match.
 				frames.push({
-					event: "message.text_start",
-					message_id: ctx.messageId,
+					event: "message.text_reconcile",
 					text_block_id: `tb_${ctx.turnIndex}_${i}`,
-					index: i,
+					full_text: fullText,
 				});
+				ctx.seenBlockLengths.set(i, fullText.length);
+			} else {
+				const prevLen = ctx.seenBlockLengths.get(i) ?? 0;
+				if (prevLen === 0) {
+					frames.push({
+						event: "message.text_start",
+						message_id: ctx.messageId,
+						text_block_id: `tb_${ctx.turnIndex}_${i}`,
+						index: i,
+					});
+				}
+				if (fullText.length > prevLen) {
+					frames.push({
+						event: "message.text_delta",
+						text_block_id: `tb_${ctx.turnIndex}_${i}`,
+						delta: fullText.slice(prevLen),
+					});
+				}
+				ctx.seenBlockLengths.set(i, fullText.length);
 			}
-			if (fullText.length > prevLen) {
-				frames.push({
-					event: "message.text_delta",
-					text_block_id: `tb_${ctx.turnIndex}_${i}`,
-					delta: fullText.slice(prevLen),
-				});
-			}
-			ctx.seenBlockLengths.set(i, fullText.length);
 		} else if (blockType === "thinking" || blockType === "redacted_thinking") {
+			// Thinking blocks use a Map-indirect client reducer: `thinking_start`
+			// REPLACES the Map entry, and `thinking_delta` appends to it. That
+			// makes `thinking_start + thinking_delta(fullText)` idempotent across
+			// the streamed and non-streamed paths, AND correctly snaps the
+			// client's Map entry to the canonical text when the stream deltas
+			// diverged from the final assistant text (e.g. stream="abc",
+			// final="abcd"). So we always emit on the final pass. The text path
+			// above uses a dedicated reconcile frame because its reducer is
+			// array-of-blocks and that idempotence guarantee does not hold there.
 			const thinkingText = (block.thinking as string) ?? "";
 			const prevLen = ctx.seenBlockLengths.get(i) ?? 0;
 			const redacted = blockType === "redacted_thinking";
