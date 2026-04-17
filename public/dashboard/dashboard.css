@@ -2584,9 +2584,10 @@ body {
 	border-color: color-mix(in oklab, var(--color-primary) 40%, var(--color-base-300));
 }
 
-/* Chip primitive (shared: Memory tags, tools, ratios). Plain pill with no
-   interactive state. */
-.dash-chip {
+/* Memory-specific neutral pill (tags, tools, ratios, categories). Distinct
+   from .dash-chip (primary-tinted, used as an interactive token across
+   Settings/Hooks/Skills/Subagents). */
+.dash-memory-chip {
 	display: inline-flex;
 	align-items: center;
 	padding: 2px 8px;

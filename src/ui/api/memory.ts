@@ -26,7 +26,14 @@ export type MemoryApiDeps = {
 type MemoryType = "episodes" | "facts" | "procedures";
 type MemoryItem = Episode | SemanticFact | Procedure;
 
-const LIST_DEFAULT_LIMIT = 30;
+// Scroll mode (empty query) orders by a payload date field, which disables
+// Qdrant's cursor pagination: next_page_offset is null on every call. Load
+// More therefore never renders in scroll mode and the operator sees at most
+// LIST_DEFAULT_LIMIT items until they search. Default to the hard cap so the
+// browse view shows the freshest 100. Cursor-style pagination across
+// order_by (filter by { key: order_field, range: { lt: lastSeenValue } } on
+// each subsequent call) is a documented follow-up.
+const LIST_DEFAULT_LIMIT = 100;
 const LIST_MAX_LIMIT = 100;
 const Q_MAX = 200;
 const ID_MAX = 200;

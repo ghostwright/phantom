@@ -472,6 +472,42 @@ describe("evolution API version detail", () => {
 		expect(body.diff[0].current_size).toBe(0);
 	});
 
+	test("path traversal in details[].file yields empty preview, does not read outside config_dir", async () => {
+		const config = makeConfig(tmp);
+		// Write a sentinel file outside config_dir so we would notice if the
+		// traversal accidentally succeeded.
+		const outsidePath = `${tmp}/SECRET_outside_config_dir.txt`;
+		writeFileSync(outsidePath, "SHOULD-NOT-LEAK");
+		seedVersion(config, { version: 9, parent: 8 });
+		seedLog(config, [
+			{
+				timestamp: "2026-04-14T10:00:00.000Z",
+				version: 9,
+				drain_id: "d9",
+				session_ids: ["s9"],
+				tier: "haiku",
+				status: "ok",
+				changes_applied: 1,
+				details: [
+					{
+						file: "../SECRET_outside_config_dir.txt",
+						type: "edit",
+						summary: "attempted traversal",
+						rationale: "should be blocked",
+						session_ids: ["s9"],
+					},
+				],
+			},
+		]);
+		const engine = buildStubEngine(config);
+		const res = (await handleEvolutionApi(req("/ui/api/evolution/version/9"), url("/ui/api/evolution/version/9"), {
+			engine,
+		})) as Response;
+		const body = (await res.json()) as { diff: Array<{ current_content: string; current_size: number }> };
+		expect(body.diff[0].current_content).toBe("");
+		expect(body.diff[0].current_size).toBe(0);
+	});
+
 	test("file content exceeding 64 KB is truncated, size is the full byte length", async () => {
 		const config = makeConfig(tmp);
 		seedVersion(config, { version: 3, parent: 2 });

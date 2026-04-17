@@ -174,7 +174,7 @@
 		var contradicted = fact.valid_until ? '<span class="dash-status-chip dash-status-chip-error">contradicted</span>' : "";
 		return '<p class="dash-memory-row-title">' + esc(truncate(fact.natural_language || "(no text)", 90)) + '</p>' +
 			'<p class="dash-memory-row-sub">' +
-			'<span class="dash-chip">' + esc(fact.category || "fact") + '</span>' +
+			'<span class="dash-memory-chip">' + esc(fact.category || "fact") + '</span>' +
 			'<span class="dash-confidence-bar" title="' + esc(pct + "% confidence") + '"><span class="dash-confidence-bar-fill" style="width:' + pct + '%;"></span></span>' +
 			'<span>' + esc(formatDate(fact.valid_from)) + '</span>' + contradicted + '</p>';
 	}
@@ -183,7 +183,7 @@
 		return '<p class="dash-memory-row-title">' + esc(proc.name || "(unnamed)") + '</p>' +
 			'<p class="dash-memory-row-sub">' +
 			'<span>' + esc(truncate(proc.trigger || "", 60)) + '</span>' +
-			'<span class="dash-chip">' + esc(ratio) + '</span>' +
+			'<span class="dash-memory-chip">' + esc(ratio) + '</span>' +
 			'<span>' + esc(relativeTime(proc.last_used_at)) + '</span>' +
 			'</p>';
 	}
@@ -244,7 +244,7 @@
 	}
 	function chipList(values) {
 		if (!values || values.length === 0) return '<span class="phantom-muted">none</span>';
-		return values.map(function (v) { return '<span class="dash-chip">' + esc(v) + '</span>'; }).join(" ");
+		return values.map(function (v) { return '<span class="dash-memory-chip">' + esc(v) + '</span>'; }).join(" ");
 	}
 	function textPre(field) { return '<pre class="dash-memory-text" data-memory-text="' + esc(field) + '"></pre>'; }
 
@@ -316,7 +316,7 @@
 				return '<li class="dash-memory-step">' +
 					'<div class="dash-memory-step-head">' +
 					'<span class="dash-memory-step-num">' + esc(String(s.order || i + 1)) + '</span>' +
-					(s.tool ? '<span class="dash-chip">' + esc(s.tool) + '</span>' : "") +
+					(s.tool ? '<span class="dash-memory-chip">' + esc(s.tool) + '</span>' : "") +
 					(s.decision_point ? '<span class="dash-status-chip dash-status-chip-info">decision</span>' : "") +
 					'</div>' +
 					'<pre class="dash-memory-text" data-memory-step-idx="' + i + '" data-memory-step-field="action"></pre>' +

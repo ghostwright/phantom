@@ -13,7 +13,7 @@
 // rollback ship in Phase B.
 
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { relative, resolve } from "node:path";
 import { z } from "zod";
 import type { EvolutionEngine } from "../../evolution/engine.ts";
 import { emptyReflectionStats } from "../../evolution/metrics.ts";
@@ -28,7 +28,12 @@ export type EvolutionApiDeps = {
 
 const TIMELINE_DEFAULT_LIMIT = 20;
 const TIMELINE_MAX_LIMIT = 100;
-const TIMELINE_SCAN_CAP = 500;
+// Cap the in-memory scan window generously. Entries are small JSONL rows
+// (~1-2 KB each), so reading 100k costs a few hundred MB of RAM briefly.
+// Without this size, pagination via before_version silently cut off history
+// past the last 500 entries on long-running deployments. If an agent ever
+// crosses this ceiling, switch to a streaming reader.
+const TIMELINE_SCAN_CAP = 100_000;
 const FILE_PREVIEW_BYTE_CAP = 64 * 1024;
 const TOP_FILES_LIMIT = 10;
 
@@ -188,7 +193,16 @@ function timelineHandler(deps: EvolutionApiDeps, query: TimelineQuery): Response
 }
 
 function readFilePreview(configDir: string, relPath: string): { content: string; size: number } {
-	const absolute = join(configDir, relPath);
+	// Evolution log rows carry agent-written "file" paths. Resolve the candidate
+	// absolute path and confirm it lands inside configDir before reading.
+	// Without this guard, a log entry like "../../etc/passwd" would let the
+	// dashboard disclose arbitrary host files up to FILE_PREVIEW_BYTE_CAP.
+	const base = resolve(configDir);
+	const absolute = resolve(base, relPath);
+	const rel = relative(base, absolute);
+	if (rel.startsWith("..") || rel === "" || resolve(base, rel) !== absolute) {
+		return { content: "", size: 0 };
+	}
 	if (!existsSync(absolute)) return { content: "", size: 0 };
 	let size = 0;
 	try {
