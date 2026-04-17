@@ -22,58 +22,28 @@ function runMigrations(target: Database): void {
 		try {
 			target.run(migration);
 		} catch {
-			// idempotent
+			/* idempotent */
 		}
 	}
 }
 
-// Minimal valid PNG header followed by padding. The handler does not decode,
-// so anything matching the magic bytes and MIME is accepted.
-function pngBytes(length = 128): Uint8Array {
-	const out = new Uint8Array(length);
-	out[0] = 0x89;
-	out[1] = 0x50;
-	out[2] = 0x4e;
-	out[3] = 0x47;
-	out[4] = 0x0d;
-	out[5] = 0x0a;
-	out[6] = 0x1a;
-	out[7] = 0x0a;
-	for (let i = 8; i < length; i++) out[i] = i & 0xff;
+// Bytes shaped to pass the handler's magic-byte sniff. The handler does not
+// decode, so valid headers + filler are all that's required.
+const PNG_HEADER = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const JPEG_HEADER = [0xff, 0xd8, 0xff, 0xe0];
+const WEBP_HEADER = [0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50];
+
+function withHeader(header: number[], length = 128): Uint8Array {
+	const out = new Uint8Array(Math.max(length, header.length));
+	for (let i = 0; i < header.length; i++) out[i] = header[i];
+	for (let i = header.length; i < out.length; i++) out[i] = (i * 7) & 0xff;
 	return out;
 }
-
-function jpegBytes(length = 128): Uint8Array {
-	const out = new Uint8Array(length);
-	out[0] = 0xff;
-	out[1] = 0xd8;
-	out[2] = 0xff;
-	out[3] = 0xe0;
-	for (let i = 4; i < length; i++) out[i] = (i * 7) & 0xff;
-	return out;
-}
-
-function webpBytes(length = 128): Uint8Array {
-	const out = new Uint8Array(length);
-	out[0] = 0x52;
-	out[1] = 0x49;
-	out[2] = 0x46;
-	out[3] = 0x46;
-	out[4] = 0x00;
-	out[5] = 0x00;
-	out[6] = 0x00;
-	out[7] = 0x00;
-	out[8] = 0x57;
-	out[9] = 0x45;
-	out[10] = 0x42;
-	out[11] = 0x50;
-	for (let i = 12; i < length; i++) out[i] = (i * 3) & 0xff;
-	return out;
-}
-
-function svgBytes(): Uint8Array {
-	return new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
-}
+const pngBytes = (length = 128) => withHeader(PNG_HEADER, length);
+const jpegBytes = (length = 128) => withHeader(JPEG_HEADER, length);
+const webpBytes = (length = 128) => withHeader(WEBP_HEADER, length);
+const svgBytes = () =>
+	new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
 
 let db: Database;
 let sessionToken: string;
@@ -96,12 +66,8 @@ afterEach(() => {
 });
 
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
-	return {
-		Cookie: `phantom_session=${encodeURIComponent(sessionToken)}`,
-		...extra,
-	};
+	return { Cookie: `phantom_session=${encodeURIComponent(sessionToken)}`, ...extra };
 }
-
 function publicHeaders(extra: Record<string, string> = {}): Record<string, string> {
 	return { ...extra };
 }
@@ -131,19 +97,15 @@ async function postAvatar(
 	);
 }
 
-async function deleteAvatar(opts: { cookie?: boolean } = {}): Promise<Response> {
-	const headers = opts.cookie === false ? {} : authHeaders();
-	return handleUiRequest(
+const deleteAvatar = (opts: { cookie?: boolean } = {}) =>
+	handleUiRequest(
 		new Request("http://localhost/ui/api/identity/avatar", {
 			method: "DELETE",
-			headers,
+			headers: opts.cookie === false ? {} : authHeaders(),
 		}),
 	);
-}
-
-async function getAvatar(extra: Record<string, string> = {}): Promise<Response> {
-	return handleUiRequest(new Request("http://localhost/ui/avatar", { method: "GET", headers: publicHeaders(extra) }));
-}
+const getAvatar = (extra: Record<string, string> = {}) =>
+	handleUiRequest(new Request("http://localhost/ui/avatar", { method: "GET", headers: publicHeaders(extra) }));
 
 describe("identity avatar API", () => {
 	test("401 on POST without cookie", async () => {
