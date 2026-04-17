@@ -19,11 +19,13 @@ import { handleHooksApi } from "./api/hooks.ts";
 import { handleAvatarDelete, handleAvatarGet, handleAvatarPost } from "./api/identity.ts";
 import { handleMemoryFilesApi } from "./api/memory-files.ts";
 import { handleMemoryApi } from "./api/memory.ts";
+import { handlePagesApi } from "./api/pages.ts";
 import { type PhantomConfigPaths, handlePhantomConfigApi } from "./api/phantom-config.ts";
 import { type PluginsApiDeps, handlePluginsApi } from "./api/plugins.ts";
 import { handleSchedulerApi } from "./api/scheduler.ts";
 import { handleSessionsApi } from "./api/sessions.ts";
 import { handleSkillsApi } from "./api/skills.ts";
+import { handleStarterPromptsApi } from "./api/starter-prompts.ts";
 import { handleSubagentsApi } from "./api/subagents.ts";
 
 const COOKIE_NAME = "phantom_session";
@@ -229,6 +231,16 @@ export async function handleUiRequest(req: Request): Promise<Response> {
 	}
 	if (url.pathname === "/ui/avatar") {
 		return new Response("Method not allowed", { status: 405, headers: { Allow: "GET" } });
+	}
+
+	// Public landing-page data feeds. These render before login so the hero is
+	// not empty on first visit. Content is operator-public (starter-prompt copy,
+	// agent-published page filenames) so no cookie gate.
+	if (url.pathname === "/ui/api/starter-prompts") {
+		return handleStarterPromptsApi(req);
+	}
+	if (url.pathname === "/ui/api/pages") {
+		return handlePagesApi(req);
 	}
 
 	// Public assets (logo, favicon) - no auth needed
