@@ -14,21 +14,31 @@ const TEST_CONFIG: MemoryConfig = {
 function createMockMemorySystem(overrides?: {
 	ready?: boolean;
 	episodes?: ReturnType<MemorySystem["recallEpisodes"]>;
+	durableEpisodes?: ReturnType<MemorySystem["recallEpisodes"]>;
 	facts?: ReturnType<MemorySystem["recallFacts"]>;
 	procedure?: ReturnType<MemorySystem["findProcedure"]>;
-}): MemorySystem {
-	const ms = {
+}) {
+	const recallEpisodes = mock((_query: string, options?: { strategy?: string }) => {
+		if (options?.strategy === "metadata") {
+			return overrides?.durableEpisodes ?? Promise.resolve([]);
+		}
+
+		return overrides?.episodes ?? Promise.resolve([]);
+	});
+	const recallFacts = mock(() => overrides?.facts ?? Promise.resolve([]));
+	const findProcedure = mock(() => overrides?.procedure ?? Promise.resolve(null));
+	const memory = {
 		isReady: () => overrides?.ready ?? true,
-		recallEpisodes: mock(() => overrides?.episodes ?? Promise.resolve([])),
-		recallFacts: mock(() => overrides?.facts ?? Promise.resolve([])),
-		findProcedure: mock(() => overrides?.procedure ?? Promise.resolve(null)),
+		recallEpisodes,
+		recallFacts,
+		findProcedure,
 	} as unknown as MemorySystem;
-	return ms;
+	return { memory, recallEpisodes, recallFacts, findProcedure };
 }
 
 describe("MemoryContextBuilder", () => {
 	test("returns empty string when memory system is not ready", async () => {
-		const memory = createMockMemorySystem({ ready: false });
+		const { memory } = createMockMemorySystem({ ready: false });
 		const builder = new MemoryContextBuilder(memory, TEST_CONFIG);
 
 		const result = await builder.build("test query");
@@ -36,7 +46,7 @@ describe("MemoryContextBuilder", () => {
 	});
 
 	test("returns empty string when no memories found", async () => {
-		const memory = createMockMemorySystem();
+		const { memory } = createMockMemorySystem();
 		const builder = new MemoryContextBuilder(memory, TEST_CONFIG);
 
 		const result = await builder.build("test query");
@@ -44,7 +54,7 @@ describe("MemoryContextBuilder", () => {
 	});
 
 	test("formats facts section correctly", async () => {
-		const memory = createMockMemorySystem({
+		const { memory } = createMockMemorySystem({
 			facts: Promise.resolve([
 				{
 					id: "f1",
@@ -89,7 +99,7 @@ describe("MemoryContextBuilder", () => {
 	});
 
 	test("formats episodes section correctly", async () => {
-		const memory = createMockMemorySystem({
+		const { memory } = createMockMemorySystem({
 			episodes: Promise.resolve([
 				{
 					id: "ep1",
@@ -125,7 +135,7 @@ describe("MemoryContextBuilder", () => {
 	});
 
 	test("filters stale low-signal episodes from prompt context", async () => {
-		const memory = createMockMemorySystem({
+		const { memory } = createMockMemorySystem({
 			episodes: Promise.resolve([
 				{
 					id: "stale-ep",
@@ -180,7 +190,7 @@ describe("MemoryContextBuilder", () => {
 	});
 
 	test("formats procedure section correctly", async () => {
-		const memory = createMockMemorySystem({
+		const { memory } = createMockMemorySystem({
 			procedure: Promise.resolve({
 				id: "proc1",
 				name: "deploy_staging",
@@ -225,6 +235,177 @@ describe("MemoryContextBuilder", () => {
 		expect(result).toContain("5 successes");
 	});
 
+	test("adds durable context on the first turn of a new session", async () => {
+		const { memory, recallEpisodes } = createMockMemorySystem({
+			episodes: Promise.resolve([
+				{
+					id: "ep1",
+					type: "task" as const,
+					summary: "Refreshed the deployment runbook",
+					detail: "Full detail",
+					parent_id: null,
+					session_id: "s1",
+					user_id: "u1",
+					tools_used: ["Edit"],
+					files_touched: [],
+					outcome: "success" as const,
+					outcome_detail: "",
+					lessons: [],
+					started_at: new Date(Date.now() - 3600000).toISOString(),
+					ended_at: new Date().toISOString(),
+					duration_seconds: 3600,
+					importance: 0.9,
+					access_count: 3,
+					last_accessed_at: new Date().toISOString(),
+					decay_rate: 1.0,
+				},
+				{
+					id: "ep2",
+					type: "interaction" as const,
+					summary: "Discussed rollout timing for tomorrow",
+					detail: "Full detail",
+					parent_id: null,
+					session_id: "s2",
+					user_id: "u1",
+					tools_used: [],
+					files_touched: [],
+					outcome: "partial" as const,
+					outcome_detail: "",
+					lessons: [],
+					started_at: new Date(Date.now() - 7200000).toISOString(),
+					ended_at: new Date().toISOString(),
+					duration_seconds: 1800,
+					importance: 0.7,
+					access_count: 1,
+					last_accessed_at: new Date().toISOString(),
+					decay_rate: 1.0,
+				},
+			]),
+			durableEpisodes: Promise.resolve([
+				{
+					id: "ep1",
+					type: "task" as const,
+					summary: "Refreshed the deployment runbook",
+					detail: "Full detail",
+					parent_id: null,
+					session_id: "s1",
+					user_id: "u1",
+					tools_used: ["Edit"],
+					files_touched: [],
+					outcome: "success" as const,
+					outcome_detail: "",
+					lessons: [],
+					started_at: new Date(Date.now() - 3600000).toISOString(),
+					ended_at: new Date().toISOString(),
+					duration_seconds: 3600,
+					importance: 0.9,
+					access_count: 3,
+					last_accessed_at: new Date().toISOString(),
+					decay_rate: 1.0,
+				},
+			]),
+			facts: Promise.resolve([
+				{
+					id: "f1",
+					subject: "user",
+					predicate: "prefers",
+					object: "small PRs",
+					natural_language: "The user prefers small PRs",
+					source_episode_ids: [],
+					confidence: 0.9,
+					valid_from: new Date().toISOString(),
+					valid_until: null,
+					version: 1,
+					previous_version_id: null,
+					category: "user_preference" as const,
+					tags: [],
+				},
+				{
+					id: "f2",
+					subject: "repo",
+					predicate: "uses",
+					object: "Bun",
+					natural_language: "This repo uses Bun for task execution",
+					source_episode_ids: [],
+					confidence: 0.6,
+					valid_from: new Date().toISOString(),
+					valid_until: null,
+					version: 1,
+					previous_version_id: null,
+					category: "codebase" as const,
+					tags: [],
+				},
+			]),
+		});
+
+		const builder = new MemoryContextBuilder(memory, TEST_CONFIG);
+		const result = await builder.build("help me deploy", { isNewSession: true });
+
+		expect(recallEpisodes).toHaveBeenCalledTimes(2);
+		expect(result).toContain("## Durable Context");
+		expect(result).toContain("Fact: The user prefers small PRs");
+		expect(result).toContain("Memory: [task] Refreshed the deployment runbook");
+		expect(result).toContain("## Known Facts");
+		expect(result).toContain("This repo uses Bun for task execution");
+		expect(result).toContain("## Recent Memories");
+		expect(result).toContain("Discussed rollout timing for tomorrow");
+		expect(result.split("The user prefers small PRs").length - 1).toBe(1);
+		expect(result.split("Refreshed the deployment runbook").length - 1).toBe(1);
+	});
+
+	test("skips durable startup context on resumed turns", async () => {
+		const { memory, recallEpisodes } = createMockMemorySystem({
+			episodes: Promise.resolve([]),
+			durableEpisodes: Promise.resolve([
+				{
+					id: "ep1",
+					type: "task" as const,
+					summary: "Should not be recalled durably",
+					detail: "Full detail",
+					parent_id: null,
+					session_id: "s1",
+					user_id: "u1",
+					tools_used: [],
+					files_touched: [],
+					outcome: "success" as const,
+					outcome_detail: "",
+					lessons: [],
+					started_at: new Date().toISOString(),
+					ended_at: new Date().toISOString(),
+					duration_seconds: 60,
+					importance: 0.9,
+					access_count: 0,
+					last_accessed_at: "",
+					decay_rate: 1.0,
+				},
+			]),
+			facts: Promise.resolve([
+				{
+					id: "f1",
+					subject: "user",
+					predicate: "prefers",
+					object: "small PRs",
+					natural_language: "The user prefers small PRs",
+					source_episode_ids: [],
+					confidence: 0.9,
+					valid_from: new Date().toISOString(),
+					valid_until: null,
+					version: 1,
+					previous_version_id: null,
+					category: "user_preference" as const,
+					tags: [],
+				},
+			]),
+		});
+
+		const builder = new MemoryContextBuilder(memory, TEST_CONFIG);
+		const result = await builder.build("help me deploy");
+
+		expect(recallEpisodes).toHaveBeenCalledTimes(1);
+		expect(result).not.toContain("## Durable Context");
+		expect(result).toContain("## Known Facts");
+	});
+
 	test("respects token budget and truncates", async () => {
 		// Create many facts that would exceed a tiny budget
 		const manyFacts = Array.from({ length: 100 }, (_, i) => ({
@@ -243,7 +424,7 @@ describe("MemoryContextBuilder", () => {
 			tags: [],
 		}));
 
-		const memory = createMockMemorySystem({
+		const { memory } = createMockMemorySystem({
 			facts: Promise.resolve(manyFacts),
 		});
 
@@ -259,7 +440,7 @@ describe("MemoryContextBuilder", () => {
 	});
 
 	test("handles errors from memory system gracefully", async () => {
-		const memory = createMockMemorySystem({
+		const { memory } = createMockMemorySystem({
 			episodes: Promise.reject(new Error("Qdrant down")),
 			facts: Promise.reject(new Error("Qdrant down")),
 			procedure: Promise.reject(new Error("Qdrant down")),

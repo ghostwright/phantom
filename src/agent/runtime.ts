@@ -173,7 +173,7 @@ export class AgentRuntime {
 		let memoryContext: string | undefined;
 		if (this.memoryContextBuilder) {
 			try {
-				memoryContext = (await this.memoryContextBuilder.build(text)) || undefined;
+				memoryContext = (await this.memoryContextBuilder.build(text, { isNewSession: !isResume })) || undefined;
 			} catch {
 				/* Memory unavailable */
 			}
