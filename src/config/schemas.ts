@@ -88,6 +88,8 @@ export const SlackChannelConfigSchema = z.object({
 export const TelegramChannelConfigSchema = z.object({
 	enabled: z.boolean().default(false),
 	bot_token: z.string().min(1),
+	/** Whitelist of Telegram user IDs allowed to interact with the bot. Empty = allow all. */
+	allowed_user_ids: z.array(z.number().int()).optional(),
 });
 
 export const EmailChannelConfigSchema = z.object({
