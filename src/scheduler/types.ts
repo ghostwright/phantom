@@ -27,9 +27,12 @@ export type Schedule = z.infer<typeof ScheduleSchema>;
 // The JobDeliverySchema is the single canonical source of delivery defaults.
 // service.createJob trusts the parsed shape and does not add a second fallback layer.
 // See N9 in the Phase 2.5 scheduler audit for the rationale.
+// Telegram delivery is handled via raw Bot API fetch in delivery.ts — no
+// DeliveryContext change required (the existing channels/telegram.ts Telegraf
+// instance is a separate concern: polling, not scheduler-side sendMessage).
 export const JobDeliverySchema = z.object({
-	channel: z.enum(["slack", "none"]).default("slack"),
-	target: z.string().default("owner").describe('"owner", a Slack channel id (C...), or a Slack user id (U...)'),
+	channel: z.enum(["slack", "telegram", "none"]).default("slack"),
+	target: z.string().default("owner").describe('"owner", a Slack channel id (C...), a Slack user id (U...), or a Telegram chat id (numeric)'),
 });
 export type JobDelivery = z.infer<typeof JobDeliverySchema>;
 
@@ -103,4 +106,12 @@ export type JobRow = {
 const SLACK_TARGET_RE = /^(?:owner|C[A-Z0-9]+|U[A-Z0-9]+)$/;
 export function isValidSlackTarget(target: string): boolean {
 	return SLACK_TARGET_RE.test(target);
+}
+
+// Accepted Telegram delivery targets. "owner" resolves at delivery time to
+// OWNER_TELEGRAM_USER_ID env. Otherwise target must be a numeric chat_id
+// (positive user ids or negative group ids).
+const TELEGRAM_TARGET_RE = /^(?:owner|-?\d+)$/;
+export function isValidTelegramTarget(target: string): boolean {
+	return TELEGRAM_TARGET_RE.test(target);
 }
