@@ -462,4 +462,120 @@ describe("Scheduler", () => {
 		expect(row.next).toBeNull();
 		scheduler.stop();
 	});
+
+	test("updateJob updates task only, preserves run history", async () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "Updatable",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Original task",
+		});
+
+		// Simulate some run history
+		await scheduler.runJobNow(job.id);
+		const beforeUpdate = scheduler.getJob(job.id);
+		expect(beforeUpdate?.runCount).toBe(1);
+		expect(beforeUpdate?.lastRunAt).toBeTruthy();
+
+		const updated = scheduler.updateJob(job.id, { task: "Updated task" });
+		expect(updated).not.toBeNull();
+		expect(updated?.task).toBe("Updated task");
+		expect(updated?.runCount).toBe(1);
+		expect(updated?.lastRunAt).toBe(beforeUpdate?.lastRunAt);
+		expect(updated?.lastRunStatus).toBe("ok");
+	});
+
+	test("updateJob updates schedule and recomputes next_run_at", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "Schedule Update",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Task",
+		});
+
+		const originalNextRun = job.nextRunAt;
+		const updated = scheduler.updateJob(job.id, { schedule: { kind: "every", intervalMs: 120_000 } });
+
+		expect(updated).not.toBeNull();
+		expect(updated?.schedule).toEqual({ kind: "every", intervalMs: 120_000 });
+		expect(updated?.nextRunAt).not.toBe(originalNextRun);
+		expect(updated?.nextRunAt).toBeTruthy();
+	});
+
+	test("updateJob updates delivery", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "Delivery Update",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Task",
+		});
+
+		const updated = scheduler.updateJob(job.id, { delivery: { channel: "slack", target: "C04ABC123" } });
+		expect(updated).not.toBeNull();
+		expect(updated?.delivery).toEqual({ channel: "slack", target: "C04ABC123" });
+	});
+
+	test("updateJob updates name", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "Old Name",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Task",
+		});
+
+		const updated = scheduler.updateJob(job.id, { name: "New Name" });
+		expect(updated).not.toBeNull();
+		expect(updated?.name).toBe("New Name");
+	});
+
+	test("updateJob updates enabled flag", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "Toggle",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Task",
+			enabled: true,
+		});
+
+		const disabled = scheduler.updateJob(job.id, { enabled: false });
+		expect(disabled).not.toBeNull();
+		expect(disabled?.enabled).toBe(false);
+
+		const enabled = scheduler.updateJob(job.id, { enabled: true });
+		expect(enabled).not.toBeNull();
+		expect(enabled?.enabled).toBe(true);
+	});
+
+	test("updateJob returns null for nonexistent job", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const updated = scheduler.updateJob("nonexistent-id", { task: "New task" });
+		expect(updated).toBeNull();
+	});
+
+	test("updateJob rejects invalid schedule", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "Bad Schedule",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Task",
+		});
+
+		const past = new Date(Date.now() - 3_600_000).toISOString();
+		expect(() => {
+			scheduler.updateJob(job.id, { schedule: { kind: "at", at: past } });
+		}).toThrow("invalid schedule");
+	});
+
+	test("updateJob rejects invalid delivery target", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "Bad Delivery",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Task",
+		});
+
+		expect(() => {
+			scheduler.updateJob(job.id, { delivery: { channel: "slack", target: "invalid" } });
+		}).toThrow("invalid delivery.target");
+	});
 });
