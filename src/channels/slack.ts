@@ -3,6 +3,7 @@ import { App, type LogLevel } from "@slack/bolt";
 import type { SlackBlock } from "./feedback.ts";
 import { buildFeedbackBlocks } from "./feedback.ts";
 import { registerSlackActions } from "./slack-actions.ts";
+import { ALLOWED_SUBTYPES, cleanupOldUploads, downloadSlackFiles, ensureUploadsDir } from "./slack-files.ts";
 import { splitMessage, toSlackMarkdown, truncateForSlack } from "./slack-formatter.ts";
 import type { Channel, ChannelCapabilities, InboundMessage, OutboundMessage, SentMessage } from "./types.ts";
 
@@ -36,6 +37,7 @@ export class SlackChannel implements Channel {
 	};
 
 	private app: App;
+	private botToken: string;
 	private messageHandler: ((message: InboundMessage) => Promise<void>) | null = null;
 	private reactionHandler: ReactionHandler | null = null;
 	private connectionState: ConnectionState = "disconnected";
@@ -45,6 +47,7 @@ export class SlackChannel implements Channel {
 	private rejectedUsers = new Set<string>();
 
 	constructor(config: SlackChannelConfig) {
+		this.botToken = config.botToken;
 		this.app = new App({
 			token: config.botToken,
 			socketMode: true,
@@ -96,6 +99,8 @@ export class SlackChannel implements Channel {
 		if (this.connectionState === "connected") return;
 		this.connectionState = "connecting";
 
+		ensureUploadsDir();
+		cleanupOldUploads();
 		this.registerEventHandlers();
 		registerSlackActions(this.app);
 
@@ -174,7 +179,7 @@ export class SlackChannel implements Channel {
 		return this.connectionState;
 	}
 
-	async postToChannel(channelId: string, text: string): Promise<string | null> {
+	async postToChannel(channelId: string, text: string, threadTs?: string): Promise<string | null> {
 		const formattedText = toSlackMarkdown(text);
 		const chunks = splitMessage(formattedText);
 		let lastTs: string | null = null;
@@ -184,6 +189,7 @@ export class SlackChannel implements Channel {
 				const result = await this.app.client.chat.postMessage({
 					channel: channelId,
 					text: chunk,
+					...(threadTs ? { thread_ts: threadTs } : {}),
 				});
 				lastTs = result.ts ?? null;
 			} catch (err: unknown) {
@@ -241,20 +247,55 @@ export class SlackChannel implements Channel {
 		}
 	}
 
-	/** Update a message with text + feedback buttons appended */
-	async updateWithFeedback(channel: string, ts: string, text: string): Promise<void> {
-		const formattedText = toSlackMarkdown(text);
-		const truncated = truncateForSlack(formattedText);
-		const feedbackBlocks = buildFeedbackBlocks(ts);
+	/**
+	 * Replace the placeholder message at `ts` with the final response + feedback
+	 * buttons. If the response is larger than a single Slack section block can
+	 * hold, it is split across multiple threaded messages and the feedback
+	 * buttons are attached to the last one.
+	 *
+	 * The id passed to buildFeedbackBlocks is only used as a block_id suffix;
+	 * the feedback handler in slack-actions.ts reads body.message.ts at click
+	 * time, so any stable value works.
+	 */
+	async updateWithFeedback(channel: string, ts: string, text: string, threadTs: string): Promise<void> {
+		const section = (t: string): SlackBlock => ({ type: "section", text: { type: "mrkdwn", text: t } });
+		const chunks = splitMessage(toSlackMarkdown(text));
+		const total = chunks.length;
 
-		const blocks: SlackBlock[] = [{ type: "section", text: { type: "mrkdwn", text: truncated } }, ...feedbackBlocks];
-
+		// First chunk replaces the placeholder. If it's also the only chunk,
+		// attach feedback buttons here (preserves the original short-response flow).
+		const firstBlocks: SlackBlock[] =
+			total === 1 ? [section(chunks[0]), ...buildFeedbackBlocks(ts)] : [section(chunks[0])];
 		try {
-			const updateArgs: Record<string, unknown> = { channel, ts, text: truncated, blocks };
-			await this.app.client.chat.update(updateArgs as unknown as Parameters<typeof this.app.client.chat.update>[0]);
+			await this.app.client.chat.update({
+				channel,
+				ts,
+				text: chunks[0],
+				blocks: firstBlocks,
+			} as unknown as Parameters<typeof this.app.client.chat.update>[0]);
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
-			console.warn(`[slack] Failed to update message with feedback: ${msg}`);
+			console.warn(`[slack] Failed to update message with feedback (chunk 1/${total}): ${msg}`);
+		}
+
+		// Remaining chunks are posted as new threaded messages. The feedback
+		// buttons attach to the final message so the user has one clear
+		// "rate this response" affordance.
+		for (let i = 1; i < total; i++) {
+			const isLast = i === total - 1;
+			const chunk = chunks[i];
+			const blocks: SlackBlock[] = isLast ? [section(chunk), ...buildFeedbackBlocks(ts)] : [section(chunk)];
+			try {
+				await this.app.client.chat.postMessage({
+					channel,
+					thread_ts: threadTs,
+					text: chunk,
+					blocks,
+				});
+			} catch (err: unknown) {
+				const msg = err instanceof Error ? err.message : String(err);
+				console.warn(`[slack] Failed to update message with feedback (chunk ${i + 1}/${total}): ${msg}`);
+			}
 		}
 	}
 
@@ -294,8 +335,16 @@ export class SlackChannel implements Channel {
 			}
 
 			const cleanText = this.stripBotMention(event.text);
-			if (!cleanText.trim()) return;
+			const eventRecord = event as unknown as Record<string, unknown>;
+			const rawFiles = eventRecord.files as unknown[] | undefined;
+			const { attachments, skippedFiles } = rawFiles
+				? await downloadSlackFiles(rawFiles, this.botToken)
+				: { attachments: [], skippedFiles: [] };
 
+			// Allow through if there's text or files (or both)
+			if (!cleanText.trim() && attachments.length === 0) return;
+
+			const text = cleanText.trim() || "[User sent attached files]";
 			const threadTs = event.thread_ts ?? event.ts;
 			const conversationId = buildConversationId(event.channel, threadTs);
 
@@ -305,7 +354,7 @@ export class SlackChannel implements Channel {
 				conversationId,
 				threadId: threadTs,
 				senderId,
-				text: cleanText.trim(),
+				text,
 				timestamp: new Date(Number.parseFloat(event.ts) * 1000),
 				metadata: {
 					slackChannel: event.channel,
@@ -313,6 +362,8 @@ export class SlackChannel implements Channel {
 					slackMessageTs: event.ts,
 					source: "app_mention",
 				},
+				...(attachments.length > 0 ? { attachments } : {}),
+				...(skippedFiles.length > 0 ? { skippedFiles } : {}),
 			};
 
 			try {
@@ -327,7 +378,7 @@ export class SlackChannel implements Channel {
 			if (!this.messageHandler) return;
 
 			const msg = event as unknown as Record<string, unknown>;
-			if (msg.subtype) return;
+			if (msg.subtype && !ALLOWED_SUBTYPES.has(msg.subtype as string)) return;
 			if (msg.bot_id) return;
 
 			const userId = msg.user as string | undefined;
@@ -342,9 +393,16 @@ export class SlackChannel implements Channel {
 				return;
 			}
 
-			const text = (msg.text as string) ?? "";
-			if (!text.trim()) return;
+			const rawFiles = msg.files as unknown[] | undefined;
+			const { attachments, skippedFiles } = rawFiles
+				? await downloadSlackFiles(rawFiles, this.botToken)
+				: { attachments: [], skippedFiles: [] };
 
+			const rawText = ((msg.text as string) ?? "").trim();
+			// Allow through if there's text or files (or both)
+			if (!rawText && attachments.length === 0) return;
+
+			const text = rawText || "[User sent attached files]";
 			const channel = msg.channel as string;
 			const ts = msg.ts as string;
 			const threadTs = (msg.thread_ts as string) ?? ts;
@@ -359,7 +417,7 @@ export class SlackChannel implements Channel {
 				conversationId,
 				threadId: threadTs,
 				senderId: userId ?? "unknown",
-				text: text.trim(),
+				text,
 				timestamp: new Date(Number.parseFloat(ts) * 1000),
 				metadata: {
 					slackChannel: channel,
@@ -367,6 +425,8 @@ export class SlackChannel implements Channel {
 					slackMessageTs: ts,
 					source: "dm",
 				},
+				...(attachments.length > 0 ? { attachments } : {}),
+				...(skippedFiles.length > 0 ? { skippedFiles } : {}),
 			};
 
 			try {

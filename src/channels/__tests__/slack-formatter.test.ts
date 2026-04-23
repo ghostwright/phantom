@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { splitMessage, toSlackMarkdown, truncateForSlack } from "../slack-formatter.ts";
+import { SLACK_BLOCK_TEXT_MAX, splitMessage, toSlackMarkdown, truncateForSlack } from "../slack-formatter.ts";
 
 describe("toSlackMarkdown", () => {
 	test("converts bold from **text** to *text*", () => {
@@ -68,9 +68,18 @@ describe("truncateForSlack", () => {
 		expect(result).toContain("200 characters");
 	});
 
-	test("uses default limit of 3900", () => {
-		const text = "x".repeat(3900);
+	test("default limit matches SLACK_BLOCK_TEXT_MAX", () => {
+		const text = "x".repeat(SLACK_BLOCK_TEXT_MAX);
 		expect(truncateForSlack(text)).toBe(text);
+	});
+
+	test("truncates a large response to fit inside a single section block", () => {
+		const long = "y".repeat(10_000);
+		const result = truncateForSlack(long);
+		// The sliced prefix is exactly SLACK_BLOCK_TEXT_MAX; the suffix is a
+		// short notice. The full string must stay under Slack's 3000-char cap.
+		expect(result.length).toBeLessThan(3000);
+		expect(result).toContain("truncated");
 	});
 });
 
@@ -100,5 +109,25 @@ describe("splitMessage", () => {
 		const chunks = splitMessage(long, 100);
 		expect(chunks.length).toBe(2);
 		expect(chunks[0].length).toBe(100);
+	});
+
+	test("a 28k-char response splits into chunks that all fit a single section block", () => {
+		// Simulate a real long agent response: paragraphs of varying length.
+		const paragraph = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(20);
+		const text = Array.from({ length: 25 }, () => paragraph).join("\n\n");
+		expect(text.length).toBeGreaterThan(25_000);
+
+		const chunks = splitMessage(text);
+		expect(chunks.length).toBeGreaterThan(1);
+		for (const chunk of chunks) {
+			expect(chunk.length).toBeLessThanOrEqual(SLACK_BLOCK_TEXT_MAX);
+		}
+
+		// Content preservation: every non-trivial word should show up somewhere
+		// in the reassembled chunks.
+		const reassembled = chunks.join(" ");
+		for (const word of ["Lorem", "consectetur", "adipiscing", "dolor"]) {
+			expect(reassembled).toContain(word);
+		}
 	});
 });

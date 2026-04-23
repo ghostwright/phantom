@@ -186,7 +186,7 @@ describe("SlackChannel", () => {
 		expect(handlerCalled).toBe(false);
 	});
 
-	test("ignores messages with subtypes", async () => {
+	test("ignores messages with non-file subtypes", async () => {
 		const channel = new SlackChannel(testConfig);
 		let handlerCalled = false;
 
@@ -388,6 +388,194 @@ describe("SlackChannel", () => {
 			text: "DM reply",
 			thread_ts: "1234567890.000002",
 		});
+	});
+});
+
+describe("SlackChannel file attachments", () => {
+	const mockFetch = mock(() =>
+		Promise.resolve({
+			ok: true,
+			arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+		}),
+	);
+	const mockBunWrite = mock(() => Promise.resolve(0));
+
+	beforeEach(() => {
+		eventHandlers.clear();
+		actionHandlers.clear();
+		mockStart.mockClear();
+		mockAuthTest.mockClear();
+		mockPostMessage.mockClear();
+		mockFetch.mockClear();
+		mockBunWrite.mockClear();
+		globalThis.fetch = mockFetch as unknown as typeof fetch;
+		Bun.write = mockBunWrite as unknown as typeof Bun.write;
+	});
+
+	const slackImageFile = {
+		url_private: "https://files.slack.com/files-pri/T00/test.png",
+		mimetype: "image/png",
+		name: "screenshot.png",
+		size: 1000,
+	};
+
+	test("processes file_share DMs with text and files", async () => {
+		const channel = new SlackChannel(testConfig);
+		let receivedText = "";
+		let receivedAttachments: unknown[] = [];
+
+		channel.onMessage(async (msg) => {
+			receivedText = msg.text;
+			receivedAttachments = msg.attachments ?? [];
+		});
+
+		await channel.connect();
+
+		await invokeHandler("message", {
+			event: {
+				text: "Check this image",
+				subtype: "file_share",
+				user: "U_USER1",
+				channel: "D_DM1",
+				channel_type: "im",
+				ts: "1234567890.000010",
+				files: [slackImageFile],
+			},
+		});
+
+		expect(receivedText).toBe("Check this image");
+		expect(receivedAttachments).toHaveLength(1);
+		expect(mockFetch).toHaveBeenCalledTimes(1);
+	});
+
+	test("processes file_share DMs with files but no text", async () => {
+		const channel = new SlackChannel(testConfig);
+		let receivedText = "";
+		let handlerCalled = false;
+
+		channel.onMessage(async (msg) => {
+			handlerCalled = true;
+			receivedText = msg.text;
+		});
+
+		await channel.connect();
+
+		await invokeHandler("message", {
+			event: {
+				text: "",
+				subtype: "file_share",
+				user: "U_USER1",
+				channel: "D_DM1",
+				channel_type: "im",
+				ts: "1234567890.000011",
+				files: [slackImageFile],
+			},
+		});
+
+		expect(handlerCalled).toBe(true);
+		expect(receivedText).toBe("[User sent attached files]");
+	});
+
+	test("skips non-image files and reports them in skippedFiles", async () => {
+		const channel = new SlackChannel(testConfig);
+		let receivedAttachments: unknown[] = [];
+		let receivedSkipped: unknown[] = [];
+		let receivedText = "";
+
+		channel.onMessage(async (msg) => {
+			receivedText = msg.text;
+			receivedAttachments = msg.attachments ?? [];
+			receivedSkipped = msg.skippedFiles ?? [];
+		});
+
+		await channel.connect();
+
+		await invokeHandler("message", {
+			event: {
+				text: "Here is a PDF",
+				subtype: "file_share",
+				user: "U_USER1",
+				channel: "D_DM1",
+				channel_type: "im",
+				ts: "1234567890.000012",
+				files: [
+					{ url_private: "https://files.slack.com/doc.pdf", mimetype: "application/pdf", name: "doc.pdf", size: 500 },
+				],
+			},
+		});
+
+		// Text should still be processed even though the file was skipped
+		expect(receivedText).toBe("Here is a PDF");
+		expect(receivedAttachments).toHaveLength(0);
+		expect(receivedSkipped).toHaveLength(1);
+		expect(receivedSkipped[0]).toEqual({
+			filename: "doc.pdf",
+			reason: "unsupported_type",
+			mimetype: "application/pdf",
+		});
+		expect(mockFetch).not.toHaveBeenCalled();
+	});
+
+	test("handles file download failure gracefully", async () => {
+		const failFetch = mock(() => Promise.resolve({ ok: false, status: 403 }));
+		globalThis.fetch = failFetch as unknown as typeof fetch;
+
+		const channel = new SlackChannel(testConfig);
+		let receivedText = "";
+		let receivedAttachments: unknown[] = [];
+		let receivedSkipped: unknown[] = [];
+
+		channel.onMessage(async (msg) => {
+			receivedText = msg.text;
+			receivedAttachments = msg.attachments ?? [];
+			receivedSkipped = msg.skippedFiles ?? [];
+		});
+
+		await channel.connect();
+
+		await invokeHandler("message", {
+			event: {
+				text: "Check this",
+				subtype: "file_share",
+				user: "U_USER1",
+				channel: "D_DM1",
+				channel_type: "im",
+				ts: "1234567890.000013",
+				files: [slackImageFile],
+			},
+		});
+
+		// Message delivered with text, but no attachments due to download failure
+		expect(receivedText).toBe("Check this");
+		expect(receivedAttachments).toHaveLength(0);
+		expect(receivedSkipped).toHaveLength(1);
+		expect(receivedSkipped[0]).toEqual({
+			filename: "screenshot.png",
+			reason: "download_failed",
+		});
+	});
+
+	test("still ignores message_changed subtype", async () => {
+		const channel = new SlackChannel(testConfig);
+		let handlerCalled = false;
+
+		channel.onMessage(async () => {
+			handlerCalled = true;
+		});
+
+		await channel.connect();
+
+		await invokeHandler("message", {
+			event: {
+				text: "Edited message",
+				subtype: "message_changed",
+				channel: "D_DM1",
+				channel_type: "im",
+				ts: "1234567890.000014",
+			},
+		});
+
+		expect(handlerCalled).toBe(false);
 	});
 });
 

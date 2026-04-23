@@ -59,19 +59,26 @@ export function toSlackMarkdown(text: string): string {
 }
 
 /**
- * Truncate text to Slack's message limit (4000 chars for mrkdwn blocks).
+ * Max characters for a Slack section block's mrkdwn text field.
+ * Slack's hard cap is 3000; we leave ~100 chars of headroom for truncation
+ * notices and other post-hoc additions.
+ */
+export const SLACK_BLOCK_TEXT_MAX = 2900;
+
+/**
+ * Truncate text to fit inside a single Slack mrkdwn section block.
  * If truncated, appends a notice.
  */
-export function truncateForSlack(text: string, limit = 3900): string {
+export function truncateForSlack(text: string, limit = SLACK_BLOCK_TEXT_MAX): string {
 	if (text.length <= limit) return text;
 	return `${text.slice(0, limit)}\n\n_(Response truncated. Full response was ${text.length} characters.)_`;
 }
 
 /**
  * Split a long message into multiple chunks at safe boundaries.
- * Slack has a 4000 character limit per message block.
+ * Each chunk fits inside a single Slack mrkdwn section block.
  */
-export function splitMessage(text: string, maxLength = 3900): string[] {
+export function splitMessage(text: string, maxLength = SLACK_BLOCK_TEXT_MAX): string[] {
 	if (text.length <= maxLength) return [text];
 
 	const chunks: string[] = [];
