@@ -153,9 +153,9 @@ export class Scheduler {
 
 		// Duplicate name detection: skip if unchanged (idempotent rename).
 		if (input.name !== undefined && input.name.toLowerCase() !== job.name.toLowerCase()) {
-			const dupe = this.db
-				.query("SELECT id FROM scheduled_jobs WHERE lower(name) = lower(?)")
-				.get(input.name) as { id: string } | null;
+			const dupe = this.db.query("SELECT id FROM scheduled_jobs WHERE lower(name) = lower(?)").get(input.name) as {
+				id: string;
+			} | null;
 			if (dupe) {
 				throw new Error(`job with name "${input.name}" already exists (id: ${dupe.id})`);
 			}
