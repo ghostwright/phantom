@@ -578,4 +578,48 @@ describe("Scheduler", () => {
 			scheduler.updateJob(job.id, { delivery: { channel: "slack", target: "invalid" } });
 		}).toThrow("invalid delivery.target");
 	});
+
+	test("updateJob rejects duplicate name belonging to another job", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		scheduler.createJob({
+			name: "Existing",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Task A",
+		});
+		const jobB = scheduler.createJob({
+			name: "Other",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Task B",
+		});
+
+		expect(() => {
+			scheduler.updateJob(jobB.id, { name: "Existing" });
+		}).toThrow('job with name "Existing" already exists');
+	});
+
+	test("updateJob allows renaming to current name (idempotent)", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "SameName",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Task",
+		});
+
+		const updated = scheduler.updateJob(job.id, { name: "SameName" });
+		expect(updated?.name).toBe("SameName");
+	});
+
+	test("updateJob rejects task exceeding MAX_TASK_BYTES", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "BigTask",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "small",
+		});
+
+		const huge = "x".repeat(33 * 1024);
+		expect(() => {
+			scheduler.updateJob(job.id, { task: huge });
+		}).toThrow("byte limit");
+	});
 });

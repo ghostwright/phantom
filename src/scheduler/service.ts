@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import type { AgentRuntime } from "../agent/runtime.ts";
 import type { SlackTransport } from "../channels/slack-transport.ts";
-import { validateCreateInput } from "./create-validation.ts";
+import { MAX_TASK_BYTES, validateCreateInput } from "./create-validation.ts";
 import { executeJob } from "./executor.ts";
 import { type SchedulerHealthSummary, computeHealthSummary } from "./health.ts";
 import { cleanupOldTerminalJobs, staggerMissedJobs } from "./recovery.ts";
@@ -148,6 +148,24 @@ export class Scheduler {
 				throw new Error(
 					`invalid delivery.target '${input.delivery.target}': must be "owner", a Slack channel id (C...), or a Slack user id (U...)`,
 				);
+			}
+		}
+
+		// Duplicate name detection: skip if unchanged (idempotent rename).
+		if (input.name !== undefined && input.name.toLowerCase() !== job.name.toLowerCase()) {
+			const dupe = this.db
+				.query("SELECT id FROM scheduled_jobs WHERE lower(name) = lower(?)")
+				.get(input.name) as { id: string } | null;
+			if (dupe) {
+				throw new Error(`job with name "${input.name}" already exists (id: ${dupe.id})`);
+			}
+		}
+
+		// Task size cap (mirrors validateCreateInput).
+		if (input.task !== undefined) {
+			const taskBytes = Buffer.byteLength(input.task, "utf8");
+			if (taskBytes > MAX_TASK_BYTES) {
+				throw new Error(`task text is ${taskBytes} bytes, exceeds ${MAX_TASK_BYTES} byte limit`);
 			}
 		}
 
