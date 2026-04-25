@@ -1,4 +1,4 @@
-import type { SlackChannel } from "../channels/slack.ts";
+import type { SlackTransport } from "../channels/slack-transport.ts";
 import type { ScheduledJob } from "./types.ts";
 
 /**
@@ -15,7 +15,7 @@ export type DeliveryOutcome =
 	| `error:${string}`;
 
 export type DeliveryContext = {
-	slackChannel: SlackChannel | undefined;
+	slackChannel: SlackTransport | undefined;
 	ownerUserId: string | null;
 };
 

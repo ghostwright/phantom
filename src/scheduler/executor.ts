@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { AgentRuntime } from "../agent/runtime.ts";
-import type { SlackChannel } from "../channels/slack.ts";
+import type { SlackTransport } from "../channels/slack-transport.ts";
 import { type DeliveryOutcome, deliverResult } from "./delivery.ts";
 import { computeBackoffNextRun, computeNextRunAt } from "./schedule.ts";
 import { JOB_STATUS_VALUES, type ScheduledJob } from "./types.ts";
@@ -10,7 +10,7 @@ export const MAX_CONSECUTIVE_ERRORS = 10;
 export type ExecutorContext = {
 	db: Database;
 	runtime: AgentRuntime;
-	slackChannel: SlackChannel | undefined;
+	slackChannel: SlackTransport | undefined;
 	ownerUserId: string | null;
 	notifyOwner: (text: string) => void;
 };
