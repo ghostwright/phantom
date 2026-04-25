@@ -15,6 +15,19 @@
 //   3. No cache. Identity is fetched once at boot. The caller holds the
 //      result in process memory; rotation is an out-of-band operator action
 //      via UpdateSlackIdentity gRPC followed by daemon restart.
+//
+// Schema drift policy (hand-rolled, not Zod):
+//   The phantomd `IdentityResponse` ships several fields this fetcher
+//   intentionally drops because Phantom does not consume them:
+//     - source_ip
+//     - phantomd_version
+//     - fleet_rotation_counter
+//     - supported_secret_name_patterns
+//     - owner_email
+//   Add a new dropped field to this list as you ignore it. If phantomd
+//   adds a new REQUIRED field, this fetcher MUST be updated to consume
+//   it; see `phantomd/internal/metadata/secrets_handler.go IdentityResponse`
+//   for the canonical wire shape.
 
 export const DEFAULT_METADATA_BASE_URL = "http://169.254.169.254";
 
@@ -75,7 +88,9 @@ function parseIdentity(raw: unknown): TenantIdentity {
 	const obj = raw as Record<string, unknown>;
 
 	const tenantId = requireString(obj, "tenant_id");
-	const tenantSlug = requireString(obj, "tenant_slug");
+	// `tenant_slug` is `omitempty` on the Go side, so an empty slug
+	// disappears from the JSON. Mirror that by defaulting to "".
+	const tenantSlug = optionalString(obj, "tenant_slug") ?? "";
 	const region = optionalString(obj, "region") ?? "";
 	const hostId = optionalString(obj, "host_id") ?? "";
 	const env = optionalString(obj, "env") ?? "";

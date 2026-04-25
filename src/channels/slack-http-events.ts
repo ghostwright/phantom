@@ -4,6 +4,13 @@
 // take the `SlackHttpChannel` as a host argument; we pass the parts the
 // handlers need (botUserId, teamId, messageHandler, reactionHandler) so the
 // receiver class itself stays focused on lifecycle and Slack API egress.
+//
+// Defense in depth: the gateway and the middleware guard already verify
+// team_id, but each handler also extracts team_id from the body and drops
+// the event when it does not match this tenant's installer team. A missing
+// team_id (`extractTeamIdFromBody` returns undefined) is treated as a
+// non-match and dropped. The middleware allows `url_verification` through
+// without a team_id, and Bolt handles that path before any handler runs.
 
 import type { App } from "@slack/bolt";
 import type { InboundMessage } from "./types.ts";
@@ -30,13 +37,13 @@ export function registerHttpEventHandlers(app: App, host: EventDispatchHost): vo
 		const handler = host.getMessageHandler();
 		if (!handler) return;
 
-		const senderId = event.user ?? "unknown";
-		const eventTeamId = extractTeamIdFromBody(body) ?? host.getTeamId();
+		const eventTeamId = extractTeamIdFromBody(body);
 		if (eventTeamId !== host.getTeamId()) {
-			console.log(`[slack-http] Dropping app_mention with foreign team_id: ${eventTeamId}`);
+			console.log(`[slack-http] Dropping app_mention with foreign or missing team_id: ${eventTeamId ?? "<none>"}`);
 			return;
 		}
 
+		const senderId = event.user ?? "unknown";
 		const cleanText = host.stripBotMention(event.text);
 		if (!cleanText.trim()) return;
 
@@ -82,9 +89,9 @@ export function registerHttpEventHandlers(app: App, host: EventDispatchHost): vo
 		const channelType = m.channel_type as string | undefined;
 		if (channelType !== "im") return;
 
-		const eventTeamId = extractTeamIdFromBody(body) ?? host.getTeamId();
+		const eventTeamId = extractTeamIdFromBody(body);
 		if (eventTeamId !== host.getTeamId()) {
-			console.log(`[slack-http] Dropping DM with foreign team_id: ${eventTeamId}`);
+			console.log(`[slack-http] Dropping DM with foreign or missing team_id: ${eventTeamId ?? "<none>"}`);
 			return;
 		}
 
@@ -120,7 +127,13 @@ export function registerHttpEventHandlers(app: App, host: EventDispatchHost): vo
 		}
 	});
 
-	app.event("reaction_added", async ({ event }) => {
+	app.event("reaction_added", async ({ event, body }) => {
+		const eventTeamId = extractTeamIdFromBody(body);
+		if (eventTeamId !== host.getTeamId()) {
+			console.log(`[slack-http] Dropping reaction with foreign or missing team_id: ${eventTeamId ?? "<none>"}`);
+			return;
+		}
+
 		const reaction = event.reaction;
 		const isPositive =
 			reaction === "+1" || reaction === "thumbsup" || reaction === "heart" || reaction === "white_check_mark";

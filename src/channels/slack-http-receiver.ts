@@ -5,29 +5,40 @@
 // `slack.ts`; SLACK_TRANSPORT=http opts a tenant into this class.
 //
 // Three security layers operate at this boundary:
-//   1. The Caddy edge in front of the tenant validates the gateway's HMAC
-//      and strips inbound X-Phantom-* headers (defense in depth at the
-//      reverse proxy).
-//   2. This class re-verifies the gateway's HMAC on every request via the
-//      `slack-gateway-verifier` helper before Bolt sees the body.
-//   3. After HMAC succeeds, the parsed body's team_id MUST match the
-//      tenant's installer team_id. The gateway has already verified team_id
-//      maps to this tenant, but a misrouted forward must not be processed.
+//   1. Caddy validates the gateway HMAC and strips inbound X-Phantom-* headers.
+//   2. This class re-verifies the gateway HMAC via `slack-gateway-verifier`.
+//   3. The parsed body's team_id MUST match the tenant's installer team_id.
+//      The one body shape allowed without team_id is `url_verification`.
 //
-// We reuse Bolt's App + ExpressReceiver so the existing slack-actions.ts
-// registrations (`app.action(...)`) compose unchanged. ExpressReceiver is
-// constructed with `signatureVerification: false` because we verified the
-// gateway's HMAC ourselves.
+// `signatureVerification: false` on ExpressReceiver skips Slack's signing
+// secret because the gateway has already verified Slack's signature.
 
-import { randomUUID } from "node:crypto";
 import { App, ExpressReceiver, type LogLevel } from "@slack/bolt";
 import type { Request, RequestHandler, Response } from "express";
 import type { SlackBlock } from "./feedback.ts";
-import { buildFeedbackBlocks } from "./feedback.ts";
 import { registerSlackActions } from "./slack-actions.ts";
-import { splitMessage, toSlackMarkdown, truncateForSlack } from "./slack-formatter.ts";
+import {
+	type EgressContext,
+	egressAddReaction,
+	egressPostThinking,
+	egressPostToChannel,
+	egressRemoveReaction,
+	egressSend,
+	egressSendDm,
+	egressUpdateMessage,
+	egressUpdateWithFeedback,
+} from "./slack-egress.ts";
 import { extractTeamId, verifyGatewaySignature } from "./slack-gateway-verifier.ts";
 import { type EventDispatchHost, type ReactionFn, registerHttpEventHandlers } from "./slack-http-events.ts";
+import {
+	type RequestWithRawBody,
+	getContentType,
+	headerString,
+	isUrlVerificationBody,
+	readRequestBody,
+	redactTokens,
+	rehydrateBody,
+} from "./slack-http-utils.ts";
 import type { Channel, ChannelCapabilities, InboundMessage, OutboundMessage, SentMessage } from "./types.ts";
 
 export type SlackHttpChannelConfig = {
@@ -41,7 +52,8 @@ export type SlackHttpChannelConfig = {
 };
 
 type ConnectionState = "disconnected" | "connecting" | "connected" | "error";
-type RequestWithRawBody = Request & { rawBody?: Buffer };
+
+const LOG_TAG = "slack-http";
 
 export class SlackHttpChannel implements Channel, EventDispatchHost {
 	readonly id = "slack";
@@ -82,9 +94,6 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 		this.listenPort = config.listenPort;
 		this.listenPath = config.listenPath;
 
-		// `signatureVerification: false` skips Slack-signing-secret verification
-		// because the gateway has already verified Slack's signature, and we
-		// will verify the gateway's HMAC ourselves.
 		this.receiver = new ExpressReceiver({
 			signingSecret: "phase-5b-unused-gateway-verifies-instead",
 			signatureVerification: false,
@@ -134,6 +143,10 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 		return this.app.client;
 	}
 
+	private egressContext(): EgressContext {
+		return { client: this.app.client, channelId: this.id, logTag: LOG_TAG };
+	}
+
 	stripBotMention(text: string): string {
 		if (this.botUserId) {
 			return text.replace(new RegExp(`<@${this.botUserId}>\\s*`, "g"), "");
@@ -141,12 +154,8 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 		return text.replace(/^<@[A-Z0-9]+>\s*/, "");
 	}
 
-	/**
-	 * Install Express middleware in front of Bolt's routes. Fails closed:
-	 * missing headers return 401, tampered body fails the HMAC compare and
-	 * returns 401, stale or future-skewed timestamp returns 401, foreign
-	 * team_id returns 403.
-	 */
+	// Fails closed: missing headers, tampered body, stale/future timestamp -> 401;
+	// foreign or unknown team_id -> 403. Only `url_verification` may lack team_id.
 	private installVerifier(): void {
 		const expressApp = this.receiver.app;
 		const guard = this.makeGuardMiddleware();
@@ -180,7 +189,12 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 			}
 
 			const eventTeamId = extractTeamId(raw, getContentType(req));
-			if (eventTeamId !== undefined && eventTeamId !== expectedTeamId) {
+			if (eventTeamId === undefined) {
+				if (!isUrlVerificationBody(raw, getContentType(req))) {
+					res.status(403).end("forbidden");
+					return;
+				}
+			} else if (eventTeamId !== expectedTeamId) {
 				res.status(403).end("forbidden");
 				return;
 			}
@@ -198,25 +212,23 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 		registerSlackActions(this.app);
 
 		try {
-			// `auth.test` validates the bot token against Slack and returns the
-			// bot user id. If the token has been revoked between OAuth callback
-			// and tenant boot, this fails and we refuse to start.
+			// `auth.test` validates the bot token; a revoked token fails here.
 			const authResult = await this.app.client.auth.test();
 			this.botUserId = authResult.user_id ?? null;
 			if (!this.botUserId) {
 				this.connectionState = "error";
 				throw new Error("auth.test returned no user_id; bot token may be revoked");
 			}
-			console.log(`[slack-http] Resolved bot user <@${this.botUserId}>`);
+			console.log(`[${LOG_TAG}] Resolved bot user <@${this.botUserId}>`);
 
 			await this.receiver.start(this.listenPort);
 			this.connectionState = "connected";
-			console.log(`[slack-http] Listening on :${this.listenPort}${this.listenPath}/{events,interactivity,commands}`);
+			console.log(`[${LOG_TAG}] Listening on :${this.listenPort}${this.listenPath}/{events,interactivity,commands}`);
 		} catch (err: unknown) {
 			this.connectionState = "error";
-			const msg = err instanceof Error ? err.message : String(err);
-			// Do NOT include any token material in error logs.
-			console.error(`[slack-http] Failed to start: ${msg}`);
+			const rawMsg = err instanceof Error ? err.message : String(err);
+			// `redactTokens` defends against a future Bolt change emitting tokens.
+			console.error(`[${LOG_TAG}] Failed to start: ${redactTokens(rawMsg)}`);
 			throw err;
 		}
 	}
@@ -227,32 +239,14 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 			await this.receiver.stop();
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
-			console.warn(`[slack-http] Error during disconnect: ${msg}`);
+			console.warn(`[${LOG_TAG}] Error during disconnect: ${redactTokens(msg)}`);
 		}
 		this.connectionState = "disconnected";
-		console.log("[slack-http] Disconnected");
+		console.log(`[${LOG_TAG}] Disconnected`);
 	}
 
 	async send(conversationId: string, message: OutboundMessage): Promise<SentMessage> {
-		const { channel, threadTs } = parseConversationId(conversationId);
-		const formattedText = toSlackMarkdown(message.text);
-		const replyThreadTs = message.threadId ?? threadTs;
-		const chunks = splitMessage(formattedText);
-		let lastTs = "";
-		for (const chunk of chunks) {
-			const result = await this.app.client.chat.postMessage({
-				channel,
-				text: chunk,
-				thread_ts: replyThreadTs,
-			});
-			lastTs = result.ts ?? "";
-		}
-		return {
-			id: lastTs || randomUUID(),
-			channelId: this.id,
-			conversationId,
-			timestamp: new Date(),
-		};
+		return egressSend(this.egressContext(), conversationId, message);
 	}
 
 	onMessage(handler: (message: InboundMessage) => Promise<void>): void {
@@ -272,156 +266,30 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 	}
 
 	async postToChannel(channelId: string, text: string): Promise<string | null> {
-		const formattedText = toSlackMarkdown(text);
-		const chunks = splitMessage(formattedText);
-		let lastTs: string | null = null;
-		for (const chunk of chunks) {
-			try {
-				const result = await this.app.client.chat.postMessage({ channel: channelId, text: chunk });
-				lastTs = result.ts ?? null;
-			} catch (err: unknown) {
-				const msg = err instanceof Error ? err.message : String(err);
-				console.error(`[slack-http] Failed to post to channel ${channelId}: ${msg}`);
-				return null;
-			}
-		}
-		return lastTs;
+		return egressPostToChannel(this.egressContext(), channelId, text);
 	}
 
 	async sendDm(userId: string, text: string): Promise<string | null> {
-		try {
-			const openResult = await this.app.client.conversations.open({ users: userId });
-			const dmChannelId = openResult.channel?.id;
-			if (!dmChannelId) {
-				console.error(`[slack-http] Failed to open DM with user ${userId}: no channel returned`);
-				return null;
-			}
-			return this.postToChannel(dmChannelId, text);
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			console.error(`[slack-http] Failed to send DM to user ${userId}: ${msg}`);
-			return null;
-		}
+		return egressSendDm(this.egressContext(), userId, text);
 	}
 
 	async postThinking(channel: string, threadTs: string): Promise<string | null> {
-		try {
-			const result = await this.app.client.chat.postMessage({
-				channel,
-				thread_ts: threadTs,
-				text: "Working on it...",
-			});
-			return result.ts ?? null;
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			console.warn(`[slack-http] Failed to post thinking indicator: ${msg}`);
-			return null;
-		}
+		return egressPostThinking(this.egressContext(), channel, threadTs);
 	}
 
 	async updateMessage(channel: string, ts: string, text: string, blocks?: SlackBlock[]): Promise<void> {
-		const formattedText = toSlackMarkdown(text);
-		const truncated = truncateForSlack(formattedText);
-		try {
-			const updateArgs: Record<string, unknown> = { channel, ts, text: truncated };
-			if (blocks) updateArgs.blocks = blocks;
-			await this.app.client.chat.update(updateArgs as unknown as Parameters<typeof this.app.client.chat.update>[0]);
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			console.warn(`[slack-http] Failed to update message: ${msg}`);
-		}
+		return egressUpdateMessage(this.egressContext(), channel, ts, text, blocks);
 	}
 
 	async updateWithFeedback(channel: string, ts: string, text: string): Promise<void> {
-		const formattedText = toSlackMarkdown(text);
-		const truncated = truncateForSlack(formattedText);
-		const feedbackBlocks = buildFeedbackBlocks(ts);
-		const blocks: SlackBlock[] = [{ type: "section", text: { type: "mrkdwn", text: truncated } }, ...feedbackBlocks];
-		try {
-			const updateArgs: Record<string, unknown> = { channel, ts, text: truncated, blocks };
-			await this.app.client.chat.update(updateArgs as unknown as Parameters<typeof this.app.client.chat.update>[0]);
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			console.warn(`[slack-http] Failed to update message with feedback: ${msg}`);
-		}
+		return egressUpdateWithFeedback(this.egressContext(), channel, ts, text);
 	}
 
 	async addReaction(channel: string, messageTs: string, emoji: string): Promise<void> {
-		try {
-			await this.app.client.reactions.add({ channel, timestamp: messageTs, name: emoji });
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			if (!msg.includes("already_reacted")) {
-				console.warn(`[slack-http] Failed to add reaction :${emoji}:: ${msg}`);
-			}
-		}
+		return egressAddReaction(this.egressContext(), channel, messageTs, emoji);
 	}
 
 	async removeReaction(channel: string, messageTs: string, emoji: string): Promise<void> {
-		try {
-			await this.app.client.reactions.remove({ channel, timestamp: messageTs, name: emoji });
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			if (!msg.includes("no_reaction")) {
-				console.warn(`[slack-http] Failed to remove reaction :${emoji}:: ${msg}`);
-			}
-		}
+		return egressRemoveReaction(this.egressContext(), channel, messageTs, emoji);
 	}
-}
-
-// --- helpers ---------------------------------------------------------------
-
-function headerString(req: Request, name: string): string | null {
-	const value = req.headers[name.toLowerCase()];
-	if (Array.isArray(value)) return value[0] ?? null;
-	return typeof value === "string" ? value : null;
-}
-
-function getContentType(req: Request): string {
-	return headerString(req, "content-type") ?? "application/json";
-}
-
-async function readRequestBody(req: RequestWithRawBody): Promise<Buffer> {
-	if (req.rawBody) {
-		return Buffer.isBuffer(req.rawBody) ? req.rawBody : Buffer.from(req.rawBody);
-	}
-	return new Promise((resolve, reject) => {
-		const chunks: Buffer[] = [];
-		req.on("data", (chunk: Buffer | string) => {
-			if (chunk == null) return;
-			chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-		});
-		req.on("end", () => resolve(Buffer.concat(chunks)));
-		req.on("error", (err: Error) => reject(err));
-	});
-}
-
-/**
- * After we have consumed the request stream to verify HMAC, ExpressReceiver's
- * downstream body parser still expects to read a body. We pre-parse JSON or
- * urlencoded bodies onto `req.body` so subsequent middleware finds the
- * already-parsed payload via the standard Express convention.
- */
-function rehydrateBody(req: Request, raw: Buffer): void {
-	const ctype = getContentType(req).toLowerCase();
-	if (ctype.includes("application/json")) {
-		try {
-			req.body = JSON.parse(raw.toString("utf-8"));
-		} catch {
-			// Leave body unset; downstream parser will surface the error.
-		}
-	} else if (ctype.includes("application/x-www-form-urlencoded")) {
-		const params = new URLSearchParams(raw.toString("utf-8"));
-		const obj: Record<string, string> = {};
-		for (const [k, v] of params) obj[k] = v;
-		req.body = obj;
-	}
-}
-
-function parseConversationId(conversationId: string): { channel: string; threadTs: string | undefined } {
-	const parts = conversationId.split(":");
-	if (parts[1] === "dm") {
-		return { channel: parts[2], threadTs: undefined };
-	}
-	return { channel: parts[1], threadTs: parts[2] };
 }

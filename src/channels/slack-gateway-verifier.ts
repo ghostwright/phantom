@@ -32,8 +32,10 @@ export type VerifyInput = {
  *   - missing or non-numeric X-Phantom-Forwarded-At
  *   - timestamp more than 5 minutes off from `now` (in either direction;
  *     handles clock skew on the gateway and on this VM)
- *   - hex-decode failure on the presented signature
- *   - presented and computed digest lengths differ
+ *   - presented signature has odd length, contains non-hex chars, or fails
+ *     the byte-length pre-check below (Node's hex decoder silently truncates
+ *     on malformed input, so a malformed signature produces a wrong-length
+ *     buffer that this check rejects)
  *   - constant-time compare returns inequality
  */
 export function verifyGatewaySignature(input: VerifyInput): boolean {
@@ -52,12 +54,7 @@ export function verifyGatewaySignature(input: VerifyInput): boolean {
 	const presented = sigHeader.slice(SIGNATURE_PREFIX.length);
 
 	const expBuf = Buffer.from(expected, "hex");
-	let presBuf: Buffer;
-	try {
-		presBuf = Buffer.from(presented, "hex");
-	} catch {
-		return false;
-	}
+	const presBuf = Buffer.from(presented, "hex");
 	if (presBuf.length !== expBuf.length) return false;
 	return timingSafeEqual(expBuf, presBuf);
 }

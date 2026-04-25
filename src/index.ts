@@ -12,8 +12,7 @@ import { createProgressStream } from "./channels/progress-stream.ts";
 import { ChannelRouter } from "./channels/router.ts";
 import { setActionFollowUpHandler } from "./channels/slack-actions.ts";
 import { createSlackChannel, readSlackTransportFromEnv } from "./channels/slack-channel-factory.ts";
-import type { SlackHttpChannel } from "./channels/slack-http-receiver.ts";
-import type { SlackChannel } from "./channels/slack.ts";
+import type { SlackTransport } from "./channels/slack-transport.ts";
 import { createStatusReactionController } from "./channels/status-reactions.ts";
 import { TelegramChannel } from "./channels/telegram.ts";
 import { WebhookChannel } from "./channels/webhook.ts";
@@ -308,7 +307,7 @@ async function main(): Promise<void> {
 	//     code path requires that subfield to be populated, otherwise the
 	//     factory throws so a mis-provisioned tenant fails loudly.
 	const channelsConfig = loadChannelsConfig();
-	const slackChannel: SlackChannel | SlackHttpChannel | null = await createSlackChannel({
+	const slackChannel: SlackTransport | null = await createSlackChannel({
 		transport: readSlackTransportFromEnv(),
 		channelsConfig,
 		port: config.port,

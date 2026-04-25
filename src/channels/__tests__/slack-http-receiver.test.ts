@@ -309,11 +309,26 @@ describe("guard middleware (HMAC + replay window + team_id)", () => {
 		expect(res.statusCode).toBe(403);
 	});
 
-	test("accepts a request whose body has no team_id (e.g. url_verification ping)", async () => {
+	test("accepts a url_verification challenge body (the one shape with no team_id)", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
 		const req = makeReq({ bodyJson: { type: "url_verification", challenge: "abc" } });
 		const res = await callGuard(channel, "/slack/events", req);
 		expect(res.statusCode).toBe(0);
+	});
+
+	test("rejects 403 when body has no team_id and is not url_verification", async () => {
+		const channel = new SlackHttpChannel(baseConfig);
+		const req = makeReq({ bodyJson: { type: "event_callback", event: { type: "app_mention" } } });
+		const res = await callGuard(channel, "/slack/events", req);
+		expect(res.statusCode).toBe(403);
+	});
+
+	test("rejects 403 when body is malformed JSON (defense in depth)", async () => {
+		const channel = new SlackHttpChannel(baseConfig);
+		// Bypass JSON.stringify by passing a pre-built malformed string.
+		const req = makeReq({ bodyJson: "{not-json" });
+		const res = await callGuard(channel, "/slack/events", req);
+		expect(res.statusCode).toBe(403);
 	});
 
 	test("accepts an interactivity payload (urlencoded form) when team.id matches", async () => {
@@ -502,6 +517,7 @@ describe("event routing", () => {
 				user: "U_USER1",
 				item: { ts: "1715000000.000001", channel: "C1" },
 			},
+			body: { team_id: TEAM_ID },
 		});
 		expect(captured.isPositive).toBe(true);
 		expect(captured.reaction).toBe("thumbsup");
@@ -518,6 +534,7 @@ describe("event routing", () => {
 		if (!handler) throw new Error("no handler");
 		await handler({
 			event: { reaction: "eyes", user: "U_USER1", item: { ts: "1.0", channel: "C1" } },
+			body: { team_id: TEAM_ID },
 		});
 		expect(called).toBe(false);
 	});
@@ -573,6 +590,31 @@ describe("lifecycle and bot user discovery", () => {
 		const all = errors.join("\n");
 		expect(all).toContain("invalid_auth");
 		expect(all).not.toContain("xoxb-test-token");
+	});
+
+	test("auth.test failure with a hostile token-bearing message redacts the token", async () => {
+		// Pin the redaction contract: even if a future Bolt SDK upgrade includes
+		// the offending token in `err.message`, the receiver must strip it
+		// before logging. The message text ("invalid_auth") still surfaces so
+		// operators can debug, but the token is replaced with a sentinel.
+		mockAuthTest.mockImplementation(() =>
+			Promise.reject(new Error("invalid_auth: xoxb-test-token-leaked exposed in error")),
+		);
+		const channel = new SlackHttpChannel(baseConfig);
+		const errors: string[] = [];
+		const original = console.error;
+		console.error = (...args: unknown[]) => {
+			errors.push(args.map(String).join(" "));
+		};
+		try {
+			await channel.connect().catch(() => {});
+		} finally {
+			console.error = original;
+		}
+		const all = errors.join("\n");
+		expect(all).toContain("invalid_auth");
+		expect(all).toContain("[REDACTED-TOKEN]");
+		expect(all).not.toContain("xoxb-test-token-leaked");
 	});
 
 	test("disconnect on a never-connected channel is a no-op", async () => {
@@ -647,7 +689,7 @@ describe("access control (HTTP mode = any user from this.teamId)", () => {
 		expect(received).toBe("hi");
 	});
 
-	test("event with no team_id and no defense default falls back to this.teamId (allow)", async () => {
+	test("event with no parseable team_id is dropped (defense in depth, no host fallback)", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
 		let received = "";
 		channel.onMessage(async (msg) => {
@@ -660,7 +702,69 @@ describe("access control (HTTP mode = any user from this.teamId)", () => {
 			event: { text: "<@U_BOT123> hi", user: "U_RANDOM", channel: "C1", ts: "1715000000.0" },
 			body: {},
 		});
-		expect(received).toBe("hi");
+		expect(received).toBe("");
+	});
+
+	test("DM with no parseable team_id is dropped (defense in depth, no host fallback)", async () => {
+		const channel = new SlackHttpChannel(baseConfig);
+		let called = false;
+		channel.onMessage(async () => {
+			called = true;
+		});
+		await channel.connect();
+		const handler = eventHandlers.get("message");
+		if (!handler) throw new Error("no handler");
+		await handler({
+			event: {
+				text: "DM with no team_id",
+				user: "U_USER1",
+				channel: "D_DM1",
+				channel_type: "im",
+				ts: "1715000000.000010",
+			},
+			body: {},
+		});
+		expect(called).toBe(false);
+	});
+
+	test("reaction with foreign team_id is dropped (defense in depth)", async () => {
+		const channel = new SlackHttpChannel(baseConfig);
+		let captured = false;
+		channel.onReaction(() => {
+			captured = true;
+		});
+		await channel.connect();
+		const handler = eventHandlers.get("reaction_added");
+		if (!handler) throw new Error("no handler");
+		await handler({
+			event: {
+				reaction: "thumbsup",
+				user: "U_OUT",
+				item: { ts: "1715000000.000020", channel: "C1" },
+			},
+			body: { team_id: FOREIGN_TEAM_ID },
+		});
+		expect(captured).toBe(false);
+	});
+
+	test("reaction with no team_id is dropped (defense in depth)", async () => {
+		const channel = new SlackHttpChannel(baseConfig);
+		let captured = false;
+		channel.onReaction(() => {
+			captured = true;
+		});
+		await channel.connect();
+		const handler = eventHandlers.get("reaction_added");
+		if (!handler) throw new Error("no handler");
+		await handler({
+			event: {
+				reaction: "thumbsup",
+				user: "U_OUT",
+				item: { ts: "1715000000.000021", channel: "C1" },
+			},
+			body: {},
+		});
+		expect(captured).toBe(false);
 	});
 
 	test("foreign team_id is dropped in the event handler even after the guard passed", async () => {

@@ -1,9 +1,17 @@
-import { randomUUID } from "node:crypto";
 import { App, type LogLevel } from "@slack/bolt";
 import type { SlackBlock } from "./feedback.ts";
-import { buildFeedbackBlocks } from "./feedback.ts";
 import { registerSlackActions } from "./slack-actions.ts";
-import { splitMessage, toSlackMarkdown, truncateForSlack } from "./slack-formatter.ts";
+import {
+	type EgressContext,
+	egressAddReaction,
+	egressPostThinking,
+	egressPostToChannel,
+	egressRemoveReaction,
+	egressSend,
+	egressSendDm,
+	egressUpdateMessage,
+	egressUpdateWithFeedback,
+} from "./slack-egress.ts";
 import type { Channel, ChannelCapabilities, InboundMessage, OutboundMessage, SentMessage } from "./types.ts";
 
 export type SlackChannelConfig = {
@@ -138,28 +146,12 @@ export class SlackChannel implements Channel {
 		console.log("[slack] Disconnected");
 	}
 
+	private egressContext(): EgressContext {
+		return { client: this.app.client, channelId: this.id, logTag: "slack" };
+	}
+
 	async send(conversationId: string, message: OutboundMessage): Promise<SentMessage> {
-		const { channel, threadTs } = parseConversationId(conversationId);
-		const formattedText = toSlackMarkdown(message.text);
-		const replyThreadTs = message.threadId ?? threadTs;
-		const chunks = splitMessage(formattedText);
-		let lastTs = "";
-
-		for (const chunk of chunks) {
-			const result = await this.app.client.chat.postMessage({
-				channel,
-				text: chunk,
-				thread_ts: replyThreadTs,
-			});
-			lastTs = result.ts ?? "";
-		}
-
-		return {
-			id: lastTs || randomUUID(),
-			channelId: this.id,
-			conversationId,
-			timestamp: new Date(),
-		};
+		return egressSend(this.egressContext(), conversationId, message);
 	}
 
 	onMessage(handler: (message: InboundMessage) => Promise<void>): void {
@@ -179,111 +171,32 @@ export class SlackChannel implements Channel {
 	}
 
 	async postToChannel(channelId: string, text: string): Promise<string | null> {
-		const formattedText = toSlackMarkdown(text);
-		const chunks = splitMessage(formattedText);
-		let lastTs: string | null = null;
-
-		for (const chunk of chunks) {
-			try {
-				const result = await this.app.client.chat.postMessage({
-					channel: channelId,
-					text: chunk,
-				});
-				lastTs = result.ts ?? null;
-			} catch (err: unknown) {
-				const msg = err instanceof Error ? err.message : String(err);
-				console.error(`[slack] Failed to post to channel ${channelId}: ${msg}`);
-				return null;
-			}
-		}
-
-		return lastTs;
+		return egressPostToChannel(this.egressContext(), channelId, text);
 	}
 
 	async sendDm(userId: string, text: string): Promise<string | null> {
-		try {
-			const openResult = await this.app.client.conversations.open({ users: userId });
-			const dmChannelId = openResult.channel?.id;
-			if (!dmChannelId) {
-				console.error(`[slack] Failed to open DM with user ${userId}: no channel returned`);
-				return null;
-			}
-			return this.postToChannel(dmChannelId, text);
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			console.error(`[slack] Failed to send DM to user ${userId}: ${msg}`);
-			return null;
-		}
+		return egressSendDm(this.egressContext(), userId, text);
 	}
 
 	async postThinking(channel: string, threadTs: string): Promise<string | null> {
-		try {
-			const result = await this.app.client.chat.postMessage({
-				channel,
-				thread_ts: threadTs,
-				text: "Working on it...",
-			});
-			return result.ts ?? null;
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			console.warn(`[slack] Failed to post thinking indicator: ${msg}`);
-			return null;
-		}
+		return egressPostThinking(this.egressContext(), channel, threadTs);
 	}
 
 	async updateMessage(channel: string, ts: string, text: string, blocks?: SlackBlock[]): Promise<void> {
-		const formattedText = toSlackMarkdown(text);
-		const truncated = truncateForSlack(formattedText);
-
-		try {
-			const updateArgs: Record<string, unknown> = { channel, ts, text: truncated };
-			if (blocks) updateArgs.blocks = blocks;
-			await this.app.client.chat.update(updateArgs as unknown as Parameters<typeof this.app.client.chat.update>[0]);
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			console.warn(`[slack] Failed to update message: ${msg}`);
-		}
+		return egressUpdateMessage(this.egressContext(), channel, ts, text, blocks);
 	}
 
 	/** Update a message with text + feedback buttons appended */
 	async updateWithFeedback(channel: string, ts: string, text: string): Promise<void> {
-		const formattedText = toSlackMarkdown(text);
-		const truncated = truncateForSlack(formattedText);
-		const feedbackBlocks = buildFeedbackBlocks(ts);
-
-		const blocks: SlackBlock[] = [{ type: "section", text: { type: "mrkdwn", text: truncated } }, ...feedbackBlocks];
-
-		try {
-			const updateArgs: Record<string, unknown> = { channel, ts, text: truncated, blocks };
-			await this.app.client.chat.update(updateArgs as unknown as Parameters<typeof this.app.client.chat.update>[0]);
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			console.warn(`[slack] Failed to update message with feedback: ${msg}`);
-		}
+		return egressUpdateWithFeedback(this.egressContext(), channel, ts, text);
 	}
 
 	async addReaction(channel: string, messageTs: string, emoji: string): Promise<void> {
-		try {
-			await this.app.client.reactions.add({ channel, timestamp: messageTs, name: emoji });
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			// "already_reacted" is not a real error
-			if (!msg.includes("already_reacted")) {
-				console.warn(`[slack] Failed to add reaction :${emoji}:: ${msg}`);
-			}
-		}
+		return egressAddReaction(this.egressContext(), channel, messageTs, emoji);
 	}
 
 	async removeReaction(channel: string, messageTs: string, emoji: string): Promise<void> {
-		try {
-			await this.app.client.reactions.remove({ channel, timestamp: messageTs, name: emoji });
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			// "no_reaction" is expected when the reaction was already removed
-			if (!msg.includes("no_reaction")) {
-				console.warn(`[slack] Failed to remove reaction :${emoji}:: ${msg}`);
-			}
-		}
+		return egressRemoveReaction(this.egressContext(), channel, messageTs, emoji);
 	}
 
 	private registerEventHandlers(): void {
@@ -413,12 +326,4 @@ export class SlackChannel implements Channel {
 
 function buildConversationId(channel: string, threadTs: string): string {
 	return `slack:${channel}:${threadTs}`;
-}
-
-function parseConversationId(conversationId: string): { channel: string; threadTs: string | undefined } {
-	const parts = conversationId.split(":");
-	if (parts[1] === "dm") {
-		return { channel: parts[2], threadTs: undefined };
-	}
-	return { channel: parts[1], threadTs: parts[2] };
 }
