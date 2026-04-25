@@ -11,6 +11,7 @@ export type SlackChannelConfig = {
 	appToken: string;
 	defaultChannelId?: string;
 	ownerUserId?: string;
+	transport?: "socket";
 };
 
 type ConnectionState = "disconnected" | "connecting" | "connected" | "error";
@@ -45,6 +46,9 @@ export class SlackChannel implements Channel {
 	private rejectedUsers = new Set<string>();
 
 	constructor(config: SlackChannelConfig) {
+		if (config.transport && config.transport !== "socket") {
+			throw new Error("SlackChannel only supports Socket Mode. Use SlackHttpChannel for HTTP receiver mode.");
+		}
 		this.app = new App({
 			token: config.botToken,
 			socketMode: true,

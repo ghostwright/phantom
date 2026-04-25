@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import type { AgentRuntime } from "../agent/runtime.ts";
-import type { SlackChannel } from "../channels/slack.ts";
+import type { SlackTransport } from "../channels/slack-transport.ts";
 import { validateCreateInput } from "./create-validation.ts";
 import { executeJob } from "./executor.ts";
 import { type SchedulerHealthSummary, computeHealthSummary } from "./health.ts";
@@ -24,14 +24,14 @@ const MAX_TIMER_MS = 60 * 60 * 1000;
 type SchedulerDeps = {
 	db: Database;
 	runtime: AgentRuntime;
-	slackChannel?: SlackChannel;
+	slackChannel?: SlackTransport;
 	ownerUserId?: string | null;
 };
 
 export class Scheduler {
 	private db: Database;
 	private runtime: AgentRuntime;
-	private slackChannel: SlackChannel | undefined;
+	private slackChannel: SlackTransport | undefined;
 	private ownerUserId: string | null;
 	private timer: ReturnType<typeof setTimeout> | null = null;
 	private running = false;
@@ -54,7 +54,7 @@ export class Scheduler {
 	 * (C3): owner-targeted delivery is skipped until ownerUserId is set, but
 	 * channel-id (C...) and user-id (U...) targets work immediately.
 	 */
-	setSlackChannel(channel: SlackChannel, ownerUserId: string | null): void {
+	setSlackChannel(channel: SlackTransport, ownerUserId: string | null): void {
 		this.slackChannel = channel;
 		this.ownerUserId = ownerUserId ?? null;
 	}

@@ -1,6 +1,6 @@
 import { resolve as pathResolve } from "node:path";
 import type { AgentRuntime } from "../agent/runtime.ts";
-import type { SlackChannel } from "../channels/slack.ts";
+import type { SlackTransport } from "../channels/slack-transport.ts";
 import { handleEmailLogin } from "../chat/email-login.ts";
 import type { PhantomConfig } from "../config/types.ts";
 import { AuthMiddleware } from "../mcp/auth.ts";
@@ -27,7 +27,7 @@ type PeerHealthProvider = () => Record<string, { healthy: boolean; latencyMs: nu
 type SchedulerHealthProvider = () => SchedulerHealthSummary | null;
 type TriggerDeps = {
 	runtime: AgentRuntime;
-	slackChannel?: SlackChannel;
+	slackChannel?: SlackTransport;
 	ownerUserId?: string;
 };
 

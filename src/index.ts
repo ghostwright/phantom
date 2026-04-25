@@ -11,7 +11,9 @@ import { formatToolActivity } from "./channels/progress-stream.ts";
 import { createProgressStream } from "./channels/progress-stream.ts";
 import { ChannelRouter } from "./channels/router.ts";
 import { setActionFollowUpHandler } from "./channels/slack-actions.ts";
-import { SlackChannel } from "./channels/slack.ts";
+import { createSlackChannel, readSlackTransportFromEnv } from "./channels/slack-channel-factory.ts";
+import type { SlackHttpChannel } from "./channels/slack-http-receiver.ts";
+import type { SlackChannel } from "./channels/slack.ts";
 import { createStatusReactionController } from "./channels/status-reactions.ts";
 import { TelegramChannel } from "./channels/telegram.ts";
 import { WebhookChannel } from "./channels/webhook.ts";
@@ -295,16 +297,25 @@ async function main(): Promise<void> {
 
 	const router = new ChannelRouter();
 
-	// Register Slack channel
-	let slackChannel: SlackChannel | null = null;
+	// Register Slack channel.
+	//
+	// SLACK_TRANSPORT controls which receiver runs:
+	//   - "socket" (default): the OSS Socket Mode flow. Reads bot_token and
+	//     app_token from channels.yaml.
+	//   - "http": the Phantom Cloud distributed-app flow. Fetches identity
+	//     and bot token from the in-tenant metadata gateway at boot. The
+	//     gateway pushes /v1/identity.slack after the OAuth handshake; this
+	//     code path requires that subfield to be populated, otherwise the
+	//     factory throws so a mis-provisioned tenant fails loudly.
 	const channelsConfig = loadChannelsConfig();
-	if (channelsConfig?.slack?.enabled && channelsConfig.slack.bot_token && channelsConfig.slack.app_token) {
-		slackChannel = new SlackChannel({
-			botToken: channelsConfig.slack.bot_token,
-			appToken: channelsConfig.slack.app_token,
-			defaultChannelId: channelsConfig.slack.default_channel_id,
-			ownerUserId: channelsConfig.slack.owner_user_id,
-		});
+	const slackChannel: SlackChannel | SlackHttpChannel | null = await createSlackChannel({
+		transport: readSlackTransportFromEnv(),
+		channelsConfig,
+		port: config.port,
+		metadataBaseUrl: process.env.METADATA_BASE_URL,
+	});
+
+	if (slackChannel) {
 		slackChannel.setPhantomName(config.name);
 
 		// Wire Slack reaction feedback to evolution
@@ -320,7 +331,7 @@ async function main(): Promise<void> {
 		});
 
 		router.register(slackChannel);
-		console.log("[phantom] Slack channel registered");
+		console.log(`[phantom] Slack channel registered (transport=${process.env.SLACK_TRANSPORT ?? "socket"})`);
 	}
 
 	// Register Telegram channel
