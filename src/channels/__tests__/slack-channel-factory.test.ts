@@ -48,10 +48,45 @@ const HTTP_IDENTITY = {
 	},
 };
 
+// Cross-repo invariant (audit Finding 1, dated 2026-04-25): the names
+// "slack_bot_token" and "slack_gateway_signing_secret" must appear in
+// phantomd's internal/secrets/types.go AllowedSecretNames map. Any drift
+// between phantom and phantomd breaks SLACK_TRANSPORT=http boot with HTTP
+// 404. This map is the SINGLE source of truth for the http-mode tests
+// below; makeSecretFetcher() throws fail-loud on any name not listed
+// here, so a future production-side rename that misses one repo will
+// fail this test suite immediately instead of silently shipping a 404.
 const SECRET_RESPONSES: Record<string, string> = {
 	slack_bot_token: "xoxb-from-metadata",
 	slack_gateway_signing_secret: "0123456789abcdef".repeat(4),
 };
+
+/**
+ * Build a name-aware secret fetcher mock. Returns the canned value for any
+ * name listed in SECRET_RESPONSES; throws an Error mentioning the offending
+ * name for any other input. The optional `tape` argument records every call
+ * for assertions on call ordering / call count without re-instantiating.
+ *
+ * Tests must NEVER substitute a permissive `() => Promise.resolve("...")`
+ * fetcher in place of this helper for the http path: the audit caught a
+ * production drift that a permissive mock would have hidden.
+ */
+function makeSecretFetcher(tape?: string[]): { get(name: string): Promise<string> } {
+	return {
+		get(name: string) {
+			tape?.push(name);
+			if (!(name in SECRET_RESPONSES)) {
+				const allowed = Object.keys(SECRET_RESPONSES).join(", ");
+				return Promise.reject(
+					new Error(
+						`unexpected secret name in test: ${name}. Allowed in this fixture: ${allowed}. This is the audit Finding 1 fail-loud guard; if production code requests a new name, add it to SECRET_RESPONSES AND to phantomd's internal/secrets/types.go AllowedSecretNames in the same change.`,
+					),
+				);
+			}
+			return Promise.resolve(SECRET_RESPONSES[name] as string);
+		},
+	};
+}
 
 describe("readSlackTransportFromEnv", () => {
 	test("returns 'socket' when SLACK_TRANSPORT is unset", () => {
@@ -132,7 +167,7 @@ describe("createSlackChannel", () => {
 
 	test("transport=http with slack identity and metadata secrets returns a SlackHttpChannel", async () => {
 		const idFetcher = { get: () => Promise.resolve(HTTP_IDENTITY) };
-		const secFetcher = { get: (name: string) => Promise.resolve(SECRET_RESPONSES[name] ?? "") };
+		const secFetcher = makeSecretFetcher();
 		const ch = await createSlackChannel({
 			transport: "http",
 			channelsConfig: null,
@@ -151,12 +186,7 @@ describe("createSlackChannel", () => {
 	test("transport=http fetches both required secrets in parallel", async () => {
 		const requested: string[] = [];
 		const idFetcher = { get: () => Promise.resolve(HTTP_IDENTITY) };
-		const secFetcher = {
-			get: (name: string) => {
-				requested.push(name);
-				return Promise.resolve(SECRET_RESPONSES[name] ?? "");
-			},
-		};
+		const secFetcher = makeSecretFetcher(requested);
 		await createSlackChannel({
 			transport: "http",
 			channelsConfig: null,
@@ -164,20 +194,20 @@ describe("createSlackChannel", () => {
 			identityFetcher: idFetcher,
 			secretsFetcher: secFetcher,
 		});
+		// Audit F1 contract: production must request these EXACT names. Any
+		// future rename on either side without the matching edit on the other
+		// side will leave one of these assertions failing or trip the
+		// makeSecretFetcher fail-loud guard.
 		expect(requested).toContain("slack_bot_token");
 		expect(requested).toContain("slack_gateway_signing_secret");
+		expect(requested).toHaveLength(2);
 	});
 
 	test("transport=http never reads bot_token or app_token from channels.yaml", async () => {
 		// Even when channels.yaml has socket creds, the http path uses metadata.
 		const idFetcher = { get: () => Promise.resolve(HTTP_IDENTITY) };
 		const secretCalls: string[] = [];
-		const secFetcher = {
-			get: (name: string) => {
-				secretCalls.push(name);
-				return Promise.resolve(SECRET_RESPONSES[name] ?? "");
-			},
-		};
+		const secFetcher = makeSecretFetcher(secretCalls);
 		const ch = await createSlackChannel({
 			transport: "http",
 			channelsConfig: SOCKET_CONFIG,
@@ -197,7 +227,7 @@ describe("createSlackChannel", () => {
 		// factory wires the documented default base URL when no custom URL is
 		// passed. The fetcher class is responsible for the URL it constructs.
 		const idFetcher = { get: () => Promise.resolve(HTTP_IDENTITY) };
-		const secFetcher = { get: (name: string) => Promise.resolve(SECRET_RESPONSES[name] ?? "") };
+		const secFetcher = makeSecretFetcher();
 		// Pin the contract: passing through metadataBaseUrl propagates.
 		const ch = await createSlackChannel({
 			transport: "http",
@@ -208,5 +238,18 @@ describe("createSlackChannel", () => {
 			secretsFetcher: secFetcher,
 		});
 		expect(ch).toBeInstanceOf(SlackHttpChannel);
+	});
+
+	test("makeSecretFetcher fails-loud when production asks for an unknown name", async () => {
+		// This is the audit Finding 1 regression guard. If the production code
+		// in slack-channel-factory.ts ever drifts to ask for a different name
+		// (for example reverting "slack_gateway_signing_secret" to the legacy
+		// "slack_signing_secret"), this fixture will throw and the test suite
+		// will fail-loud. The error message points at the cross-repo allowlist.
+		const fetcher = makeSecretFetcher();
+		await expect(fetcher.get("slack_signing_secret")).rejects.toThrow(
+			/unexpected secret name in test: slack_signing_secret/,
+		);
+		await expect(fetcher.get("totally_made_up")).rejects.toThrow(/AllowedSecretNames/);
 	});
 });

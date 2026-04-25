@@ -57,6 +57,14 @@ export async function createSlackChannel(input: CreateSlackChannelInput): Promis
 					"Run the OAuth flow via phantom-control or revert to SLACK_TRANSPORT=socket.",
 			);
 		}
+		// Cross-repo invariant (audit Finding 1, dated 2026-04-25): the names
+		// "slack_bot_token" and "slack_gateway_signing_secret" must appear in
+		// phantomd's internal/secrets/types.go AllowedSecretNames map. Drift on
+		// either side breaks SLACK_TRANSPORT=http boot with HTTP 404 (the
+		// gateway maps ErrInvalidName to 404 to avoid name enumeration). The
+		// regression is pinned by slack-channel-factory.test.ts's name-aware
+		// mock, which throws on any unexpected name; phantomd pins the same
+		// contract via TestIsAllowedName_AcceptsSlackGatewaySigningSecret.
 		const [botToken, signingSecret] = await Promise.all([
 			secFetcher.get("slack_bot_token"),
 			secFetcher.get("slack_gateway_signing_secret"),
