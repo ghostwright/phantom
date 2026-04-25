@@ -76,7 +76,7 @@ async function main(): Promise<void> {
 
 	console.log("[phantom] Starting...");
 
-	const config = loadConfig();
+	const config = await loadConfig();
 	console.log(`[phantom] Config loaded: ${config.name} (${config.model}, effort: ${config.effort})`);
 
 	// Set web UI public directory

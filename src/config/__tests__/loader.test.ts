@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { loadConfig } from "../loader.ts";
+import { loadConfig, loadConfigSync } from "../loader.ts";
 
 const TEST_DIR = "/tmp/phantom-test-config";
 
@@ -16,7 +16,7 @@ function cleanup(): void {
 }
 
 describe("loadConfig", () => {
-	test("loads a valid config file", () => {
+	test("loads a valid config file", async () => {
 		const path = writeYaml(
 			"valid.yaml",
 			`
@@ -29,7 +29,7 @@ max_budget_usd: 25
 `,
 		);
 		try {
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.name).toBe("test-phantom");
 			expect(config.port).toBe(3200);
 			expect(config.role).toBe("swe");
@@ -41,7 +41,7 @@ max_budget_usd: 25
 		}
 	});
 
-	test("applies defaults for optional fields", () => {
+	test("applies defaults for optional fields", async () => {
 		const path = writeYaml(
 			"minimal.yaml",
 			`
@@ -49,7 +49,7 @@ name: minimal
 `,
 		);
 		try {
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.name).toBe("minimal");
 			expect(config.port).toBe(3100);
 			expect(config.role).toBe("swe");
@@ -60,11 +60,11 @@ name: minimal
 		}
 	});
 
-	test("throws on missing file", () => {
-		expect(() => loadConfig("/tmp/phantom-nonexistent.yaml")).toThrow("Config file not found");
+	test("throws on missing file", async () => {
+		await expect(loadConfig("/tmp/phantom-nonexistent.yaml")).rejects.toThrow("Config file not found");
 	});
 
-	test("throws on invalid config", () => {
+	test("throws on invalid config", async () => {
 		const path = writeYaml(
 			"invalid.yaml",
 			`
@@ -72,13 +72,13 @@ port: -1
 `,
 		);
 		try {
-			expect(() => loadConfig(path)).toThrow("Invalid config");
+			await expect(loadConfig(path)).rejects.toThrow("Invalid config");
 		} finally {
 			cleanup();
 		}
 	});
 
-	test("throws on invalid effort value", () => {
+	test("throws on invalid effort value", async () => {
 		const path = writeYaml(
 			"bad-effort.yaml",
 			`
@@ -87,13 +87,13 @@ effort: turbo
 `,
 		);
 		try {
-			expect(() => loadConfig(path)).toThrow("Invalid config");
+			await expect(loadConfig(path)).rejects.toThrow("Invalid config");
 		} finally {
 			cleanup();
 		}
 	});
 
-	test("env var overrides YAML model", () => {
+	test("env var overrides YAML model", async () => {
 		const path = writeYaml(
 			"env-model.yaml",
 			`
@@ -104,7 +104,7 @@ model: claude-opus-4-6
 		const saved = process.env.PHANTOM_MODEL;
 		try {
 			process.env.PHANTOM_MODEL = "claude-sonnet-4-6";
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.model).toBe("claude-sonnet-4-6");
 		} finally {
 			if (saved !== undefined) {
@@ -116,7 +116,7 @@ model: claude-opus-4-6
 		}
 	});
 
-	test("env var overrides YAML domain", () => {
+	test("env var overrides YAML domain", async () => {
 		const path = writeYaml(
 			"env-domain.yaml",
 			`
@@ -127,7 +127,7 @@ domain: old.example.com
 		const saved = process.env.PHANTOM_DOMAIN;
 		try {
 			process.env.PHANTOM_DOMAIN = "new.ghostwright.dev";
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.domain).toBe("new.ghostwright.dev");
 		} finally {
 			if (saved !== undefined) {
@@ -139,7 +139,7 @@ domain: old.example.com
 		}
 	});
 
-	test("PHANTOM_NAME env var overrides YAML name", () => {
+	test("PHANTOM_NAME env var overrides YAML name", async () => {
 		const path = writeYaml(
 			"env-name.yaml",
 			`
@@ -149,7 +149,7 @@ name: phantom-dev
 		const saved = process.env.PHANTOM_NAME;
 		try {
 			process.env.PHANTOM_NAME = "cheema";
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.name).toBe("cheema");
 		} finally {
 			if (saved !== undefined) {
@@ -161,7 +161,7 @@ name: phantom-dev
 		}
 	});
 
-	test("PHANTOM_NAME env var is trimmed", () => {
+	test("PHANTOM_NAME env var is trimmed", async () => {
 		const path = writeYaml(
 			"env-name-trim.yaml",
 			`
@@ -171,7 +171,7 @@ name: phantom-dev
 		const saved = process.env.PHANTOM_NAME;
 		try {
 			process.env.PHANTOM_NAME = "  cheema  ";
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.name).toBe("cheema");
 		} finally {
 			if (saved !== undefined) {
@@ -183,7 +183,7 @@ name: phantom-dev
 		}
 	});
 
-	test("empty PHANTOM_NAME env var does not override YAML", () => {
+	test("empty PHANTOM_NAME env var does not override YAML", async () => {
 		const path = writeYaml(
 			"env-name-empty.yaml",
 			`
@@ -193,7 +193,7 @@ name: phantom-dev
 		const saved = process.env.PHANTOM_NAME;
 		try {
 			process.env.PHANTOM_NAME = "";
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.name).toBe("phantom-dev");
 		} finally {
 			if (saved !== undefined) {
@@ -205,7 +205,7 @@ name: phantom-dev
 		}
 	});
 
-	test("PHANTOM_ROLE env var overrides YAML role", () => {
+	test("PHANTOM_ROLE env var overrides YAML role", async () => {
 		const path = writeYaml(
 			"env-role.yaml",
 			`
@@ -216,7 +216,7 @@ role: swe
 		const saved = process.env.PHANTOM_ROLE;
 		try {
 			process.env.PHANTOM_ROLE = "base";
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.role).toBe("base");
 		} finally {
 			if (saved !== undefined) {
@@ -228,7 +228,7 @@ role: swe
 		}
 	});
 
-	test("PHANTOM_EFFORT env var overrides YAML effort with valid value", () => {
+	test("PHANTOM_EFFORT env var overrides YAML effort with valid value", async () => {
 		const path = writeYaml(
 			"env-effort.yaml",
 			`
@@ -239,7 +239,7 @@ effort: max
 		const saved = process.env.PHANTOM_EFFORT;
 		try {
 			process.env.PHANTOM_EFFORT = "low";
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.effort).toBe("low");
 		} finally {
 			if (saved !== undefined) {
@@ -251,7 +251,7 @@ effort: max
 		}
 	});
 
-	test("PHANTOM_EFFORT env var with invalid value falls back to YAML", () => {
+	test("PHANTOM_EFFORT env var with invalid value falls back to YAML", async () => {
 		const path = writeYaml(
 			"env-effort-invalid.yaml",
 			`
@@ -262,7 +262,7 @@ effort: high
 		const saved = process.env.PHANTOM_EFFORT;
 		try {
 			process.env.PHANTOM_EFFORT = "turbo";
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.effort).toBe("high");
 		} finally {
 			if (saved !== undefined) {
@@ -274,7 +274,7 @@ effort: high
 		}
 	});
 
-	test("PORT env var overrides YAML port", () => {
+	test("PORT env var overrides YAML port", async () => {
 		const path = writeYaml(
 			"env-port.yaml",
 			`
@@ -285,7 +285,7 @@ port: 3100
 		const saved = process.env.PORT;
 		try {
 			process.env.PORT = "8080";
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.port).toBe(8080);
 		} finally {
 			if (saved !== undefined) {
@@ -297,7 +297,7 @@ port: 3100
 		}
 	});
 
-	test("PORT env var with non-numeric value falls back to YAML", () => {
+	test("PORT env var with non-numeric value falls back to YAML", async () => {
 		const path = writeYaml(
 			"env-port-nan.yaml",
 			`
@@ -308,7 +308,7 @@ port: 3100
 		const saved = process.env.PORT;
 		try {
 			process.env.PORT = "abc";
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.port).toBe(3100);
 		} finally {
 			if (saved !== undefined) {
@@ -320,7 +320,7 @@ port: 3100
 		}
 	});
 
-	test("PORT env var with out-of-range value falls back to YAML", () => {
+	test("PORT env var with out-of-range value falls back to YAML", async () => {
 		const path = writeYaml(
 			"env-port-range.yaml",
 			`
@@ -331,7 +331,7 @@ port: 3100
 		const saved = process.env.PORT;
 		try {
 			process.env.PORT = "70000";
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.port).toBe(3100);
 		} finally {
 			if (saved !== undefined) {
@@ -343,7 +343,7 @@ port: 3100
 		}
 	});
 
-	test("defaults provider to anthropic when block is absent", () => {
+	test("defaults provider to anthropic when block is absent", async () => {
 		const path = writeYaml(
 			"no-provider.yaml",
 			`
@@ -351,7 +351,7 @@ name: test
 `,
 		);
 		try {
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.provider.type).toBe("anthropic");
 			expect(config.provider.base_url).toBeUndefined();
 		} finally {
@@ -359,7 +359,7 @@ name: test
 		}
 	});
 
-	test("loads a zai provider block", () => {
+	test("loads a zai provider block", async () => {
 		const path = writeYaml(
 			"zai-provider.yaml",
 			`
@@ -372,7 +372,7 @@ provider:
 `,
 		);
 		try {
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.provider.type).toBe("zai");
 			expect(config.provider.api_key_env).toBe("ZAI_API_KEY");
 			expect(config.provider.model_mappings?.opus).toBe("glm-5.1");
@@ -381,7 +381,7 @@ provider:
 		}
 	});
 
-	test("PHANTOM_PROVIDER_TYPE env var overrides YAML provider.type", () => {
+	test("PHANTOM_PROVIDER_TYPE env var overrides YAML provider.type", async () => {
 		const path = writeYaml(
 			"env-provider-type.yaml",
 			`
@@ -393,7 +393,7 @@ provider:
 		const saved = process.env.PHANTOM_PROVIDER_TYPE;
 		try {
 			process.env.PHANTOM_PROVIDER_TYPE = "ollama";
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.provider.type).toBe("ollama");
 		} finally {
 			if (saved !== undefined) {
@@ -405,7 +405,7 @@ provider:
 		}
 	});
 
-	test("PHANTOM_PROVIDER_TYPE with unknown value leaves YAML provider.type alone", () => {
+	test("PHANTOM_PROVIDER_TYPE with unknown value leaves YAML provider.type alone", async () => {
 		const path = writeYaml(
 			"env-provider-type-bad.yaml",
 			`
@@ -417,7 +417,7 @@ provider:
 		const saved = process.env.PHANTOM_PROVIDER_TYPE;
 		try {
 			process.env.PHANTOM_PROVIDER_TYPE = "mystery-llm";
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.provider.type).toBe("zai");
 		} finally {
 			if (saved !== undefined) {
@@ -429,7 +429,7 @@ provider:
 		}
 	});
 
-	test("PHANTOM_PROVIDER_BASE_URL env var overrides YAML provider.base_url", () => {
+	test("PHANTOM_PROVIDER_BASE_URL env var overrides YAML provider.base_url", async () => {
 		const path = writeYaml(
 			"env-provider-baseurl.yaml",
 			`
@@ -442,7 +442,7 @@ provider:
 		const saved = process.env.PHANTOM_PROVIDER_BASE_URL;
 		try {
 			process.env.PHANTOM_PROVIDER_BASE_URL = "https://new.example.com/v1";
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.provider.base_url).toBe("https://new.example.com/v1");
 		} finally {
 			if (saved !== undefined) {
@@ -454,7 +454,7 @@ provider:
 		}
 	});
 
-	test("PHANTOM_PROVIDER_BASE_URL with malformed URL is ignored", () => {
+	test("PHANTOM_PROVIDER_BASE_URL with malformed URL is ignored", async () => {
 		const path = writeYaml(
 			"env-provider-baseurl-bad.yaml",
 			`
@@ -467,7 +467,7 @@ provider:
 		const saved = process.env.PHANTOM_PROVIDER_BASE_URL;
 		try {
 			process.env.PHANTOM_PROVIDER_BASE_URL = "not a url";
-			const config = loadConfig(path);
+			const config = await loadConfig(path);
 			expect(config.provider.base_url).toBe("http://old.example.com");
 		} finally {
 			if (saved !== undefined) {
@@ -475,6 +475,22 @@ provider:
 			} else {
 				process.env.PHANTOM_PROVIDER_BASE_URL = undefined;
 			}
+			cleanup();
+		}
+	});
+
+	test("loadConfigSync remains synchronous for legacy callers", () => {
+		const path = writeYaml(
+			"sync.yaml",
+			`
+name: sync-test
+`,
+		);
+		try {
+			const config = loadConfigSync(path);
+			expect(config.name).toBe("sync-test");
+			expect(config.secret_source).toBe("env");
+		} finally {
 			cleanup();
 		}
 	});

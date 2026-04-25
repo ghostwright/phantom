@@ -66,6 +66,17 @@ export const PhantomConfigSchema = z.object({
 	// The effective env vars are computed by buildProviderEnv() in config/providers.ts and
 	// merged into the Agent SDK subprocess environment at query() time.
 	provider: ProviderSchema,
+	// Phase C: where to source secret values from. "env" (default, existing
+	// behavior) reads ANTHROPIC_API_KEY from process.env, populated either by
+	// .env files (Bun auto-loads) or the systemd EnvironmentFile. "metadata"
+	// fetches from the host metadata gateway at
+	// http://169.254.169.254/v1/secrets/<name>. Cloud tenants use "metadata";
+	// self-host installs continue to use "env" with no config change.
+	secret_source: z.enum(["env", "metadata"]).default("env"),
+	// Optional override of the metadata gateway base URL. Defaults to
+	// http://169.254.169.254 (the link-local address phantomd binds in Phase C).
+	// Useful for integration tests that point at a fake gateway on localhost.
+	secret_source_url: z.string().url().optional(),
 	effort: z.enum(["low", "medium", "high", "max"]).default("max"),
 	max_budget_usd: z.number().min(0).default(0),
 	timeout_minutes: z.number().min(1).default(240),

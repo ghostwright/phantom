@@ -6,6 +6,14 @@ import type { PhantomConfig } from "./types.ts";
 // The Agent SDK already understands every knob we need (ANTHROPIC_BASE_URL,
 // ANTHROPIC_AUTH_TOKEN, ANTHROPIC_DEFAULT_*_MODEL, CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS,
 // API_TIMEOUT_MS). Phantom's job is to expose those knobs through YAML. Nothing more.
+//
+// Phase C metadata path: when the top-level `secret_source: "metadata"` is set,
+// the loader fetches the secret named by `provider.secret_name` from the host
+// metadata gateway and pre-populates `process.env.ANTHROPIC_API_KEY` and
+// `process.env.ANTHROPIC_AUTH_TOKEN` BEFORE buildProviderEnv runs. This keeps
+// the function below unchanged: it continues to read the resolved value via
+// the standard env-var path. Cloud tenants and self-host installs share the
+// same code path here.
 
 export const PROVIDER_TYPES = ["anthropic", "zai", "openrouter", "vllm", "ollama", "litellm", "custom"] as const;
 
@@ -16,6 +24,22 @@ export const ProviderSchema = z
 		type: z.enum(PROVIDER_TYPES).default("anthropic"),
 		base_url: z.string().url().optional(),
 		api_key_env: z.string().min(1).optional(),
+		// Phase C: when the top-level `secret_source: "metadata"` is set, the
+		// loader passes this name to the metadata gateway and the resolved
+		// plaintext is injected into process.env.ANTHROPIC_API_KEY /
+		// ANTHROPIC_AUTH_TOKEN before buildProviderEnv runs. Default
+		// "provider_token" so a Cloud tenant who flips secret_source to
+		// metadata gets the right behavior with no further config. The regex
+		// matches the metadata fetcher's defense-in-depth check; pinning it at
+		// the schema level surfaces invalid names at parse time rather than
+		// crashing at boot inside the fetcher.
+		secret_name: z
+			.string()
+			.regex(/^[a-z_][a-z0-9_]*$/, {
+				message:
+					"secret_name must match /^[a-z_][a-z0-9_]*$/ (lowercase letters, digits, underscores; cannot start with a digit)",
+			})
+			.default("provider_token"),
 		model_mappings: z
 			.object({
 				opus: z.string().min(1).optional(),
