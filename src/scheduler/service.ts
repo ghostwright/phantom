@@ -7,8 +7,9 @@ import { executeJob } from "./executor.ts";
 import { type SchedulerHealthSummary, computeHealthSummary } from "./health.ts";
 import { cleanupOldTerminalJobs, staggerMissedJobs } from "./recovery.ts";
 import { rowToJob } from "./row-mapper.ts";
-import { computeNextRunAt, serializeScheduleValue } from "./schedule.ts";
-import type { JobCreateInput, JobRow, ScheduledJob } from "./types.ts";
+import { computeNextRunAt, serializeScheduleValue, validateSchedule } from "./schedule.ts";
+import type { JobUpdateInputParsed } from "./tool-schema.ts";
+import { type JobCreateInput, type JobRow, type ScheduledJob, isValidSlackTarget } from "./types.ts";
 
 // Upper bound on the setTimeout delay we pass when arming the next wake-up.
 // Both Node and Bun use a 32-bit signed integer for the setTimeout delay, so
@@ -176,6 +177,82 @@ export class Scheduler {
 				WHERE id = ? AND status = 'paused'`,
 			[nextRunIso, id],
 		);
+		this.armTimer();
+		return this.getJob(id);
+	}
+
+	/**
+	 * Edit a job's user-authored columns in place. History is preserved:
+	 * last_run_at, last_run_status, run_count, consecutive_errors, created_at,
+	 * and the stable `id` are never touched. The caller chooses which subset
+	 * of {task, description, schedule, delivery, enabled} to change; the
+	 * refine() on JobUpdateInputSchema enforces that at least one is present,
+	 * so an empty partial here is treated as a no-op (defense in depth).
+	 *
+	 * When `schedule` changes we recompute next_run_at via the same
+	 * computeNextRunAt path resumeJob uses, then armTimer() so a schedule
+	 * that pulls the next fire earlier wakes the timer in time. Returns the
+	 * fresh row, or null if `id` does not exist.
+	 */
+	updateJob(id: string, partial: JobUpdateInputParsed): ScheduledJob | null {
+		const job = this.getJob(id);
+		if (!job) return null;
+
+		const sets: string[] = [];
+		const params: Array<string | number | null> = [];
+
+		if (partial.task !== undefined) {
+			sets.push("task = ?");
+			params.push(partial.task);
+		}
+
+		if (partial.description !== undefined) {
+			sets.push("description = ?");
+			params.push(partial.description);
+		}
+
+		if (partial.delivery !== undefined) {
+			// Mirror create-validation's slack-target check so an update cannot
+			// install a malformed target the create path would have rejected.
+			if (partial.delivery.channel === "slack" && !isValidSlackTarget(partial.delivery.target)) {
+				throw new Error(
+					`invalid delivery.target '${partial.delivery.target}': must be "owner", a Slack channel id (C...), or a Slack user id (U...)`,
+				);
+			}
+			sets.push("delivery_channel = ?");
+			params.push(partial.delivery.channel);
+			sets.push("delivery_target = ?");
+			params.push(partial.delivery.target);
+		}
+
+		if (partial.enabled !== undefined) {
+			sets.push("enabled = ?");
+			params.push(partial.enabled ? 1 : 0);
+		}
+
+		if (partial.schedule !== undefined) {
+			const scheduleError = validateSchedule(partial.schedule);
+			if (scheduleError) {
+				throw new Error(`invalid schedule: ${scheduleError}`);
+			}
+			const nextRun = computeNextRunAt(partial.schedule);
+			const nextRunIso = nextRun ? nextRun.toISOString() : null;
+			sets.push("schedule_kind = ?");
+			params.push(partial.schedule.kind);
+			sets.push("schedule_value = ?");
+			params.push(serializeScheduleValue(partial.schedule));
+			sets.push("next_run_at = ?");
+			params.push(nextRunIso);
+		}
+
+		if (sets.length === 0) {
+			return job;
+		}
+
+		sets.push("updated_at = datetime('now')");
+		params.push(id);
+
+		this.db.run(`UPDATE scheduled_jobs SET ${sets.join(", ")} WHERE id = ?`, params);
 		this.armTimer();
 		return this.getJob(id);
 	}
