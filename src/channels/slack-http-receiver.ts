@@ -39,6 +39,7 @@ import {
 	redactTokens,
 	rehydrateBody,
 } from "./slack-http-utils.ts";
+import { sendIntroductionDm } from "./slack-introduction.ts";
 import type { Channel, ChannelCapabilities, InboundMessage, OutboundMessage, SentMessage } from "./types.ts";
 
 export type SlackHttpChannelConfig = {
@@ -81,6 +82,10 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 	private connectionState: ConnectionState = "disconnected";
 	private botUserId: string | null = null;
 	private phantomName = "Phantom";
+	// Phase B.1.4: instance-level guard against re-introducing the agent
+	// after a transient disconnect+reconnect. A process restart resets it
+	// (intentional: fresh user-visible DM beats silent UX failure).
+	private firstDmSent = false;
 
 	constructor(config: SlackHttpChannelConfig) {
 		if (!config.botToken) throw new Error("SlackHttpChannel: botToken is required");
@@ -230,6 +235,21 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 			// `redactTokens` defends against a future Bolt change emitting tokens.
 			console.error(`[${LOG_TAG}] Failed to start: ${redactTokens(rawMsg)}`);
 			throw err;
+		}
+
+		// Phase B.1.4: synthetic first DM. Fire after receiver.start so the
+		// channel is wired before the user can reply; gate on firstDmSent so
+		// a reconnect-after-drop does not re-introduce.
+		if (!this.firstDmSent && this.installerUserId) {
+			const result = await sendIntroductionDm({
+				phantomName: this.phantomName,
+				teamName: this.teamName,
+				installerUserId: this.installerUserId,
+				sendDm: (userId, text) => this.sendDm(userId, text),
+			});
+			if (result.sent) {
+				this.firstDmSent = true;
+			}
 		}
 	}
 

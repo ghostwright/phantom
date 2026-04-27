@@ -56,6 +56,7 @@ import { Scheduler } from "./scheduler/service.ts";
 import { createSchedulerToolServer } from "./scheduler/tool.ts";
 import { getSecretRequest } from "./secrets/store.ts";
 import { createSecretToolServer } from "./secrets/tools.ts";
+import { reportAgentReady } from "./tenancy/heartbeat.ts";
 import { createBrowserToolServer } from "./ui/browser-mcp.ts";
 import { setLoginPageAgentName } from "./ui/login-page.ts";
 import { closePreviewResources, createPreviewToolServer, getOrCreatePreviewContext } from "./ui/preview.ts";
@@ -331,6 +332,20 @@ async function main(): Promise<void> {
 
 		router.register(slackChannel);
 		console.log(`[phantom] Slack channel registered (transport=${process.env.SLACK_TRANSPORT ?? "socket"})`);
+
+		// Phase B.1.4: tell phantomd's metadata gateway the agent is up. The
+		// gateway closes its readiness channel and phantom-control's
+		// WaitTenantReady RPC unblocks, advancing the wizard out of the
+		// "waiting_for_agent_ready" phase. METADATA_BASE_URL is unset on
+		// self-host installs, where this signal has no listener; we skip
+		// silently in that case so the only behavioural change for
+		// self-hosters is zero.
+		if (process.env.METADATA_BASE_URL) {
+			await reportAgentReady({
+				metadataBaseUrl: process.env.METADATA_BASE_URL,
+				transport: process.env.SLACK_TRANSPORT ?? "socket",
+			});
+		}
 	}
 
 	// Register Telegram channel
