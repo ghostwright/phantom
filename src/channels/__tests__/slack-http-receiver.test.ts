@@ -624,6 +624,71 @@ describe("lifecycle and bot user discovery", () => {
 	});
 });
 
+// ----- synthetic first DM on connect ---------------------------------------
+
+describe("synthetic first DM on connect", () => {
+	test("opens a DM with the installer and posts the introduction text", async () => {
+		const channel = new SlackHttpChannel(baseConfig);
+		channel.setPhantomName("Maple");
+		await channel.connect();
+
+		// installerUserId is U_INSTALLER per baseConfig; conversations.open is
+		// called once for the introduction. The post then hits D_DM_OPEN.
+		expect(mockConversationsOpen).toHaveBeenCalledWith({ users: "U_INSTALLER" });
+		const calls = mockPostMessage.mock.calls as unknown as Array<[{ channel?: string; text?: string }]>;
+		const introCall = calls.find((c) => {
+			const arg = c[0];
+			return arg.channel === "D_DM_OPEN" && typeof arg.text === "string" && arg.text.includes("I'm Maple");
+		});
+		expect(introCall).toBeDefined();
+	});
+
+	test("does not re-introduce on a reconnect after disconnect (firstDmSent gates)", async () => {
+		const channel = new SlackHttpChannel(baseConfig);
+		await channel.connect();
+		const calls1 = mockPostMessage.mock.calls as unknown as Array<[{ channel?: string }]>;
+		const introCallsAfterFirst = calls1.filter((c) => c[0].channel === "D_DM_OPEN").length;
+		await channel.disconnect();
+
+		// A reconnect after a transient drop should NOT re-introduce. The
+		// firstDmSent flag is instance-level and persists across the
+		// connect/disconnect/connect cycle on the same channel object.
+		await channel.connect();
+		const calls2 = mockPostMessage.mock.calls as unknown as Array<[{ channel?: string }]>;
+		const introCallsAfterReconnect = calls2.filter((c) => c[0].channel === "D_DM_OPEN").length;
+		expect(introCallsAfterReconnect).toBe(introCallsAfterFirst);
+	});
+
+	test("connect still resolves successfully when the introduction DM fails", async () => {
+		// Simulate a Slack rate-limit by rejecting chat.postMessage. The
+		// channel must still finish connect() so the user can receive
+		// channel messages even when their first DM was rate-limited.
+		mockPostMessage.mockImplementation(() => Promise.reject(new Error("ratelimited")));
+		const channel = new SlackHttpChannel(baseConfig);
+		await expect(channel.connect()).resolves.toBeUndefined();
+		expect(channel.getConnectionState()).toBe("connected");
+		// Restore for subsequent tests.
+		mockPostMessage.mockImplementation(() => Promise.resolve({ ts: "1234567890.123456" }));
+	});
+
+	test("retries the introduction on a fresh connect after first send returned null", async () => {
+		// First connect: chat.postMessage returns no ts (rate-limit, archived
+		// channel). firstDmSent stays false; the caller's failed_first_dm
+		// path is what surfaces this externally. On a fresh connect (after
+		// the operator restarts the channel), the introduction should fire
+		// again so the user eventually gets their DM.
+		mockPostMessage.mockImplementationOnce(() => Promise.resolve({ ts: "" } as { ts: string }));
+		const channel = new SlackHttpChannel(baseConfig);
+		await channel.connect();
+		await channel.disconnect();
+		await channel.connect();
+		const calls = mockPostMessage.mock.calls as unknown as Array<[{ channel?: string }]>;
+		const introCalls = calls.filter((c) => c[0].channel === "D_DM_OPEN").length;
+		// One failed attempt + one successful retry on the second connect.
+		expect(introCalls).toBe(2);
+	});
+});
+
 // ----- send and outbound API ----------------------------------------------
 
 describe("send / outbound", () => {
@@ -642,6 +707,10 @@ describe("send / outbound", () => {
 	test("postToChannel chunks long messages but keeps one chat.postMessage per chunk", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
 		await channel.connect();
+		// connect() fires the synthetic introduction DM which hits
+		// chat.postMessage once. Clear the count here so this test
+		// asserts only the explicit postToChannel call.
+		mockPostMessage.mockClear();
 		await channel.postToChannel("C1", "short");
 		expect(mockPostMessage).toHaveBeenCalledTimes(1);
 	});

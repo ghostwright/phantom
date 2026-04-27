@@ -1,8 +1,9 @@
-// Phase 5b: HTTP receiver mode for Phantom Cloud tenants. Slack events are
-// captured by a shared central gateway (phantom-slack-events), verified
-// against Slack's signing secret there, then forwarded over HTTPS to the
-// per-tenant Phantom on this VM. Self-hosters keep the Socket Mode flow at
-// `slack.ts`; SLACK_TRANSPORT=http opts a tenant into this class.
+// HTTP receiver mode for hosted, operator-managed deployments. Slack
+// events are captured by a shared central gateway, verified against
+// Slack's signing secret there, then forwarded over HTTPS to the
+// per-deployment Phantom on this VM. Self-hosters keep the Socket Mode
+// flow at `slack.ts`; SLACK_TRANSPORT=http opts a deployment into this
+// class.
 //
 // Three security layers operate at this boundary:
 //   1. Caddy validates the gateway HMAC and strips inbound X-Phantom-* headers.
@@ -39,6 +40,7 @@ import {
 	redactTokens,
 	rehydrateBody,
 } from "./slack-http-utils.ts";
+import { sendIntroductionDm } from "./slack-introduction.ts";
 import type { Channel, ChannelCapabilities, InboundMessage, OutboundMessage, SentMessage } from "./types.ts";
 
 export type SlackHttpChannelConfig = {
@@ -81,6 +83,11 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 	private connectionState: ConnectionState = "disconnected";
 	private botUserId: string | null = null;
 	private phantomName = "Phantom";
+	// Instance-level guard against re-introducing the agent after a
+	// transient disconnect plus reconnect. A process restart resets the
+	// flag intentionally: a fresh user-visible DM beats a silent UX
+	// failure when the operator has had to restart the channel.
+	private firstDmSent = false;
 
 	constructor(config: SlackHttpChannelConfig) {
 		if (!config.botToken) throw new Error("SlackHttpChannel: botToken is required");
@@ -230,6 +237,21 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 			// `redactTokens` defends against a future Bolt change emitting tokens.
 			console.error(`[${LOG_TAG}] Failed to start: ${redactTokens(rawMsg)}`);
 			throw err;
+		}
+
+		// Synthetic first DM. Fire after receiver.start so the channel is
+		// wired before the user can reply; gate on firstDmSent so a
+		// reconnect-after-drop does not re-introduce.
+		if (!this.firstDmSent && this.installerUserId) {
+			const result = await sendIntroductionDm({
+				phantomName: this.phantomName,
+				teamName: this.teamName,
+				installerUserId: this.installerUserId,
+				sendDm: (userId, text) => this.sendDm(userId, text),
+			});
+			if (result.sent) {
+				this.firstDmSent = true;
+			}
 		}
 	}
 

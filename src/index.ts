@@ -16,6 +16,7 @@ import type { SlackTransport } from "./channels/slack-transport.ts";
 import { createStatusReactionController } from "./channels/status-reactions.ts";
 import { TelegramChannel } from "./channels/telegram.ts";
 import { WebhookChannel } from "./channels/webhook.ts";
+import { DEFAULT_METADATA_BASE_URL } from "./config/identity-fetcher.ts";
 import { loadChannelsConfig, loadConfig } from "./config/loader.ts";
 import { installShutdownHandlers, onShutdown } from "./core/graceful.ts";
 import {
@@ -56,6 +57,7 @@ import { Scheduler } from "./scheduler/service.ts";
 import { createSchedulerToolServer } from "./scheduler/tool.ts";
 import { getSecretRequest } from "./secrets/store.ts";
 import { createSecretToolServer } from "./secrets/tools.ts";
+import { reportAgentReady } from "./tenancy/heartbeat.ts";
 import { createBrowserToolServer } from "./ui/browser-mcp.ts";
 import { setLoginPageAgentName } from "./ui/login-page.ts";
 import { closePreviewResources, createPreviewToolServer, getOrCreatePreviewContext } from "./ui/preview.ts";
@@ -307,8 +309,9 @@ async function main(): Promise<void> {
 	//     code path requires that subfield to be populated, otherwise the
 	//     factory throws so a mis-provisioned tenant fails loudly.
 	const channelsConfig = loadChannelsConfig();
+	const slackTransport = readSlackTransportFromEnv();
 	const slackChannel: SlackTransport | null = await createSlackChannel({
-		transport: readSlackTransportFromEnv(),
+		transport: slackTransport,
 		channelsConfig,
 		port: config.port,
 		metadataBaseUrl: process.env.METADATA_BASE_URL,
@@ -330,7 +333,25 @@ async function main(): Promise<void> {
 		});
 
 		router.register(slackChannel);
-		console.log(`[phantom] Slack channel registered (transport=${process.env.SLACK_TRANSPORT ?? "socket"})`);
+		console.log(`[phantom] Slack channel registered (transport=${slackTransport})`);
+
+		// In an operator-managed deployment the agent posts a best-effort
+		// "ready" signal to the host metadata gateway so the operator's
+		// readiness RPC can unblock and the user-facing wizard advances
+		// out of its waiting state. The factory and the gate share the
+		// SAME normalized transport value (via readSlackTransportFromEnv)
+		// so a whitespace-padded SLACK_TRANSPORT does not boot the HTTP
+		// receiver while skipping the heartbeat. Self-hosters using
+		// Socket Mode never have a listener for this signal and we skip
+		// silently. The metadata URL falls back to the same default the
+		// channel factory uses so unset METADATA_BASE_URL is not a
+		// gating failure.
+		if (slackTransport === "http") {
+			await reportAgentReady({
+				metadataBaseUrl: process.env.METADATA_BASE_URL ?? DEFAULT_METADATA_BASE_URL,
+				transport: slackTransport,
+			});
+		}
 	}
 
 	// Register Telegram channel
