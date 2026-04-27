@@ -22,11 +22,15 @@ mock.module("../../tenancy/heartbeat.ts", () => ({
 }));
 
 const ORIGINAL_METADATA = process.env.METADATA_BASE_URL;
+const ORIGINAL_TRANSPORT = process.env.SLACK_TRANSPORT;
+const ORIGINAL_DASHBOARD = process.env.PHANTOM_DASHBOARD_URL;
 
 beforeEach(() => {
 	heartbeatCalls.length = 0;
 	heartbeatThrows = null;
 	process.env.METADATA_BASE_URL = "http://169.254.169.254";
+	process.env.SLACK_TRANSPORT = "http";
+	process.env.PHANTOM_DASHBOARD_URL = undefined;
 });
 
 afterEach(() => {
@@ -34,6 +38,16 @@ afterEach(() => {
 		process.env.METADATA_BASE_URL = undefined;
 	} else {
 		process.env.METADATA_BASE_URL = ORIGINAL_METADATA;
+	}
+	if (ORIGINAL_TRANSPORT === undefined) {
+		process.env.SLACK_TRANSPORT = undefined;
+	} else {
+		process.env.SLACK_TRANSPORT = ORIGINAL_TRANSPORT;
+	}
+	if (ORIGINAL_DASHBOARD === undefined) {
+		process.env.PHANTOM_DASHBOARD_URL = undefined;
+	} else {
+		process.env.PHANTOM_DASHBOARD_URL = ORIGINAL_DASHBOARD;
 	}
 });
 
@@ -50,9 +64,14 @@ describe("composeIntroductionText", () => {
 		expect(text).toContain("@-mention me");
 	});
 
-	test("links to the dashboard for management", () => {
+	test("omits the manage-me line when no dashboard URL is provided", () => {
 		const text = composeIntroductionText("Phantom", "Workspace");
-		expect(text).toContain("https://ghostwright.dev/phantom/dashboard");
+		expect(text).not.toContain("manage me");
+	});
+
+	test("includes the dashboard URL in the manage-me line when provided", () => {
+		const text = composeIntroductionText("Phantom", "Workspace", "https://example.test/dashboard");
+		expect(text).toContain("You can manage me at https://example.test/dashboard.");
 	});
 });
 
@@ -75,7 +94,54 @@ describe("sendIntroductionDm", () => {
 		expect(result.messageTs).toBe("1715000000.000123");
 	});
 
-	test("acks first_dm_sent with the returned message_ts when METADATA_BASE_URL is set", async () => {
+	test("includes the dashboard URL when PHANTOM_DASHBOARD_URL is set to a valid URL", async () => {
+		process.env.PHANTOM_DASHBOARD_URL = "https://example.test/manage";
+		let captured = "";
+		const sendDm = mock(async (_u: string, text: string) => {
+			captured = text;
+			return "1715000000.000111" as string | null;
+		});
+		await sendIntroductionDm({
+			phantomName: "Maple",
+			teamName: "Acme",
+			installerUserId: "U_INSTALLER",
+			sendDm,
+		});
+		expect(captured).toContain("You can manage me at https://example.test/manage.");
+	});
+
+	test("omits the manage-me line when PHANTOM_DASHBOARD_URL is unset (self-host)", async () => {
+		let captured = "";
+		const sendDm = mock(async (_u: string, text: string) => {
+			captured = text;
+			return "1715000000.000222" as string | null;
+		});
+		await sendIntroductionDm({
+			phantomName: "Maple",
+			teamName: "Acme",
+			installerUserId: "U_INSTALLER",
+			sendDm,
+		});
+		expect(captured).not.toContain("manage me");
+	});
+
+	test("omits the manage-me line when PHANTOM_DASHBOARD_URL is malformed", async () => {
+		process.env.PHANTOM_DASHBOARD_URL = "not a url";
+		let captured = "";
+		const sendDm = mock(async (_u: string, text: string) => {
+			captured = text;
+			return "1715000000.000333" as string | null;
+		});
+		await sendIntroductionDm({
+			phantomName: "Maple",
+			teamName: "Acme",
+			installerUserId: "U_INSTALLER",
+			sendDm,
+		});
+		expect(captured).not.toContain("manage me");
+	});
+
+	test("acks first_dm_sent with the returned message_ts when SLACK_TRANSPORT=http", async () => {
 		const sendDm = mock(async () => "1715000000.000456" as string | null);
 		const result = await sendIntroductionDm({
 			phantomName: "Maple",
@@ -92,7 +158,12 @@ describe("sendIntroductionDm", () => {
 		expect(call.slackMessageTs).toBe("1715000000.000456");
 	});
 
-	test("skips the first_dm_sent ack when METADATA_BASE_URL is unset (self-host)", async () => {
+	test("acks first_dm_sent with the default metadata URL when METADATA_BASE_URL is unset but SLACK_TRANSPORT=http", async () => {
+		// SLACK_TRANSPORT=http is the actual signal that the agent is in
+		// an operator-managed deployment. METADATA_BASE_URL may be unset
+		// in that deployment because the channel factory defaults to the
+		// link-local address; the heartbeat must follow the same
+		// fallback.
 		process.env.METADATA_BASE_URL = undefined;
 		const sendDm = mock(async () => "1715000000.000789" as string | null);
 		const result = await sendIntroductionDm({
@@ -102,8 +173,40 @@ describe("sendIntroductionDm", () => {
 			sendDm,
 		});
 
-		// The DM still sends; only the heartbeat is gated on metadata. Self-
-		// hosters never run inside a phantomd-managed VM, so no listener.
+		expect(result.sent).toBe(true);
+		expect(heartbeatCalls.length).toBe(1);
+		const call = heartbeatCalls[0];
+		if (!call) throw new Error("no heartbeat");
+		expect(call.metadataBaseUrl).toBe("http://169.254.169.254");
+	});
+
+	test("skips the first_dm_sent ack when SLACK_TRANSPORT is unset (self-host Socket Mode default)", async () => {
+		process.env.SLACK_TRANSPORT = undefined;
+		const sendDm = mock(async () => "1715000000.000900" as string | null);
+		const result = await sendIntroductionDm({
+			phantomName: "Maple",
+			teamName: "Acme",
+			installerUserId: "U_INSTALLER",
+			sendDm,
+		});
+
+		// The DM still sends; only the heartbeat is gated on the
+		// transport mode. Self-hosters never run inside an
+		// operator-managed VM, so there is no listener for the signal.
+		expect(result.sent).toBe(true);
+		expect(heartbeatCalls.length).toBe(0);
+	});
+
+	test("skips the first_dm_sent ack when SLACK_TRANSPORT=socket (explicit self-host)", async () => {
+		process.env.SLACK_TRANSPORT = "socket";
+		const sendDm = mock(async () => "1715000000.000901" as string | null);
+		const result = await sendIntroductionDm({
+			phantomName: "Maple",
+			teamName: "Acme",
+			installerUserId: "U_INSTALLER",
+			sendDm,
+		});
+
 		expect(result.sent).toBe(true);
 		expect(heartbeatCalls.length).toBe(0);
 	});
@@ -119,8 +222,9 @@ describe("sendIntroductionDm", () => {
 
 		expect(result.sent).toBe(false);
 		expect(result.messageTs).toBeNull();
-		// No ts means no audit signal phantomd can record. The wizard's
-		// failed_first_dm path picks up the timeout via phantom-control.
+		// No ts means no audit signal the host gateway can record. The
+		// caller's failed_first_dm path picks up the timeout
+		// independently via the operator's poll loop.
 		expect(heartbeatCalls.length).toBe(0);
 	});
 

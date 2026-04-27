@@ -624,7 +624,7 @@ describe("lifecycle and bot user discovery", () => {
 	});
 });
 
-// ----- synthetic first DM (Phase B.1.4) -----------------------------------
+// ----- synthetic first DM on connect ---------------------------------------
 
 describe("synthetic first DM on connect", () => {
 	test("opens a DM with the installer and posts the introduction text", async () => {
@@ -673,10 +673,10 @@ describe("synthetic first DM on connect", () => {
 
 	test("retries the introduction on a fresh connect after first send returned null", async () => {
 		// First connect: chat.postMessage returns no ts (rate-limit, archived
-		// channel). firstDmSent stays false; the wizard's failed_first_dm
+		// channel). firstDmSent stays false; the caller's failed_first_dm
 		// path is what surfaces this externally. On a fresh connect (after
 		// the operator restarts the channel), the introduction should fire
-		// again so the canary user eventually gets their DM.
+		// again so the user eventually gets their DM.
 		mockPostMessage.mockImplementationOnce(() => Promise.resolve({ ts: "" } as { ts: string }));
 		const channel = new SlackHttpChannel(baseConfig);
 		await channel.connect();
@@ -707,8 +707,8 @@ describe("send / outbound", () => {
 	test("postToChannel chunks long messages but keeps one chat.postMessage per chunk", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
 		await channel.connect();
-		// connect() fires the synthetic introduction DM (Phase B.1.4) which
-		// hits chat.postMessage once. Clear the count here so this test
+		// connect() fires the synthetic introduction DM which hits
+		// chat.postMessage once. Clear the count here so this test
 		// asserts only the explicit postToChannel call.
 		mockPostMessage.mockClear();
 		await channel.postToChannel("C1", "short");

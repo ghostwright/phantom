@@ -1,19 +1,19 @@
-// Phase B.1.4: synthetic first DM for the Phantom Cloud canary.
+// Synthetic introduction DM sent on the first connect of the HTTP Slack
+// transport. Pulled out of slack-http-receiver.ts so the receiver class
+// stays focused on lifecycle (HMAC verification, auth.test, port binding)
+// without inflating past the 300-line file budget. Mirrors the
+// slack-egress.ts factoring: any Slack send that BOTH transports could
+// use lives in its own module so SlackChannel and SlackHttpChannel can
+// adopt it without duplication. Today only SlackHttpChannel calls this;
+// the Socket Mode path has its own onboarding DM flow elsewhere.
 //
-// Pulled out of slack-http-receiver.ts so the receiver class stays focused
-// on lifecycle (HMAC verification, auth.test, port binding) without
-// inflating past the 300-line file budget. Mirrors the slack-egress.ts
-// factoring: any Slack send that BOTH transports could use lives in its
-// own module so SlackChannel and SlackHttpChannel can adopt it without
-// duplication. Today only SlackHttpChannel calls this; the Socket Mode
-// path has its own onboarding DM flow elsewhere.
-//
-// The introduction is the user's first contact with their Phantom: they
-// clicked Launch in the wizard, watched the loader for ~25 seconds, and
-// switched to Slack. This DM is what they came for. The copy is the
-// architect plan section 12 (option A) text and changes there should
-// propagate to the test that pins it.
+// The introduction is the user's first contact with the agent: when a
+// hosted operator stamps an installer through the channel install flow,
+// this DM is what the user sees first. The body is pinned by a test
+// (composeIntroductionText test in __tests__). Change here, change
+// there.
 
+import { DEFAULT_METADATA_BASE_URL } from "../config/identity-fetcher.ts";
 import { reportFirstDmSent } from "../tenancy/heartbeat.ts";
 import { redactTokens } from "./slack-http-utils.ts";
 
@@ -32,17 +32,19 @@ export type IntroductionDeps = {
 
 export type IntroductionResult = {
 	// sent is true only when chat.postMessage returned a real ts AND, when
-	// METADATA_BASE_URL is set, the first_dm_sent heartbeat completed
-	// without a thrown exception. Best-effort networking errors against
-	// the metadata gateway are still considered "sent" because the user
-	// has the DM in their Slack; the wizard's failed_first_dm path is
-	// reserved for the Slack-side failure.
+	// the agent is in an HTTP-transport deployment, the first_dm_sent
+	// heartbeat completed without a thrown exception. Best-effort
+	// networking errors against the host metadata gateway are still
+	// considered "sent" because the user has the DM in their Slack; the
+	// caller's failed_first_dm path is reserved for the Slack-side
+	// failure.
 	sent: boolean;
 	messageTs: string | null;
 };
 
 /**
- * Compose and send the introduction DM, then ack the metadata gateway.
+ * Compose and send the introduction DM, then ack the host metadata
+ * gateway when the agent is in an HTTP-transport deployment.
  *
  * Returns { sent: true, messageTs } on success. On any Slack-side
  * failure (no ts returned, exception thrown), returns { sent: false }
@@ -52,7 +54,7 @@ export type IntroductionResult = {
  * is not derailed by a transient Slack hiccup.
  */
 export async function sendIntroductionDm(deps: IntroductionDeps): Promise<IntroductionResult> {
-	const text = composeIntroductionText(deps.phantomName, deps.teamName);
+	const text = composeIntroductionText(deps.phantomName, deps.teamName, resolveDashboardUrl());
 	try {
 		const messageTs = await deps.sendDm(deps.installerUserId, text);
 		if (!messageTs) {
@@ -61,9 +63,16 @@ export async function sendIntroductionDm(deps: IntroductionDeps): Promise<Introd
 		}
 		console.log(`[${INTRODUCTION_LOG_TAG}] sent introduction DM ts=${messageTs}`);
 
-		if (process.env.METADATA_BASE_URL) {
+		// Best-effort attestation to the host metadata gateway. Mirrors
+		// the index.ts agent_ready gate: SLACK_TRANSPORT === "http" is the
+		// signal that there is a listener; the metadata URL falls back to
+		// the same default the channel factory uses so unset
+		// METADATA_BASE_URL is not a gating failure for HTTP-transport
+		// tenants.
+		const slackTransport = process.env.SLACK_TRANSPORT;
+		if (slackTransport === "http") {
 			await reportFirstDmSent({
-				metadataBaseUrl: process.env.METADATA_BASE_URL,
+				metadataBaseUrl: process.env.METADATA_BASE_URL ?? DEFAULT_METADATA_BASE_URL,
 				slackMessageTs: messageTs,
 			});
 		}
@@ -76,10 +85,11 @@ export async function sendIntroductionDm(deps: IntroductionDeps): Promise<Introd
 }
 
 // composeIntroductionText is exported for the test that pins the copy.
-// The literal here is the architect plan section 12 (option A); changes
-// to that section should propagate here and to the test.
-export function composeIntroductionText(phantomName: string, teamName: string): string {
-	return [
+// dashboardUrl is optional: when unset, the "manage me" line is omitted
+// so self-hosters who do not have a management URL are not pointed at a
+// dashboard they cannot reach. When set, the line appears verbatim.
+export function composeIntroductionText(phantomName: string, teamName: string, dashboardUrl?: string): string {
+	const lines = [
 		`Hi! I'm ${phantomName}. I'm now connected to ${teamName}.`,
 		"",
 		"Reply to this DM to start a conversation, or @-mention me in any channel.",
@@ -88,7 +98,27 @@ export function composeIntroductionText(phantomName: string, teamName: string): 
 		'  - "What can you do?"',
 		'  - "Tell me about my workspace."',
 		'  - "Read the latest in #general."',
-		"",
-		"You can manage me at https://ghostwright.dev/phantom/dashboard.",
-	].join("\n");
+	];
+	if (dashboardUrl) {
+		lines.push("", `You can manage me at ${dashboardUrl}.`);
+	}
+	return lines.join("\n");
+}
+
+// resolveDashboardUrl reads PHANTOM_DASHBOARD_URL and validates it as a
+// well-formed URL. Operators set this in the agent's environment when
+// the deployment has a management surface; self-hosters leave it unset
+// and the "manage me" line is dropped from the introduction. A malformed
+// value is logged and dropped so a misconfigured env var cannot inject
+// unparseable text into a user-facing DM.
+function resolveDashboardUrl(): string | undefined {
+	const raw = process.env.PHANTOM_DASHBOARD_URL?.trim();
+	if (!raw) return undefined;
+	try {
+		new URL(raw);
+		return raw;
+	} catch {
+		console.warn(`[${INTRODUCTION_LOG_TAG}] PHANTOM_DASHBOARD_URL is not a valid URL; dropping the manage-me line`);
+		return undefined;
+	}
 }

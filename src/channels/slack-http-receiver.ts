@@ -1,8 +1,9 @@
-// Phase 5b: HTTP receiver mode for Phantom Cloud tenants. Slack events are
-// captured by a shared central gateway (phantom-slack-events), verified
-// against Slack's signing secret there, then forwarded over HTTPS to the
-// per-tenant Phantom on this VM. Self-hosters keep the Socket Mode flow at
-// `slack.ts`; SLACK_TRANSPORT=http opts a tenant into this class.
+// HTTP receiver mode for hosted, operator-managed deployments. Slack
+// events are captured by a shared central gateway, verified against
+// Slack's signing secret there, then forwarded over HTTPS to the
+// per-deployment Phantom on this VM. Self-hosters keep the Socket Mode
+// flow at `slack.ts`; SLACK_TRANSPORT=http opts a deployment into this
+// class.
 //
 // Three security layers operate at this boundary:
 //   1. Caddy validates the gateway HMAC and strips inbound X-Phantom-* headers.
@@ -82,9 +83,10 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 	private connectionState: ConnectionState = "disconnected";
 	private botUserId: string | null = null;
 	private phantomName = "Phantom";
-	// Phase B.1.4: instance-level guard against re-introducing the agent
-	// after a transient disconnect+reconnect. A process restart resets it
-	// (intentional: fresh user-visible DM beats silent UX failure).
+	// Instance-level guard against re-introducing the agent after a
+	// transient disconnect plus reconnect. A process restart resets the
+	// flag intentionally: a fresh user-visible DM beats a silent UX
+	// failure when the operator has had to restart the channel.
 	private firstDmSent = false;
 
 	constructor(config: SlackHttpChannelConfig) {
@@ -237,9 +239,9 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 			throw err;
 		}
 
-		// Phase B.1.4: synthetic first DM. Fire after receiver.start so the
-		// channel is wired before the user can reply; gate on firstDmSent so
-		// a reconnect-after-drop does not re-introduce.
+		// Synthetic first DM. Fire after receiver.start so the channel is
+		// wired before the user can reply; gate on firstDmSent so a
+		// reconnect-after-drop does not re-introduce.
 		if (!this.firstDmSent && this.installerUserId) {
 			const result = await sendIntroductionDm({
 				phantomName: this.phantomName,

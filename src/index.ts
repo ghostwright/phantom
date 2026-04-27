@@ -16,6 +16,7 @@ import type { SlackTransport } from "./channels/slack-transport.ts";
 import { createStatusReactionController } from "./channels/status-reactions.ts";
 import { TelegramChannel } from "./channels/telegram.ts";
 import { WebhookChannel } from "./channels/webhook.ts";
+import { DEFAULT_METADATA_BASE_URL } from "./config/identity-fetcher.ts";
 import { loadChannelsConfig, loadConfig } from "./config/loader.ts";
 import { installShutdownHandlers, onShutdown } from "./core/graceful.ts";
 import {
@@ -333,17 +334,20 @@ async function main(): Promise<void> {
 		router.register(slackChannel);
 		console.log(`[phantom] Slack channel registered (transport=${process.env.SLACK_TRANSPORT ?? "socket"})`);
 
-		// Phase B.1.4: tell phantomd's metadata gateway the agent is up. The
-		// gateway closes its readiness channel and phantom-control's
-		// WaitTenantReady RPC unblocks, advancing the wizard out of the
-		// "waiting_for_agent_ready" phase. METADATA_BASE_URL is unset on
-		// self-host installs, where this signal has no listener; we skip
-		// silently in that case so the only behavioural change for
-		// self-hosters is zero.
-		if (process.env.METADATA_BASE_URL) {
+		// In an operator-managed deployment the agent posts a best-effort
+		// "ready" signal to the host metadata gateway so the operator's
+		// readiness RPC can unblock and the user-facing wizard advances
+		// out of its waiting state. SLACK_TRANSPORT === "http" is the
+		// signal we are inside such a deployment; self-hosters using
+		// Socket Mode never have a listener for this signal and we skip
+		// silently. The metadata URL falls back to the same default the
+		// channel factory uses so unset METADATA_BASE_URL is not a
+		// gating failure.
+		const slackTransport = process.env.SLACK_TRANSPORT;
+		if (slackTransport === "http") {
 			await reportAgentReady({
-				metadataBaseUrl: process.env.METADATA_BASE_URL,
-				transport: process.env.SLACK_TRANSPORT ?? "socket",
+				metadataBaseUrl: process.env.METADATA_BASE_URL ?? DEFAULT_METADATA_BASE_URL,
+				transport: slackTransport,
 			});
 		}
 	}
