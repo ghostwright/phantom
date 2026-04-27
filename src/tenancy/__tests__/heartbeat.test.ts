@@ -41,25 +41,50 @@ function makeFetchThrows(err: Error): { fn: FetchImpl; calls: RecordedCall[] } {
 
 describe("reportAgentReady", () => {
 	test("POSTs to /v1/tenant_status/agent_ready with the transport in the body", async () => {
-		const { fn, calls } = makeFetchOk();
+		// Bun-version-agnostic mock pattern: override globalThis.fetch
+		// with a plain async function that mutates only scalar locals.
+		// This avoids the closure-captured-array mutation interaction
+		// that surfaced on Bun 1.3.13 in CI when the per-test fetchImpl
+		// double recorded into a shared array. The try/finally restore
+		// is mandatory: a failure mid-test would otherwise leave the
+		// next test running against the stale override.
+		let count = 0;
+		let lastUrl = "";
+		let lastBody = "";
+		let lastMethod = "";
+		let lastContentType = "";
 
-		await reportAgentReady({
-			metadataBaseUrl: "http://169.254.169.254",
-			transport: "http",
-			fetchImpl: fn,
-		});
+		const originalFetch = globalThis.fetch;
+		try {
+			globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+				count++;
+				lastUrl = typeof input === "string" ? input : input.toString();
+				lastBody = String(init?.body ?? "");
+				lastMethod = String(init?.method ?? "");
+				const headers = init?.headers as Record<string, string> | undefined;
+				lastContentType = headers?.["content-type"] ?? "";
+				return new Response(null, { status: 204 });
+			}) as typeof fetch;
 
-		expect(calls.length).toBe(1);
-		const call = calls[0];
-		if (!call) throw new Error("no call");
-		expect(call.url).toBe("http://169.254.169.254/v1/tenant_status/agent_ready");
-		expect(call.init.method).toBe("POST");
-		const headers = call.init.headers as Record<string, string>;
-		expect(headers["content-type"]).toBe("application/json");
-		// The host gateway parses ONLY the `transport` field out of the
-		// agent_ready body. Any extra fields are ignored.
-		const body = JSON.parse(call.init.body as string);
-		expect(body).toEqual({ transport: "http" });
+			await reportAgentReady({
+				metadataBaseUrl: "http://169.254.169.254",
+				transport: "http",
+				// no fetchImpl: exercise the globalThis.fetch fallback
+				// path, which is also production-relevant (heartbeat.ts
+				// uses globalThis.fetch when opts.fetchImpl is
+				// undefined).
+			});
+
+			expect(count).toBe(1);
+			expect(lastUrl).toBe("http://169.254.169.254/v1/tenant_status/agent_ready");
+			expect(lastMethod).toBe("POST");
+			expect(lastContentType).toBe("application/json");
+			// The host gateway parses ONLY the `transport` field out of
+			// the agent_ready body. Any extra fields are ignored.
+			expect(JSON.parse(lastBody)).toEqual({ transport: "http" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
 	});
 
 	test("trims a trailing slash on the base URL so the gateway mux matches", async () => {
@@ -105,23 +130,45 @@ describe("reportAgentReady", () => {
 
 describe("reportFirstDmSent", () => {
 	test("POSTs to /v1/tenant_status/first_dm_sent with the slack_message_ts", async () => {
-		const { fn, calls } = makeFetchOk();
+		// Bun-version-agnostic mock pattern (see reportAgentReady's
+		// "POSTs to ..." test for the rationale). Scalar locals only;
+		// no closure-captured array. Restore in finally is mandatory.
+		let count = 0;
+		let lastUrl = "";
+		let lastBody = "";
+		let lastMethod = "";
+		let lastContentType = "";
 
-		await reportFirstDmSent({
-			metadataBaseUrl: "http://169.254.169.254",
-			slackMessageTs: "1715000000.000123",
-			fetchImpl: fn,
-		});
+		const originalFetch = globalThis.fetch;
+		try {
+			globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+				count++;
+				lastUrl = typeof input === "string" ? input : input.toString();
+				lastBody = String(init?.body ?? "");
+				lastMethod = String(init?.method ?? "");
+				const headers = init?.headers as Record<string, string> | undefined;
+				lastContentType = headers?.["content-type"] ?? "";
+				return new Response(null, { status: 204 });
+			}) as typeof fetch;
 
-		expect(calls.length).toBe(1);
-		const call = calls[0];
-		if (!call) throw new Error("no call");
-		expect(call.url).toBe("http://169.254.169.254/v1/tenant_status/first_dm_sent");
-		expect(call.init.method).toBe("POST");
-		// The host gateway 400s if slack_message_ts is empty. We send
-		// only that field to match the parsed envelope shape exactly.
-		const body = JSON.parse(call.init.body as string);
-		expect(body).toEqual({ slack_message_ts: "1715000000.000123" });
+			await reportFirstDmSent({
+				metadataBaseUrl: "http://169.254.169.254",
+				slackMessageTs: "1715000000.000123",
+				// no fetchImpl: exercise the globalThis.fetch fallback
+				// path.
+			});
+
+			expect(count).toBe(1);
+			expect(lastUrl).toBe("http://169.254.169.254/v1/tenant_status/first_dm_sent");
+			expect(lastMethod).toBe("POST");
+			expect(lastContentType).toBe("application/json");
+			// The host gateway 400s if slack_message_ts is empty. We
+			// send only that field to match the parsed envelope shape
+			// exactly.
+			expect(JSON.parse(lastBody)).toEqual({ slack_message_ts: "1715000000.000123" });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
 	});
 
 	test("skips the POST when slack_message_ts is empty (caller must guard)", async () => {

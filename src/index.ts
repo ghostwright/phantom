@@ -309,8 +309,9 @@ async function main(): Promise<void> {
 	//     code path requires that subfield to be populated, otherwise the
 	//     factory throws so a mis-provisioned tenant fails loudly.
 	const channelsConfig = loadChannelsConfig();
+	const slackTransport = readSlackTransportFromEnv();
 	const slackChannel: SlackTransport | null = await createSlackChannel({
-		transport: readSlackTransportFromEnv(),
+		transport: slackTransport,
 		channelsConfig,
 		port: config.port,
 		metadataBaseUrl: process.env.METADATA_BASE_URL,
@@ -332,18 +333,19 @@ async function main(): Promise<void> {
 		});
 
 		router.register(slackChannel);
-		console.log(`[phantom] Slack channel registered (transport=${process.env.SLACK_TRANSPORT ?? "socket"})`);
+		console.log(`[phantom] Slack channel registered (transport=${slackTransport})`);
 
 		// In an operator-managed deployment the agent posts a best-effort
 		// "ready" signal to the host metadata gateway so the operator's
 		// readiness RPC can unblock and the user-facing wizard advances
-		// out of its waiting state. SLACK_TRANSPORT === "http" is the
-		// signal we are inside such a deployment; self-hosters using
+		// out of its waiting state. The factory and the gate share the
+		// SAME normalized transport value (via readSlackTransportFromEnv)
+		// so a whitespace-padded SLACK_TRANSPORT does not boot the HTTP
+		// receiver while skipping the heartbeat. Self-hosters using
 		// Socket Mode never have a listener for this signal and we skip
 		// silently. The metadata URL falls back to the same default the
 		// channel factory uses so unset METADATA_BASE_URL is not a
 		// gating failure.
-		const slackTransport = process.env.SLACK_TRANSPORT;
 		if (slackTransport === "http") {
 			await reportAgentReady({
 				metadataBaseUrl: process.env.METADATA_BASE_URL ?? DEFAULT_METADATA_BASE_URL,

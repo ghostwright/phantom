@@ -15,6 +15,7 @@
 
 import { DEFAULT_METADATA_BASE_URL } from "../config/identity-fetcher.ts";
 import { reportFirstDmSent } from "../tenancy/heartbeat.ts";
+import { readSlackTransportFromEnv } from "./slack-channel-factory.ts";
 import { redactTokens } from "./slack-http-utils.ts";
 
 const INTRODUCTION_LOG_TAG = "slack-introduction";
@@ -64,13 +65,16 @@ export async function sendIntroductionDm(deps: IntroductionDeps): Promise<Introd
 		console.log(`[${INTRODUCTION_LOG_TAG}] sent introduction DM ts=${messageTs}`);
 
 		// Best-effort attestation to the host metadata gateway. Mirrors
-		// the index.ts agent_ready gate: SLACK_TRANSPORT === "http" is the
-		// signal that there is a listener; the metadata URL falls back to
-		// the same default the channel factory uses so unset
+		// the index.ts agent_ready gate: HTTP transport is the signal
+		// that there is a listener; the metadata URL falls back to the
+		// same default the channel factory uses so unset
 		// METADATA_BASE_URL is not a gating failure for HTTP-transport
-		// tenants.
-		const slackTransport = process.env.SLACK_TRANSPORT;
-		if (slackTransport === "http") {
+		// tenants. The transport read goes through
+		// readSlackTransportFromEnv so a whitespace-padded
+		// SLACK_TRANSPORT (e.g. "  http  ") that boots the HTTP receiver
+		// also fires this heartbeat; the raw env read missed that case
+		// and left activation pending despite a successful DM.
+		if (readSlackTransportFromEnv() === "http") {
 			await reportFirstDmSent({
 				metadataBaseUrl: process.env.METADATA_BASE_URL ?? DEFAULT_METADATA_BASE_URL,
 				slackMessageTs: messageTs,

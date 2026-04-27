@@ -211,6 +211,41 @@ describe("sendIntroductionDm", () => {
 		expect(heartbeatCalls.length).toBe(0);
 	});
 
+	test("acks first_dm_sent when SLACK_TRANSPORT is whitespace-padded http (trim parity with factory)", async () => {
+		// readSlackTransportFromEnv() trims before deciding transport, so
+		// SLACK_TRANSPORT="  http  " selects the HTTP receiver. The gate
+		// here must use the same normalization or the heartbeat is
+		// skipped while the receiver runs, leaving activation pending.
+		process.env.SLACK_TRANSPORT = "  http  ";
+		const sendDm = mock(async () => "1715000000.000902" as string | null);
+		const result = await sendIntroductionDm({
+			phantomName: "Maple",
+			teamName: "Acme",
+			installerUserId: "U_INSTALLER",
+			sendDm,
+		});
+
+		expect(result.sent).toBe(true);
+		expect(heartbeatCalls.length).toBe(1);
+		const call = heartbeatCalls[0];
+		if (!call) throw new Error("no heartbeat");
+		expect(call.slackMessageTs).toBe("1715000000.000902");
+	});
+
+	test("skips first_dm_sent when SLACK_TRANSPORT is empty string (treated as socket default)", async () => {
+		process.env.SLACK_TRANSPORT = "";
+		const sendDm = mock(async () => "1715000000.000903" as string | null);
+		const result = await sendIntroductionDm({
+			phantomName: "Maple",
+			teamName: "Acme",
+			installerUserId: "U_INSTALLER",
+			sendDm,
+		});
+
+		expect(result.sent).toBe(true);
+		expect(heartbeatCalls.length).toBe(0);
+	});
+
 	test("returns sent:false and skips heartbeat when sendDm returns null (Slack rate limit)", async () => {
 		const sendDm = mock(async () => null);
 		const result = await sendIntroductionDm({
