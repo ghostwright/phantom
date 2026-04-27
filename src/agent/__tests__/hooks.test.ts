@@ -210,4 +210,81 @@ describe("createDangerousCommandBlocker", () => {
 
 		expect(result).toEqual({ continue: true });
 	});
+
+	test("allows heredoc body that names a forbidden phrase as data", async () => {
+		const hook = createDangerousCommandBlocker();
+		const callback = hook.hooks[0];
+
+		const result = await callback(
+			makeHookInput({
+				hook_event_name: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: {
+					command: "cat > note.md <<EOF\nReminder: git push --force is forbidden\nEOF",
+				},
+			}),
+			undefined,
+			{ signal: new AbortController().signal },
+		);
+
+		expect(result).toEqual({ continue: true });
+	});
+
+	test("allows heredoc with quoted delimiter and dangerous-looking body", async () => {
+		const hook = createDangerousCommandBlocker();
+		const callback = hook.hooks[0];
+
+		const result = await callback(
+			makeHookInput({
+				hook_event_name: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: {
+					command:
+						"node <<'NODEEOF'\n// repro: docker compose down should not be triggered\nconsole.log('ok');\nNODEEOF",
+				},
+			}),
+			undefined,
+			{ signal: new AbortController().signal },
+		);
+
+		expect(result).toEqual({ continue: true });
+	});
+
+	test("blocks real dangerous command outside the heredoc", async () => {
+		const hook = createDangerousCommandBlocker();
+		const callback = hook.hooks[0];
+
+		const result = await callback(
+			makeHookInput({
+				hook_event_name: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: {
+					command: "cat > note.md <<EOF\nharmless body\nEOF\ngit push --force origin main",
+				},
+			}),
+			undefined,
+			{ signal: new AbortController().signal },
+		);
+
+		expect(result).toHaveProperty("decision", "block");
+	});
+
+	test("blocks dash-stripped heredoc opener with real dangerous trailing command", async () => {
+		const hook = createDangerousCommandBlocker();
+		const callback = hook.hooks[0];
+
+		const result = await callback(
+			makeHookInput({
+				hook_event_name: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: {
+					command: "cat <<-EOF\n\tharmless body\n\tEOF\nrm -rf /",
+				},
+			}),
+			undefined,
+			{ signal: new AbortController().signal },
+		);
+
+		expect(result).toHaveProperty("decision", "block");
+	});
 });
