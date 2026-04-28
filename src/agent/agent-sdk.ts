@@ -17,6 +17,7 @@ import type {
 	SDKSystemMessage,
 	SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import { resolveAgentSdkRuntime } from "./agent-sdk-loader.ts";
 
 export type {
 	HookCallbackMatcher,
@@ -30,18 +31,25 @@ export type {
 	SDKUserMessage,
 };
 
-export const createSdkMcpServer = anthropicCreateSdkMcpServer;
-export const tool = anthropicTool;
-
 export type AgentSdkQueryParams = Parameters<typeof anthropicQuery>[0];
 export type AgentSdkQuery = (params: AgentSdkQueryParams) => Query;
 
-let activeQuery: AgentSdkQuery = anthropicQuery;
+const defaultRuntime = {
+	query: anthropicQuery,
+	createSdkMcpServer: anthropicCreateSdkMcpServer,
+	tool: anthropicTool,
+};
+const runtime = await resolveAgentSdkRuntime({ defaultRuntime, env: process.env });
+
+export const createSdkMcpServer = runtime.createSdkMcpServer;
+export const tool = runtime.tool;
+
+let activeQuery: AgentSdkQuery = runtime.query;
 
 export function query(params: AgentSdkQueryParams): Query {
 	return activeQuery(params);
 }
 
 export function __setAgentSdkQueryForTests(queryOverride: AgentSdkQuery | null): void {
-	activeQuery = queryOverride ?? anthropicQuery;
+	activeQuery = queryOverride ?? runtime.query;
 }

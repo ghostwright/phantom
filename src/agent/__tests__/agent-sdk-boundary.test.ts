@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { AGENT_SDK_MODULE_ENV } from "../agent-sdk-loader.ts";
 import {
 	type AgentSdkQueryParams,
 	type Query,
@@ -86,11 +89,73 @@ describe("Agent SDK boundary", () => {
 		}
 	});
 
+	test("resets scoped query overrides to the env-loaded runtime", () => {
+		const dir = mkdtempSync(join(tmpdir(), "phantom-agent-sdk-"));
+		try {
+			const fakeModule = join(dir, "fake-sdk.mjs");
+			writeFileSync(
+				fakeModule,
+				`
+					export function query() {
+						return (async function* () {
+							yield { type: "result", subtype: "success", result: "env-runtime" };
+						})();
+					}
+				`,
+			);
+
+			const script = `
+				const { query, __setAgentSdkQueryForTests } = await import(${JSON.stringify(pathToFileURL(join(SRC_ROOT, BOUNDARY_FILE)).href)});
+				function overrideQuery() {
+					return (async function* () {
+						yield { type: "result", subtype: "success", result: "override-runtime" };
+					})();
+				}
+				__setAgentSdkQueryForTests(overrideQuery);
+				const overrideMessages = [];
+				for await (const message of query({ prompt: "override" })) overrideMessages.push(message);
+				__setAgentSdkQueryForTests(null);
+				const resetMessages = [];
+				for await (const message of query({ prompt: "reset" })) resetMessages.push(message);
+				console.log(JSON.stringify({
+					override: overrideMessages.map((message) => message.result),
+					reset: resetMessages.map((message) => message.result),
+				}));
+			`;
+			const result = spawnSync(process.execPath, ["-e", script], {
+				cwd: join(SRC_ROOT, ".."),
+				encoding: "utf8",
+				env: {
+					...process.env,
+					[AGENT_SDK_MODULE_ENV]: pathToFileURL(fakeModule).href,
+				},
+			});
+
+			if (result.status !== 0) {
+				throw new Error(result.stderr || result.stdout);
+			}
+			const output = JSON.parse(result.stdout.trim()) as { override: string[]; reset: string[] };
+			expect(output).toEqual({ override: ["override-runtime"], reset: ["env-runtime"] });
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	test("keeps direct Agent SDK imports isolated to the boundary module", () => {
+		const packagePattern = "@anthropic-ai/claude-agent-sdk(?:/[^\"'`\\s)]*)?";
+		const directAgentSdkReference = new RegExp(
+			[
+				`from\\s+["']${packagePattern}["']`,
+				`import\\s+["']${packagePattern}["']`,
+				`import\\s*\\(\\s*["']${packagePattern}["']\\s*\\)`,
+				`(?:require|Bun\\.require|module\\.require)\\s*\\(\\s*["']${packagePattern}["']\\s*\\)`,
+				`createRequire\\s*\\([^)]*\\)\\s*\\(\\s*["']${packagePattern}["']\\s*\\)`,
+			].join("|"),
+		);
 		const offenders = listTypeScriptFiles(SRC_ROOT)
 			.map((path) => ({ path, rel: relative(SRC_ROOT, path), source: readFileSync(path, "utf-8") }))
 			.filter(({ rel }) => rel !== BOUNDARY_FILE)
-			.filter(({ source }) => /from\s+["']@anthropic-ai\/claude-agent-sdk["']/.test(source))
+			.filter(({ source }) => directAgentSdkReference.test(source))
 			.map(({ rel }) => rel);
 
 		expect(offenders).toEqual([]);
