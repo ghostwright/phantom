@@ -44,10 +44,10 @@
 //     reference at the `createConnection` boundary. Any change to this line
 //     should preserve that single-point widening.
 
-import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createConnection } from "@playwright/mcp";
 import type { BrowserContext } from "playwright";
+import type { McpSdkServerConfigWithInstance } from "../agent/agent-sdk.ts";
 
 // @playwright/mcp's createConnection declares contextGetter against the
 // hoisted playwright-core@1.60.0-alpha types, while our callers hold a

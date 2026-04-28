@@ -1,7 +1,7 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod/v4";
 import { buildProviderEnv } from "../config/providers.ts";
 import type { PhantomConfig } from "../config/types.ts";
+import { query } from "./agent-sdk.ts";
 import { extractTextFromMessage } from "./message-utils.ts";
 import { getThinkingConfig } from "./thinking-config.ts";
 

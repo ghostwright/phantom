@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { HookInput } from "@anthropic-ai/claude-agent-sdk";
+import type { HookInput } from "../agent-sdk.ts";
 import { createDangerousCommandBlocker, createFileTracker } from "../hooks.ts";
 
 function makeHookInput(overrides: Record<string, unknown>): HookInput {

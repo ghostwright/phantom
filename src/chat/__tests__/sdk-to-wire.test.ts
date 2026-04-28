@@ -315,6 +315,15 @@ describe("sdk-to-wire translator", () => {
 		expect(frames[0].event).toBe("session.suggestion");
 	});
 
+	test("prompt_suggestion accepts prompt field from SDK-compatible runtimes", () => {
+		const ctx = makeCtx();
+		const frames = translateSdkMessage({ type: "prompt_suggestion", prompt: "Try the next step" }, ctx);
+		expect(frames.length).toBe(1);
+		if (frames[0].event === "session.suggestion") {
+			expect(frames[0].suggestion).toBe("Try the next step");
+		}
+	});
+
 	test("tool_progress -> tool_call_running", () => {
 		const ctx = makeCtx();
 		const frames = translateSdkMessage(
@@ -323,6 +332,15 @@ describe("sdk-to-wire translator", () => {
 		);
 		expect(frames.length).toBe(1);
 		expect(frames[0].event).toBe("message.tool_call_running");
+	});
+
+	test("tool_progress accepts elapsed_ms from SDK-compatible runtimes", () => {
+		const ctx = makeCtx();
+		const frames = translateSdkMessage({ type: "tool_progress", tool_use_id: "tu_1", elapsed_ms: 1250 }, ctx);
+		expect(frames.length).toBe(1);
+		if (frames[0].event === "message.tool_call_running") {
+			expect(frames[0].elapsed_seconds).toBe(1.25);
+		}
 	});
 
 	test("rate_limit_event -> session.rate_limit", () => {
@@ -336,6 +354,23 @@ describe("sdk-to-wire translator", () => {
 		);
 		expect(frames.length).toBe(1);
 		expect(frames[0].event).toBe("session.rate_limit");
+	});
+
+	test("rate_limit_event accepts rate_limit from SDK-compatible runtimes", () => {
+		const ctx = makeCtx();
+		const frames = translateSdkMessage(
+			{
+				type: "rate_limit_event",
+				rate_limit: { status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.82 },
+			},
+			ctx,
+		);
+		expect(frames.length).toBe(1);
+		if (frames[0].event === "session.rate_limit") {
+			expect(frames[0].status).toBe("allowed_warning");
+			expect(frames[0].rate_limit_type).toBe("five_hour");
+			expect(frames[0].utilization).toBe(0.82);
+		}
 	});
 
 	test("unknown message type -> empty", () => {

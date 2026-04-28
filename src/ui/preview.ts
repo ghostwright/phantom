@@ -16,11 +16,10 @@
 // is what lets the agent mix `phantom_preview_page` with `browser_click` and
 // `browser_snapshot` against its own /ui/ pages without re-authenticating.
 
-import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
-import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { Browser, BrowserContext } from "playwright";
 import { chromium } from "playwright";
 import { z } from "zod";
+import { type McpSdkServerConfigWithInstance, createSdkMcpServer, tool } from "../agent/agent-sdk.ts";
 import { createPreviewSession } from "./session.ts";
 
 let browser: Browser | null = null;

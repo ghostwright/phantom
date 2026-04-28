@@ -3,7 +3,7 @@
 // on CI (the agent SDK imports MessageParam from a transitive dep that
 // does not reliably hoist in all package managers).
 
-import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKUserMessage } from "./agent-sdk.ts";
 
 type MessageParam = SDKUserMessage["message"];
 

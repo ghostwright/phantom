@@ -1,6 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { McpServerConfig, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { type McpServerConfig, type SDKMessage, type SDKUserMessage, query } from "./agent-sdk.ts";
 
 type MessageParam = SDKUserMessage["message"];
 import { buildProviderEnv } from "../config/providers.ts";
