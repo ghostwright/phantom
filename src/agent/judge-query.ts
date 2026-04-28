@@ -164,6 +164,7 @@ export async function runJudgeQuery<T>(
 			systemPrompt,
 			maxTurns: 1,
 			effort: "low",
+			thinking: { type: "adaptive" as const },
 			persistSession: false,
 			env: { ...process.env, ...providerEnv },
 		},

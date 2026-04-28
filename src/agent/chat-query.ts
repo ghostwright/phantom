@@ -106,6 +106,7 @@ export async function executeChatQuery(
 				},
 				persistSession: true,
 				effort: deps.config.effort,
+				thinking: { type: "adaptive" as const },
 				includePartialMessages: true,
 				agentProgressSummaries: true,
 				promptSuggestions: true,
