@@ -156,4 +156,145 @@ describe("WebhookChannel", () => {
 		await channel2.disconnect();
 		expect(channel2.isConnected()).toBe(false);
 	});
+
+	// Test 1: sync timeout returns 202 with task_id (not 504)
+	test("sync timeout returns 202 Accepted with task_id", async () => {
+		// Setup handler that never responds (simulates slow agent)
+		const handler = mock(async () => {
+			// Never resolve - will timeout
+			await new Promise(() => {});
+		});
+		channel.onMessage(handler);
+
+		// Build valid request
+		const timestamp = Date.now();
+		const bodyWithoutSig = JSON.stringify({
+			message: "test message",
+			conversation_id: "conv1",
+			timestamp,
+		});
+		const signature = signPayload(bodyWithoutSig, timestamp, testConfig.secret);
+		const body = JSON.stringify({
+			message: "test message",
+			conversation_id: "conv1",
+			timestamp,
+			signature,
+		});
+
+		const req = new Request("http://localhost/webhook", {
+			method: "POST",
+			body,
+			headers: { "Content-Type": "application/json" },
+		});
+
+		const res = await channel.handleRequest(req);
+		const data = (await res.json()) as { status: string; task_id?: string };
+
+		// Should return 202 Accepted with task_id, not 504
+		expect(res.status).toBe(202);
+		expect(data.status).toBe("accepted");
+		expect(data.task_id).toBeDefined();
+		expect(typeof data.task_id).toBe("string");
+	});
+
+	// Test 2: poll returns response after agent completes
+	test("poll returns completed response", async () => {
+		let resolveHandler: ((value: undefined) => void) | null = null;
+		const handlerPromise = new Promise<void>((resolve) => {
+			resolveHandler = resolve;
+		});
+
+		// Setup handler that completes after we control it
+		const handler = mock(async () => {
+			await handlerPromise;
+		});
+		channel.onMessage(handler);
+
+		// Send request that will timeout
+		const timestamp = Date.now();
+		const bodyWithoutSig = JSON.stringify({
+			message: "test message",
+			conversation_id: "conv2",
+			timestamp,
+		});
+		const signature = signPayload(bodyWithoutSig, timestamp, testConfig.secret);
+		const body = JSON.stringify({
+			message: "test message",
+			conversation_id: "conv2",
+			timestamp,
+			signature,
+		});
+
+		const req = new Request("http://localhost/webhook", {
+			method: "POST",
+			body,
+			headers: { "Content-Type": "application/json" },
+		});
+
+		const res = await channel.handleRequest(req);
+		const data = (await res.json()) as { status: string; task_id?: string };
+		expect(res.status).toBe(202);
+		const taskId = data.task_id as string;
+
+		// Now simulate agent completing
+		await channel.send("webhook:conv2", { text: "Agent response" });
+		resolveHandler?.();
+
+		// Poll for the result
+		const pollReq = new Request(`http://localhost/webhook/poll?task_id=${taskId}`, {
+			method: "GET",
+		});
+		const pollRes = await channel.handlePollRequest(pollReq);
+		const pollData = (await pollRes.json()) as { status: string; response?: string };
+
+		expect(pollRes.status).toBe(200);
+		expect(pollData.status).toBe("ok");
+		expect(pollData.response).toBe("Agent response");
+	});
+
+	test("poll returns 202 while still processing", async () => {
+		const shortChannel = new WebhookChannel({ secret: testConfig.secret, syncTimeoutMs: 100 });
+		await shortChannel.connect();
+
+		// Handler that never resolves
+		shortChannel.onMessage(async () => {
+			await new Promise(() => {}); // never resolves
+		});
+
+		const timestamp = Date.now();
+		const bodyObj = { message: "hello", conversation_id: "conv3", timestamp, user_id: "u1" };
+		const bodyWithoutSig = JSON.stringify(bodyObj);
+		const sig = signPayload(bodyWithoutSig, timestamp, testConfig.secret);
+		const body = JSON.stringify({ ...bodyObj, signature: sig });
+
+		const req = new Request("http://localhost/webhook", {
+			method: "POST",
+			body,
+			headers: { "Content-Type": "application/json" },
+		});
+
+		const res = await shortChannel.handleRequest(req);
+		const data = (await res.json()) as { status: string; task_id?: string };
+		expect(res.status).toBe(202);
+		const taskId = data.task_id as string;
+
+		// Poll before agent completes - should be 202
+		const pollReq = new Request(`http://localhost/webhook/poll?task_id=${taskId}`);
+		const pollRes = await shortChannel.handlePollRequest(pollReq);
+		expect(pollRes.status).toBe(202);
+	});
+
+	test("poll returns 404 for unknown task_id", async () => {
+		const pollReq = new Request("http://localhost/webhook/poll?task_id=nonexistent");
+		const pollRes = await channel.handlePollRequest(pollReq);
+		expect(pollRes.status).toBe(404);
+		const data = (await pollRes.json()) as { message: string };
+		expect(data.message).toBe("Unknown task_id");
+	});
+
+	test("poll returns 400 without task_id", async () => {
+		const pollReq = new Request("http://localhost/webhook/poll");
+		const pollRes = await channel.handlePollRequest(pollReq);
+		expect(pollRes.status).toBe(400);
+	});
 });
