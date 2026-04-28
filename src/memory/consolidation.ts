@@ -105,11 +105,27 @@ function calculateImportance(data: SessionData): number {
 function extractFactsFromSession(data: SessionData, episodeId: string): SemanticFact[] {
 	const facts: SemanticFact[] = [];
 	const now = new Date().toISOString();
+	const seenNormalizedTexts = new Set<string>();
 
 	for (const message of data.userMessages) {
+		const wordCount = countWords(message);
+		if (wordCount < 5 || wordCount > 150) {
+			continue;
+		}
+
+		if (isTruncated(message)) {
+			continue;
+		}
+
+		const normalizedText = normalizeFactText(message);
+		if (seenNormalizedTexts.has(normalizedText)) {
+			continue;
+		}
+
 		const lower = message.toLowerCase();
 
 		if (matchesCorrectionPattern(lower)) {
+			seenNormalizedTexts.add(normalizedText);
 			facts.push({
 				id: crypto.randomUUID(),
 				subject: "user_correction",
@@ -117,7 +133,7 @@ function extractFactsFromSession(data: SessionData, episodeId: string): Semantic
 				object: message.slice(0, 200),
 				natural_language: message.slice(0, 300),
 				source_episode_ids: [episodeId],
-				confidence: 0.8,
+				confidence: 0.4,
 				valid_from: now,
 				valid_until: null,
 				version: 1,
@@ -128,6 +144,7 @@ function extractFactsFromSession(data: SessionData, episodeId: string): Semantic
 		}
 
 		if (matchesPreferencePattern(lower)) {
+			seenNormalizedTexts.add(normalizedText);
 			facts.push({
 				id: crypto.randomUUID(),
 				subject: "user",
@@ -135,7 +152,7 @@ function extractFactsFromSession(data: SessionData, episodeId: string): Semantic
 				object: message.slice(0, 200),
 				natural_language: message.slice(0, 300),
 				source_episode_ids: [episodeId],
-				confidence: 0.9,
+				confidence: 0.4,
 				valid_from: now,
 				valid_until: null,
 				version: 1,
@@ -147,4 +164,25 @@ function extractFactsFromSession(data: SessionData, episodeId: string): Semantic
 	}
 
 	return facts;
+}
+
+function countWords(text: string): number {
+	return text
+		.trim()
+		.split(/\s+/)
+		.filter((word) => word.length > 0).length;
+}
+
+function isTruncated(text: string): boolean {
+	const trimmed = text.trim();
+	if (trimmed.length === 0) {
+		return false;
+	}
+	const lastChar = trimmed[trimmed.length - 1];
+	const endsWithPunctuation = /[.!?;:]/.test(lastChar);
+	return !endsWithPunctuation;
+}
+
+function normalizeFactText(text: string): string {
+	return text.toLowerCase().replace(/\s+/g, " ").trim();
 }
