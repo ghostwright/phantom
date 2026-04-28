@@ -249,6 +249,18 @@ describe("sdk-to-wire translator", () => {
 
 	test("stream_event content_block_delta input_json_delta -> tool_call_input_delta", () => {
 		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_start",
+					content_block: { type: "tool_use", id: "toolu_abc", name: "Read" },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
 		const frames = translateSdkMessage(
 			{
 				type: "stream_event",
@@ -262,6 +274,23 @@ describe("sdk-to-wire translator", () => {
 			ctx,
 		);
 		expect(frames.some((f) => f.event === "message.tool_call_input_delta")).toBe(true);
+	});
+
+	test("stream_event unanchored input_json_delta is dropped", () => {
+		const ctx = makeCtx();
+		const frames = translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_delta",
+					delta: { type: "input_json_delta", partial_json: '{"f' },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(frames.some((f) => f.event === "message.tool_call_input_delta")).toBe(false);
 	});
 
 	test("stream_event message_stop -> assistant_end", () => {
@@ -452,6 +481,151 @@ describe("sdk-to-wire translator", () => {
 		);
 		expect(frames.length).toBe(1);
 		expect(frames[0].event).toBe("message.tool_call_input_end");
+		if (frames[0].event === "message.tool_call_input_end") {
+			expect(frames[0].input).toEqual({});
+		}
+	});
+
+	test("content_block_stop emits parsed streamed tool input", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_start",
+					content_block: { type: "tool_use", id: "toolu_abc", name: "Read" },
+					index: 2,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_delta",
+					delta: { type: "input_json_delta", partial_json: '{"file_path"' },
+					index: 2,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_delta",
+					delta: { type: "input_json_delta", partial_json: ':"/tmp/a.txt"}' },
+					index: 2,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		const frames = translateSdkMessage(
+			{ type: "stream_event", event: { type: "content_block_stop", index: 2 }, parent_tool_use_id: null },
+			ctx,
+		);
+		expect(frames.length).toBe(1);
+		expect(frames[0].event).toBe("message.tool_call_input_end");
+		if (frames[0].event === "message.tool_call_input_end") {
+			expect(frames[0].input).toEqual({ file_path: "/tmp/a.txt" });
+		}
+	});
+
+	test("stream_event + assistant combined: completed streamed tool input is not duplicated", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_start",
+					content_block: { type: "tool_use", id: "toolu_abc", name: "Read" },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_delta",
+					delta: { type: "input_json_delta", partial_json: '{"file":"/tmp/x"}' },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{ type: "stream_event", event: { type: "content_block_stop", index: 0 }, parent_tool_use_id: null },
+			ctx,
+		);
+		const frames = translateSdkMessage(
+			{
+				type: "assistant",
+				message: {
+					content: [{ type: "tool_use", id: "toolu_abc", name: "Read", input: { file: "/tmp/x" } }],
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(frames.some((f) => f.event === "message.tool_call_start")).toBe(false);
+		expect(frames.some((f) => f.event === "message.tool_call_input_end")).toBe(false);
+	});
+
+	test("stream_event + assistant combined: invalid streamed tool JSON defers to final assistant input", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_start",
+					content_block: { type: "tool_use", id: "toolu_abc", name: "Read" },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_delta",
+					delta: { type: "input_json_delta", partial_json: '{"file"' },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		const stopFrames = translateSdkMessage(
+			{ type: "stream_event", event: { type: "content_block_stop", index: 0 }, parent_tool_use_id: null },
+			ctx,
+		);
+		expect(stopFrames.some((f) => f.event === "message.tool_call_input_end")).toBe(false);
+
+		const frames = translateSdkMessage(
+			{
+				type: "assistant",
+				message: {
+					content: [{ type: "tool_use", id: "toolu_abc", name: "Read", input: { file: "/tmp/x" } }],
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(frames.some((f) => f.event === "message.tool_call_start")).toBe(false);
+		const inputEnd = frames.find((f) => f.event === "message.tool_call_input_end");
+		if (inputEnd?.event === "message.tool_call_input_end") {
+			expect(inputEnd.input).toEqual({ file: "/tmp/x" });
+		}
 	});
 
 	test("content_block_stop emits nothing for unknown block type", () => {
@@ -649,7 +823,7 @@ describe("sdk-to-wire translator", () => {
 		}
 	});
 
-	test("stream_event + assistant combined: tool_use block still guarded by startedToolIds", () => {
+	test("stream_event + assistant combined: final assistant completes streamed tool input", () => {
 		const ctx = makeCtx();
 		translateSdkMessage(
 			{
@@ -674,7 +848,11 @@ describe("sdk-to-wire translator", () => {
 			ctx,
 		);
 		expect(frames.some((f) => f.event === "message.tool_call_start")).toBe(false);
-		expect(frames.some((f) => f.event === "message.tool_call_input_end")).toBe(false);
+		expect(frames.some((f) => f.event === "message.tool_call_input_end")).toBe(true);
+		const inputEnd = frames.find((f) => f.event === "message.tool_call_input_end");
+		if (inputEnd?.event === "message.tool_call_input_end") {
+			expect(inputEnd.input).toEqual({ file: "/tmp/x" });
+		}
 	});
 
 	test("stream_event + assistant combined: interleaved [text, tool_use, text] reconciles each text block independently", () => {

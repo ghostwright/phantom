@@ -15,9 +15,11 @@ export function createTranslationContext(sessionId: string, messageId: string): 
 		turnIndex: 0,
 		seenBlockLengths: new Map(),
 		startedToolIds: new Set(),
+		completedToolInputIds: new Set(),
 		assistantStartEmitted: false,
 		blockTypes: new Map(),
 		blockToolIds: new Map(),
+		blockToolInputJson: new Map(),
 	};
 }
 
