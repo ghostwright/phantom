@@ -227,6 +227,13 @@ export type DispatchToBoltInput = DispatchInput & {
 	retryReasonHeader?: string | null;
 };
 
+// Outcome of the ack-vs-processEvent race in `dispatchToBolt`. `ack`:
+// a listener invoked AckFn (normal path). `process-ok`: processEvent
+// resolved without any ack (Bolt regression; log + 200). `process-err`:
+// processEvent rejected before ack (return 500; log the error message,
+// never the Slack body).
+type RaceOutcome = { kind: "ack"; resp: Response } | { kind: "process-ok" } | { kind: "process-err"; err: Error };
+
 // Run the verifier guard and dispatch the parsed body into the Bolt
 // `App`. `processEvent` invokes the registered listener middleware and
 // calls our AckFn when a listener acks; we return that response to
@@ -252,21 +259,29 @@ export async function dispatchToBolt(input: DispatchToBoltInput): Promise<Respon
 		retryReason: input.retryReasonHeader ?? undefined,
 	};
 
-	try {
-		await input.app.processEvent(receiverEvent);
-	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
-		console.error(`[${HANDLER_LOG_TAG}] processEvent threw: ${msg}`);
-		// processEvent already invokes ack via Bolt's auto-ack pathway in
-		// most cases, so the awaitAck promise has already resolved. We
-		// only fall back to a 500 when the ack never fired.
-		await ackFn();
-	}
+	// Bolt's `processEvent` resolves when listener middleware finishes,
+	// not when ack fires. Phantom's listener awaits `runtime.handleMessage`
+	// which can outlast Slack's ~3s window. Replicate HTTPReceiver's
+	// `processBeforeResponse: false` semantic by racing ack against
+	// processEvent: ack winner returns the ack response; processEvent
+	// rejecting before ack surfaces as 500.
+	const ackTagged: Promise<RaceOutcome> = awaitAck.then((resp) => ({ kind: "ack", resp }));
+	const processTagged: Promise<RaceOutcome> = input.app.processEvent(receiverEvent).then(
+		(): RaceOutcome => ({ kind: "process-ok" }),
+		(err: unknown): RaceOutcome => ({
+			kind: "process-err",
+			err: err instanceof Error ? err : new Error(String(err)),
+		}),
+	);
 
-	// Bolt 3.x auto-acks within 3s (processBeforeResponse=false default);
-	// we wait that promise here so the HTTP response carries the
-	// listener's chosen body when one exists.
-	return awaitAck;
+	const outcome = await Promise.race([ackTagged, processTagged]);
+	if (outcome.kind === "ack") return outcome.resp;
+	if (outcome.kind === "process-err") {
+		console.error(`[${HANDLER_LOG_TAG}] processEvent rejected before ack: ${outcome.err.message}`);
+		return new Response("internal server error", { status: 500 });
+	}
+	console.warn(`[${HANDLER_LOG_TAG}] processEvent resolved without ack; returning empty 200`);
+	return EMPTY_OK();
 }
 
 function parseRetryNum(value: string | null | undefined): number | undefined {

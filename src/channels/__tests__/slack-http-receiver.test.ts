@@ -23,6 +23,14 @@ const eventHandlers = new Map<string, EventHandler>();
 const actionHandlers = new Map<string, EventHandler>();
 const processEventCalls: ProcessEventCall[] = [];
 
+// Per-test override for the App.processEvent mock. Tests that exercise
+// the ack-vs-processEvent race set this; the default behavior auto-acks
+// to keep the existing verifier-path tests realistic.
+let processEventOverride: ((event: ProcessEventCall) => Promise<void>) | null = null;
+// Most recent processEvent promise so the race tests can wait on the
+// background listener after the handler has already returned.
+let lastProcessEventReturn: Promise<void> | null = null;
+
 let initReceived: { receiver: { init?: (app: unknown) => void } | null } = { receiver: null };
 
 const MockApp = mock((opts: { receiver?: { init?: (app: unknown) => void } }) => {
@@ -34,9 +42,17 @@ const MockApp = mock((opts: { receiver?: { init?: (app: unknown) => void } }) =>
 			const key = pattern instanceof RegExp ? pattern.source : pattern;
 			actionHandlers.set(key, handler);
 		},
-		processEvent: async (event: ProcessEventCall) => {
+		processEvent: (event: ProcessEventCall): Promise<void> => {
 			processEventCalls.push(event);
-			await event.ack();
+			const p: Promise<void> = (async () => {
+				if (processEventOverride) {
+					await processEventOverride(event);
+					return;
+				}
+				await event.ack();
+			})();
+			lastProcessEventReturn = p;
+			return p;
 		},
 		client: {
 			auth: { test: mockAuthTest },
@@ -123,6 +139,8 @@ beforeEach(() => {
 	eventHandlers.clear();
 	actionHandlers.clear();
 	processEventCalls.length = 0;
+	processEventOverride = null;
+	lastProcessEventReturn = null;
 	initReceived = { receiver: null };
 	mockAuthTest.mockClear();
 	mockPostMessage.mockClear();
@@ -910,5 +928,117 @@ describe("access control (HTTP mode = any user from this.teamId)", () => {
 			body: { team_id: FOREIGN_TEAM_ID },
 		});
 		expect(called).toBe(false);
+	});
+});
+
+// ----- ack-vs-processEvent race (Codex round 2 P1 + P2) -------------------
+//
+// Bolt's `processEvent` resolves only after listener middleware has
+// finished, not when `ack()` fires. Phantom's listener calls
+// `runtime.handleMessage`, which can outlast Slack's ~3s ack window.
+// `dispatchToBolt` therefore races the ack-resolved promise against
+// processEvent so:
+//   - ack winner (normal path) returns the listener's response immediately
+//   - processEvent rejecting before ack returns 500 (Slack retries)
+//   - processEvent resolving without any ack returns 200 + log warn
+//     (defense against a hypothetical Bolt regression)
+// These three tests pin each branch.
+
+describe("dispatchToBolt: ack-vs-processEvent race", () => {
+	test("long-running listener: handler returns 200 immediately, listener continues in background", async () => {
+		let releaseListener!: () => void;
+		const longWork = new Promise<void>((r) => {
+			releaseListener = r;
+		});
+		let listenerFinished = false;
+
+		processEventOverride = async (event) => {
+			await event.ack(); // listener acks within Slack's window
+			await longWork; // then runs work that outlasts the ack budget
+			listenerFinished = true;
+		};
+
+		const channel = new SlackHttpChannel(baseConfig);
+		const req = makeReq({
+			bodyJson: { type: "event_callback", team_id: TEAM_ID, event: { type: "app_mention" } },
+		});
+
+		const start = Date.now();
+		const res = await channel.handleEvent(req);
+		const elapsed = Date.now() - start;
+
+		expect(res.status).toBe(200);
+		// Handler returned promptly even though the listener is still pending.
+		// 250ms gives plenty of slack on slow CI without admitting any
+		// regression that would actually block on `processEvent`.
+		expect(elapsed).toBeLessThan(250);
+		expect(listenerFinished).toBe(false);
+
+		// Release the listener and verify it eventually finishes its work.
+		releaseListener();
+		await lastProcessEventReturn;
+		expect(listenerFinished).toBe(true);
+	});
+
+	test("processEvent rejects before ack: handler returns 500 with operator log", async () => {
+		processEventOverride = async () => {
+			// Listener middleware fails before any listener invokes ack.
+			throw new Error("listener middleware blew up");
+		};
+
+		const errors: string[] = [];
+		const original = console.error;
+		console.error = (...args: unknown[]) => {
+			errors.push(args.map(String).join(" "));
+		};
+		let res: Response;
+		try {
+			const channel = new SlackHttpChannel(baseConfig);
+			const req = makeReq({
+				bodyJson: { type: "block_actions", team: { id: TEAM_ID, domain: "acme" } },
+				contentType: "application/x-www-form-urlencoded",
+				path: "/slack/interactivity",
+			});
+			res = await channel.handleInteractivity(req);
+		} finally {
+			console.error = original;
+		}
+
+		expect(res.status).toBe(500);
+		const all = errors.join("\n");
+		expect(all).toContain("processEvent rejected before ack");
+		expect(all).toContain("listener middleware blew up");
+		// We must NEVER log Slack body content; the message we logged
+		// carries only the listener's error string.
+		expect(all).not.toContain("block_actions");
+		expect(all).not.toContain("acme");
+	});
+
+	test("processEvent resolves without ack: handler returns 200 with operator warning (Bolt-bug fallback)", async () => {
+		processEventOverride = async () => {
+			// Hypothetical Bolt regression: listener pipeline finishes
+			// without anyone calling ack. We log + 200; Slack retries.
+		};
+
+		const warnings: string[] = [];
+		const original = console.warn;
+		console.warn = (...args: unknown[]) => {
+			warnings.push(args.map(String).join(" "));
+		};
+		let res: Response;
+		try {
+			const channel = new SlackHttpChannel(baseConfig);
+			const req = makeReq({
+				bodyJson: { type: "event_callback", team_id: TEAM_ID, event: { type: "app_mention" } },
+			});
+			res = await channel.handleEvent(req);
+		} finally {
+			console.warn = original;
+		}
+
+		expect(res.status).toBe(200);
+		expect(await res.text()).toBe("");
+		const all = warnings.join("\n");
+		expect(all).toContain("processEvent resolved without ack");
 	});
 });
