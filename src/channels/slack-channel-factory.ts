@@ -15,7 +15,6 @@ export type SlackTransportMode = "socket" | "http";
 export type CreateSlackChannelInput = {
 	transport: SlackTransportMode;
 	channelsConfig: ChannelsConfig | null;
-	port: number;
 	metadataBaseUrl?: string;
 	// The identity and secrets fetchers are injectable so tests can substitute
 	// mocks without going through real fetch. In production, omit them and the
@@ -75,8 +74,6 @@ export async function createSlackChannel(input: CreateSlackChannelInput): Promis
 			teamId: identity.slack.teamId,
 			installerUserId: identity.slack.installerUserId,
 			teamName: identity.slack.teamName,
-			listenPort: input.port,
-			listenPath: "/slack",
 		});
 	}
 

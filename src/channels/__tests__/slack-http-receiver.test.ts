@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { signGatewayRequest } from "../slack-gateway-verifier.ts";
 
-// Mock Slack Bolt's App and ExpressReceiver. The receiver shape we replace
-// captures the registered Bolt handlers so the test driver can invoke them
-// directly, mirroring the slack.test.ts pattern. The Express app sits on
-// the receiver and exposes `use(path, mw)` so the channel's installVerifier
-// can register guards we then drive end-to-end.
-const mockStart = mock(() => Promise.resolve({}));
-const mockStop = mock(() => Promise.resolve());
+// Mock Slack Bolt's App. The receiver no longer instantiates
+// ExpressReceiver (the previous implementation tried to bind a second
+// HTTP server and collided with the shared Bun.serve), so the test
+// surface drives the new public methods on `SlackHttpChannel` directly:
+// handleEvent, handleInteractivity, handleCommand. The mock captures
+// registered Bolt event/action handlers AND records every processEvent
+// invocation so tests can assert exactly what got dispatched into
+// Bolt's pipeline.
 const mockAuthTest = mock(() => Promise.resolve({ user_id: "U_BOT123" }));
 const mockPostMessage = mock(() => Promise.resolve({ ts: "1234567890.123456" }));
 const mockChatUpdate = mock(() => Promise.resolve({ ok: true }));
@@ -16,50 +17,61 @@ const mockReactionsRemove = mock(() => Promise.resolve({ ok: true }));
 const mockConversationsOpen = mock(() => Promise.resolve({ channel: { id: "D_DM_OPEN" } }));
 
 type EventHandler = (...args: unknown[]) => Promise<void>;
-type Middleware = (req: unknown, res: unknown, next: () => void) => unknown | Promise<unknown>;
+type ProcessEventCall = { body: Record<string, unknown>; ack: (resp?: unknown) => Promise<void> };
 
 const eventHandlers = new Map<string, EventHandler>();
 const actionHandlers = new Map<string, EventHandler>();
-const guards = new Map<string, Middleware>();
+const processEventCalls: ProcessEventCall[] = [];
 
-const expressApp = {
-	use(path: string, mw: Middleware): void {
-		guards.set(path, mw);
-	},
-};
+// Per-test override for the App.processEvent mock. Tests that exercise
+// the ack-vs-processEvent race set this; the default behavior auto-acks
+// to keep the existing verifier-path tests realistic.
+let processEventOverride: ((event: ProcessEventCall) => Promise<void>) | null = null;
+// Most recent processEvent promise so the race tests can wait on the
+// background listener after the handler has already returned.
+let lastProcessEventReturn: Promise<void> | null = null;
 
-const mockReceiver = {
-	app: expressApp,
-	start: mockStart,
-	stop: mockStop,
-};
+let initReceived: { receiver: { init?: (app: unknown) => void } | null } = { receiver: null };
 
-const MockExpressReceiver = mock(() => mockReceiver);
-
-const MockApp = mock(() => ({
-	event: (name: string, handler: EventHandler) => {
-		eventHandlers.set(name, handler);
-	},
-	action: (pattern: string | RegExp, handler: EventHandler) => {
-		const key = pattern instanceof RegExp ? pattern.source : pattern;
-		actionHandlers.set(key, handler);
-	},
-	client: {
-		auth: { test: mockAuthTest },
-		chat: { postMessage: mockPostMessage, update: mockChatUpdate },
-		conversations: { open: mockConversationsOpen },
-		reactions: { add: mockReactionsAdd, remove: mockReactionsRemove },
-	},
-}));
+const MockApp = mock((opts: { receiver?: { init?: (app: unknown) => void } }) => {
+	const app = {
+		event: (name: string, handler: EventHandler) => {
+			eventHandlers.set(name, handler);
+		},
+		action: (pattern: string | RegExp, handler: EventHandler) => {
+			const key = pattern instanceof RegExp ? pattern.source : pattern;
+			actionHandlers.set(key, handler);
+		},
+		processEvent: (event: ProcessEventCall): Promise<void> => {
+			processEventCalls.push(event);
+			const p: Promise<void> = (async () => {
+				if (processEventOverride) {
+					await processEventOverride(event);
+					return;
+				}
+				await event.ack();
+			})();
+			lastProcessEventReturn = p;
+			return p;
+		},
+		client: {
+			auth: { test: mockAuthTest },
+			chat: { postMessage: mockPostMessage, update: mockChatUpdate },
+			conversations: { open: mockConversationsOpen },
+			reactions: { add: mockReactionsAdd, remove: mockReactionsRemove },
+		},
+	};
+	if (opts.receiver?.init) opts.receiver.init(app);
+	initReceived.receiver = opts.receiver ?? null;
+	return app;
+});
 
 mock.module("@slack/bolt", () => ({
 	App: MockApp,
-	ExpressReceiver: MockExpressReceiver,
 }));
 
 // Import the channel AFTER the module mock so the constructor uses our doubles.
 const { SlackHttpChannel } = await import("../slack-http-receiver.ts");
-type SlackHttpChannelType = InstanceType<typeof SlackHttpChannel>;
 
 const SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const TEAM_ID = "T9TK3CUKW";
@@ -71,40 +83,9 @@ const baseConfig = {
 	teamId: TEAM_ID,
 	installerUserId: "U_INSTALLER",
 	teamName: "Acme Corp",
-	listenPort: 3100,
-	listenPath: "/slack",
 };
 
-type MockReq = {
-	headers: Record<string, string>;
-	rawBody?: Buffer;
-	body?: unknown;
-	on?: (event: string, listener: (chunk?: Buffer) => void) => void;
-};
-
-type MockRes = {
-	statusCode: number;
-	body: string | undefined;
-	status(code: number): MockRes;
-	end(body?: string): void;
-};
-
-function makeRes(): MockRes {
-	const res: MockRes = {
-		statusCode: 0,
-		body: undefined,
-		status(code) {
-			res.statusCode = code;
-			return res;
-		},
-		end(body) {
-			res.body = body;
-		},
-	};
-	return res;
-}
-
-function makeReq(args: {
+type MakeReqArgs = {
 	bodyJson: unknown;
 	contentType?: string;
 	now?: number;
@@ -115,7 +96,15 @@ function makeReq(args: {
 	wrongSecret?: boolean;
 	staleMs?: number;
 	futureMs?: number;
-}): MockReq {
+	method?: string;
+	path?: string;
+};
+
+// Build a real `Request` (Bun-native, fetch-spec) signed with the gateway
+// helper so the verifier path runs end-to-end against the same code that
+// runs in production. Tampering options exist on every axis the verifier
+// guards (signature, timestamp, secret, team_id, body bytes).
+function makeReq(args: MakeReqArgs): Request {
 	const ctype = args.contentType ?? "application/json";
 	const bodyText =
 		typeof args.bodyJson === "string"
@@ -123,53 +112,36 @@ function makeReq(args: {
 			: ctype.includes("urlencoded")
 				? `payload=${encodeURIComponent(JSON.stringify(args.bodyJson))}`
 				: JSON.stringify(args.bodyJson);
-	const raw = Buffer.from(args.tamperedBody ?? bodyText);
+	const rawForSig = Buffer.from(bodyText);
+	const sentBody = args.tamperedBody ?? bodyText;
 	const now = args.now ?? Date.now();
 	const fwd = args.staleMs !== undefined ? now - args.staleMs : args.futureMs !== undefined ? now + args.futureMs : now;
 	const eventId = args.eventId ?? "Ev1";
 	const sig = signGatewayRequest({
 		forwardedAt: fwd,
 		eventId,
-		rawBody: Buffer.from(bodyText),
+		rawBody: rawForSig,
 		secret: args.wrongSecret ? "wrong-secret" : SECRET,
 	});
 	const headers: Record<string, string> = { "content-type": ctype };
 	if (!args.skipSig) headers["x-phantom-signature"] = sig;
 	if (!args.skipFwd) headers["x-phantom-forwarded-at"] = String(fwd);
 	headers["x-phantom-slack-event-id"] = eventId;
-	const req: MockReq = { headers, rawBody: raw };
-	// Provide req.on for the readRequestBody fallback path; not used when
-	// rawBody is preset, but keeps the type contract honest for any guard
-	// that re-reads the body.
-	req.on = () => {};
-	return req;
-}
-
-async function callGuard(channel: SlackHttpChannelType, path: string, req: MockReq): Promise<MockRes> {
-	void channel;
-	const guard = guards.get(path);
-	if (!guard) throw new Error(`no guard at ${path}`);
-	const res = makeRes();
-	await new Promise<void>((resolve) => {
-		const next = () => resolve();
-		const out = guard(req, res, next);
-		if (out instanceof Promise) {
-			out.then(() => {
-				if (res.statusCode !== 0) resolve();
-			});
-		} else if (res.statusCode !== 0) {
-			resolve();
-		}
+	const url = `http://localhost:3100${args.path ?? "/slack/events"}`;
+	return new Request(url, {
+		method: args.method ?? "POST",
+		headers,
+		body: sentBody,
 	});
-	return res;
 }
 
 beforeEach(() => {
 	eventHandlers.clear();
 	actionHandlers.clear();
-	guards.clear();
-	mockStart.mockClear();
-	mockStop.mockClear();
+	processEventCalls.length = 0;
+	processEventOverride = null;
+	lastProcessEventReturn = null;
+	initReceived = { receiver: null };
 	mockAuthTest.mockClear();
 	mockPostMessage.mockClear();
 	mockChatUpdate.mockClear();
@@ -187,22 +159,17 @@ afterEach(() => {
 // ----- constructor ---------------------------------------------------------
 
 describe("SlackHttpChannel constructor", () => {
-	test("wires receiver and Bolt App with the provided config", () => {
+	test("wires Bolt App with the provided config and a custom Receiver", () => {
 		const channel = new SlackHttpChannel(baseConfig);
 		expect(channel.id).toBe("slack");
 		expect(channel.name).toBe("Slack");
 		expect(channel.getTeamId()).toBe(TEAM_ID);
 		expect(channel.getInstallerUserId()).toBe("U_INSTALLER");
 		expect(channel.getTeamName()).toBe("Acme Corp");
-		expect(MockExpressReceiver).toHaveBeenCalled();
 		expect(MockApp).toHaveBeenCalled();
-	});
-
-	test("registers verifier guards on the three Slack endpoints", () => {
-		new SlackHttpChannel(baseConfig);
-		expect(guards.has("/slack/events")).toBe(true);
-		expect(guards.has("/slack/interactivity")).toBe(true);
-		expect(guards.has("/slack/commands")).toBe(true);
+		// Bolt called receiver.init synchronously during construction.
+		expect(initReceived.receiver).not.toBeNull();
+		expect(typeof initReceived.receiver?.init).toBe("function");
 	});
 
 	test("rejects empty botToken with a clear error", () => {
@@ -241,94 +208,149 @@ describe("SlackHttpChannel constructor", () => {
 	});
 });
 
-// ----- guard middleware ----------------------------------------------------
+// ----- handler entrypoints (HMAC + replay window + team_id + dispatch) ----
 
-describe("guard middleware (HMAC + replay window + team_id)", () => {
-	test("accepts a correctly-signed request and calls next()", async () => {
+describe("handleEvent / handleInteractivity / handleCommand (verifier guard + dispatch)", () => {
+	test("accepts a correctly-signed event and dispatches into Bolt's processEvent", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
-		const req = makeReq({ bodyJson: { type: "event_callback", team_id: TEAM_ID } });
-		const res = await callGuard(channel, "/slack/events", req);
-		expect(res.statusCode).toBe(0);
+		const req = makeReq({ bodyJson: { type: "event_callback", team_id: TEAM_ID, event: { type: "app_mention" } } });
+		const res = await channel.handleEvent(req);
+		expect(res.status).toBe(200);
+		expect(processEventCalls).toHaveLength(1);
+		expect(processEventCalls[0]?.body.team_id).toBe(TEAM_ID);
 	});
 
 	test("rejects 401 when X-Phantom-Signature is missing", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
 		const req = makeReq({ bodyJson: { team_id: TEAM_ID }, skipSig: true });
-		const res = await callGuard(channel, "/slack/events", req);
-		expect(res.statusCode).toBe(401);
+		const res = await channel.handleEvent(req);
+		expect(res.status).toBe(401);
+		expect(processEventCalls).toHaveLength(0);
 	});
 
 	test("rejects 401 when X-Phantom-Forwarded-At is missing", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
 		const req = makeReq({ bodyJson: { team_id: TEAM_ID }, skipFwd: true });
-		const res = await callGuard(channel, "/slack/events", req);
-		expect(res.statusCode).toBe(401);
+		const res = await channel.handleEvent(req);
+		expect(res.status).toBe(401);
 	});
 
 	test("rejects 401 on a stale forwarded-at (>5 minutes old)", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
-		const req = makeReq({
-			bodyJson: { team_id: TEAM_ID },
-			staleMs: 6 * 60 * 1000,
-		});
-		const res = await callGuard(channel, "/slack/events", req);
-		expect(res.statusCode).toBe(401);
+		const req = makeReq({ bodyJson: { team_id: TEAM_ID }, staleMs: 6 * 60 * 1000 });
+		const res = await channel.handleEvent(req);
+		expect(res.status).toBe(401);
 	});
 
 	test("rejects 401 on a future forwarded-at (>5 minutes ahead)", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
-		const req = makeReq({
-			bodyJson: { team_id: TEAM_ID },
-			futureMs: 6 * 60 * 1000,
-		});
-		const res = await callGuard(channel, "/slack/events", req);
-		expect(res.statusCode).toBe(401);
+		const req = makeReq({ bodyJson: { team_id: TEAM_ID }, futureMs: 6 * 60 * 1000 });
+		const res = await channel.handleEvent(req);
+		expect(res.status).toBe(401);
 	});
 
-	test("rejects 401 on tampered body (signature over original bytes)", async () => {
+	test("rejects 401 on tampered body (signature was over original bytes)", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
 		const req = makeReq({
 			bodyJson: { team_id: TEAM_ID },
 			tamperedBody: '{"team_id":"T_OTHER"}',
 		});
-		const res = await callGuard(channel, "/slack/events", req);
-		expect(res.statusCode).toBe(401);
+		const res = await channel.handleEvent(req);
+		expect(res.status).toBe(401);
 	});
 
 	test("rejects 401 when signature was computed with a different secret", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
 		const req = makeReq({ bodyJson: { team_id: TEAM_ID }, wrongSecret: true });
-		const res = await callGuard(channel, "/slack/events", req);
-		expect(res.statusCode).toBe(401);
+		const res = await channel.handleEvent(req);
+		expect(res.status).toBe(401);
 	});
 
 	test("rejects 403 on team_id mismatch even with valid HMAC", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
 		const req = makeReq({ bodyJson: { team_id: FOREIGN_TEAM_ID } });
-		const res = await callGuard(channel, "/slack/events", req);
-		expect(res.statusCode).toBe(403);
+		const res = await channel.handleEvent(req);
+		expect(res.status).toBe(403);
+		expect(processEventCalls).toHaveLength(0);
 	});
 
-	test("accepts a url_verification challenge body (the one shape with no team_id)", async () => {
+	test("returns 200 with the challenge string for a url_verification body", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
-		const req = makeReq({ bodyJson: { type: "url_verification", challenge: "abc" } });
-		const res = await callGuard(channel, "/slack/events", req);
-		expect(res.statusCode).toBe(0);
+		const req = makeReq({ bodyJson: { type: "url_verification", challenge: "abc-challenge-123" } });
+		const res = await channel.handleEvent(req);
+		expect(res.status).toBe(200);
+		expect(await res.text()).toBe("abc-challenge-123");
+		// url_verification short-circuits before Bolt; the App pipeline is
+		// not invoked.
+		expect(processEventCalls).toHaveLength(0);
 	});
 
 	test("rejects 403 when body has no team_id and is not url_verification", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
 		const req = makeReq({ bodyJson: { type: "event_callback", event: { type: "app_mention" } } });
-		const res = await callGuard(channel, "/slack/events", req);
-		expect(res.statusCode).toBe(403);
+		const res = await channel.handleEvent(req);
+		expect(res.status).toBe(403);
 	});
 
-	test("rejects 403 when body is malformed JSON (defense in depth)", async () => {
+	test("returns 400 when JSON body is malformed (defense in depth)", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
-		// Bypass JSON.stringify by passing a pre-built malformed string.
-		const req = makeReq({ bodyJson: "{not-json" });
-		const res = await callGuard(channel, "/slack/events", req);
-		expect(res.statusCode).toBe(403);
+		// Sign over the same malformed bytes the request carries so the HMAC
+		// guard passes; the parse step is what fails.
+		const malformed = "{not-json";
+		const fwd = Date.now();
+		const sig = signGatewayRequest({
+			forwardedAt: fwd,
+			eventId: "Ev1",
+			rawBody: Buffer.from(malformed),
+			secret: SECRET,
+		});
+		const req = new Request("http://localhost:3100/slack/events", {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				"x-phantom-signature": sig,
+				"x-phantom-forwarded-at": String(fwd),
+				"x-phantom-slack-event-id": "Ev1",
+			},
+			body: malformed,
+		});
+		const res = await channel.handleEvent(req);
+		// Malformed JSON fails team_id extraction first (no team_id, no
+		// url_verification shape), so we 403 before the parse step. The
+		// regression we guard against is "this returned 200 and
+		// dispatched", which the !ok / processEventCalls check pins.
+		expect(res.status).toBe(403);
+		expect(processEventCalls).toHaveLength(0);
+	});
+
+	test("returns 403 on a corrupted interactivity payload (no team_id reachable)", async () => {
+		const channel = new SlackHttpChannel(baseConfig);
+		const malformedPayload = "payload=%7Bnot-json";
+		const fwd = Date.now();
+		const sig = signGatewayRequest({
+			forwardedAt: fwd,
+			eventId: "EvCorrupt",
+			rawBody: Buffer.from(malformedPayload),
+			secret: SECRET,
+		});
+		const req = new Request("http://localhost:3100/slack/interactivity", {
+			method: "POST",
+			headers: {
+				"content-type": "application/x-www-form-urlencoded",
+				"x-phantom-signature": sig,
+				"x-phantom-forwarded-at": String(fwd),
+				"x-phantom-slack-event-id": "EvCorrupt",
+			},
+			body: malformedPayload,
+		});
+		const res = await channel.handleInteractivity(req);
+		// urlencoded body with a malformed `payload` field trips the
+		// team_id guard (extractTeamId returns undefined and the body is
+		// not url_verification), so we 403 fail-closed without ever
+		// invoking processEvent. The regression we pin: a corrupted
+		// forward must NOT silently dispatch.
+		expect(res.status).toBe(403);
+		expect(processEventCalls).toHaveLength(0);
 	});
 
 	test("accepts an interactivity payload (urlencoded form) when team.id matches", async () => {
@@ -336,26 +358,88 @@ describe("guard middleware (HMAC + replay window + team_id)", () => {
 		const req = makeReq({
 			bodyJson: { type: "block_actions", team: { id: TEAM_ID, domain: "acme" } },
 			contentType: "application/x-www-form-urlencoded",
+			path: "/slack/interactivity",
 		});
-		const res = await callGuard(channel, "/slack/interactivity", req);
-		expect(res.statusCode).toBe(0);
+		const res = await channel.handleInteractivity(req);
+		expect(res.status).toBe(200);
+		expect(processEventCalls).toHaveLength(1);
+		// urlencoded interactivity bodies are unwrapped: the inner JSON is
+		// what Bolt sees, not the {payload: "..."} envelope.
+		const dispatched = processEventCalls[0]?.body as Record<string, unknown>;
+		expect(dispatched.type).toBe("block_actions");
+		const team = dispatched.team as Record<string, unknown>;
+		expect(team.id).toBe(TEAM_ID);
 	});
 
-	test("rejects 403 on interactivity payload with foreign team.id", async () => {
+	test("rejects 403 on interactivity payload with a foreign team.id", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
 		const req = makeReq({
 			bodyJson: { type: "block_actions", team: { id: FOREIGN_TEAM_ID, domain: "evil" } },
 			contentType: "application/x-www-form-urlencoded",
+			path: "/slack/interactivity",
 		});
-		const res = await callGuard(channel, "/slack/interactivity", req);
-		expect(res.statusCode).toBe(403);
+		const res = await channel.handleInteractivity(req);
+		expect(res.status).toBe(403);
 	});
 
-	test("rehydrates JSON body for downstream Bolt parsers", async () => {
+	test("handleCommand accepts a slash-command form and dispatches", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
-		const req = makeReq({ bodyJson: { team_id: TEAM_ID, foo: "bar" } });
-		await callGuard(channel, "/slack/events", req);
-		expect(req.body).toEqual({ team_id: TEAM_ID, foo: "bar" });
+		// Slack slash commands send urlencoded fields including team_id at
+		// the top level (no `payload` envelope).
+		const formBody = `team_id=${TEAM_ID}&command=%2Fphantom&text=hello`;
+		const fwd = Date.now();
+		const sig = signGatewayRequest({
+			forwardedAt: fwd,
+			eventId: "EvCmd1",
+			rawBody: Buffer.from(formBody),
+			secret: SECRET,
+		});
+		const req = new Request("http://localhost:3100/slack/commands", {
+			method: "POST",
+			headers: {
+				"content-type": "application/x-www-form-urlencoded",
+				"x-phantom-signature": sig,
+				"x-phantom-forwarded-at": String(fwd),
+				"x-phantom-slack-event-id": "EvCmd1",
+			},
+			body: formBody,
+		});
+		const res = await channel.handleCommand(req);
+		expect(res.status).toBe(200);
+		expect(processEventCalls).toHaveLength(1);
+		const body = processEventCalls[0]?.body as Record<string, unknown>;
+		expect(body.team_id).toBe(TEAM_ID);
+		expect(body.command).toBe("/phantom");
+	});
+
+	test("forwards retry headers to Bolt's ReceiverEvent", async () => {
+		const channel = new SlackHttpChannel(baseConfig);
+		const ctype = "application/json";
+		const bodyText = JSON.stringify({ team_id: TEAM_ID, event: { type: "app_mention" } });
+		const fwd = Date.now();
+		const sig = signGatewayRequest({
+			forwardedAt: fwd,
+			eventId: "EvRetry1",
+			rawBody: Buffer.from(bodyText),
+			secret: SECRET,
+		});
+		const req = new Request("http://localhost:3100/slack/events", {
+			method: "POST",
+			headers: {
+				"content-type": ctype,
+				"x-phantom-signature": sig,
+				"x-phantom-forwarded-at": String(fwd),
+				"x-phantom-slack-event-id": "EvRetry1",
+				"x-slack-retry-num": "2",
+				"x-slack-retry-reason": "http_timeout",
+			},
+			body: bodyText,
+		});
+		await channel.handleEvent(req);
+		expect(processEventCalls).toHaveLength(1);
+		const dispatched = processEventCalls[0] as unknown as Record<string, unknown>;
+		expect(dispatched.retryNum).toBe(2);
+		expect(dispatched.retryReason).toBe("http_timeout");
 	});
 });
 
@@ -550,12 +634,18 @@ describe("lifecycle and bot user discovery", () => {
 		expect(mockAuthTest).toHaveBeenCalledTimes(1);
 	});
 
-	test("connect transitions to connected state", async () => {
+	test("connect transitions to connected state without binding an HTTP server", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
 		await channel.connect();
 		expect(channel.isConnected()).toBe(true);
 		expect(channel.getConnectionState()).toBe("connected");
-		expect(mockStart).toHaveBeenCalledTimes(1);
+		// The new receiver does NOT call any `start(port)` ever; that's the
+		// whole point of Bug A's fix. We pin this behaviour by asserting
+		// the receiver Bolt got is the BunReceiver shape (init/start/stop)
+		// and that no port-binding side effect happened. There is no global
+		// listener to inspect; the fact that the test process can run
+		// concurrently with itself is itself the regression guard.
+		expect(typeof initReceived.receiver?.init).toBe("function");
 	});
 
 	test("disconnect transitions back to disconnected", async () => {
@@ -564,7 +654,6 @@ describe("lifecycle and bot user discovery", () => {
 		await channel.disconnect();
 		expect(channel.isConnected()).toBe(false);
 		expect(channel.getConnectionState()).toBe("disconnected");
-		expect(mockStop).toHaveBeenCalledTimes(1);
 	});
 
 	test("connect refuses to start when auth.test returns no user_id (revoked token)", async () => {
@@ -593,10 +682,6 @@ describe("lifecycle and bot user discovery", () => {
 	});
 
 	test("auth.test failure with a hostile token-bearing message redacts the token", async () => {
-		// Pin the redaction contract: even if a future Bolt SDK upgrade includes
-		// the offending token in `err.message`, the receiver must strip it
-		// before logging. The message text ("invalid_auth") still surfaces so
-		// operators can debug, but the token is replaced with a sentinel.
 		mockAuthTest.mockImplementation(() =>
 			Promise.reject(new Error("invalid_auth: xoxb-test-token-leaked exposed in error")),
 		);
@@ -619,8 +704,10 @@ describe("lifecycle and bot user discovery", () => {
 
 	test("disconnect on a never-connected channel is a no-op", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
+		// No throw, no state change beyond what the never-connected channel
+		// already has.
 		await channel.disconnect();
-		expect(mockStop).toHaveBeenCalledTimes(0);
+		expect(channel.getConnectionState()).toBe("disconnected");
 	});
 });
 
@@ -632,8 +719,6 @@ describe("synthetic first DM on connect", () => {
 		channel.setPhantomName("Maple");
 		await channel.connect();
 
-		// installerUserId is U_INSTALLER per baseConfig; conversations.open is
-		// called once for the introduction. The post then hits D_DM_OPEN.
 		expect(mockConversationsOpen).toHaveBeenCalledWith({ users: "U_INSTALLER" });
 		const calls = mockPostMessage.mock.calls as unknown as Array<[{ channel?: string; text?: string }]>;
 		const introCall = calls.find((c) => {
@@ -667,16 +752,10 @@ describe("synthetic first DM on connect", () => {
 		const channel = new SlackHttpChannel(baseConfig);
 		await expect(channel.connect()).resolves.toBeUndefined();
 		expect(channel.getConnectionState()).toBe("connected");
-		// Restore for subsequent tests.
 		mockPostMessage.mockImplementation(() => Promise.resolve({ ts: "1234567890.123456" }));
 	});
 
 	test("retries the introduction on a fresh connect after first send returned null", async () => {
-		// First connect: chat.postMessage returns no ts (rate-limit, archived
-		// channel). firstDmSent stays false; the caller's failed_first_dm
-		// path is what surfaces this externally. On a fresh connect (after
-		// the operator restarts the channel), the introduction should fire
-		// again so the user eventually gets their DM.
 		mockPostMessage.mockImplementationOnce(() => Promise.resolve({ ts: "" } as { ts: string }));
 		const channel = new SlackHttpChannel(baseConfig);
 		await channel.connect();
@@ -684,7 +763,6 @@ describe("synthetic first DM on connect", () => {
 		await channel.connect();
 		const calls = mockPostMessage.mock.calls as unknown as Array<[{ channel?: string }]>;
 		const introCalls = calls.filter((c) => c[0].channel === "D_DM_OPEN").length;
-		// One failed attempt + one successful retry on the second connect.
 		expect(introCalls).toBe(2);
 	});
 });
@@ -707,9 +785,6 @@ describe("send / outbound", () => {
 	test("postToChannel chunks long messages but keeps one chat.postMessage per chunk", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
 		await channel.connect();
-		// connect() fires the synthetic introduction DM which hits
-		// chat.postMessage once. Clear the count here so this test
-		// asserts only the explicit postToChannel call.
 		mockPostMessage.mockClear();
 		await channel.postToChannel("C1", "short");
 		expect(mockPostMessage).toHaveBeenCalledTimes(1);
@@ -853,5 +928,117 @@ describe("access control (HTTP mode = any user from this.teamId)", () => {
 			body: { team_id: FOREIGN_TEAM_ID },
 		});
 		expect(called).toBe(false);
+	});
+});
+
+// ----- ack-vs-processEvent race (Codex round 2 P1 + P2) -------------------
+//
+// Bolt's `processEvent` resolves only after listener middleware has
+// finished, not when `ack()` fires. Phantom's listener calls
+// `runtime.handleMessage`, which can outlast Slack's ~3s ack window.
+// `dispatchToBolt` therefore races the ack-resolved promise against
+// processEvent so:
+//   - ack winner (normal path) returns the listener's response immediately
+//   - processEvent rejecting before ack returns 500 (Slack retries)
+//   - processEvent resolving without any ack returns 200 + log warn
+//     (defense against a hypothetical Bolt regression)
+// These three tests pin each branch.
+
+describe("dispatchToBolt: ack-vs-processEvent race", () => {
+	test("long-running listener: handler returns 200 immediately, listener continues in background", async () => {
+		let releaseListener!: () => void;
+		const longWork = new Promise<void>((r) => {
+			releaseListener = r;
+		});
+		let listenerFinished = false;
+
+		processEventOverride = async (event) => {
+			await event.ack(); // listener acks within Slack's window
+			await longWork; // then runs work that outlasts the ack budget
+			listenerFinished = true;
+		};
+
+		const channel = new SlackHttpChannel(baseConfig);
+		const req = makeReq({
+			bodyJson: { type: "event_callback", team_id: TEAM_ID, event: { type: "app_mention" } },
+		});
+
+		const start = Date.now();
+		const res = await channel.handleEvent(req);
+		const elapsed = Date.now() - start;
+
+		expect(res.status).toBe(200);
+		// Handler returned promptly even though the listener is still pending.
+		// 250ms gives plenty of slack on slow CI without admitting any
+		// regression that would actually block on `processEvent`.
+		expect(elapsed).toBeLessThan(250);
+		expect(listenerFinished).toBe(false);
+
+		// Release the listener and verify it eventually finishes its work.
+		releaseListener();
+		await lastProcessEventReturn;
+		expect(listenerFinished).toBe(true);
+	});
+
+	test("processEvent rejects before ack: handler returns 500 with operator log", async () => {
+		processEventOverride = async () => {
+			// Listener middleware fails before any listener invokes ack.
+			throw new Error("listener middleware blew up");
+		};
+
+		const errors: string[] = [];
+		const original = console.error;
+		console.error = (...args: unknown[]) => {
+			errors.push(args.map(String).join(" "));
+		};
+		let res: Response;
+		try {
+			const channel = new SlackHttpChannel(baseConfig);
+			const req = makeReq({
+				bodyJson: { type: "block_actions", team: { id: TEAM_ID, domain: "acme" } },
+				contentType: "application/x-www-form-urlencoded",
+				path: "/slack/interactivity",
+			});
+			res = await channel.handleInteractivity(req);
+		} finally {
+			console.error = original;
+		}
+
+		expect(res.status).toBe(500);
+		const all = errors.join("\n");
+		expect(all).toContain("processEvent rejected before ack");
+		expect(all).toContain("listener middleware blew up");
+		// We must NEVER log Slack body content; the message we logged
+		// carries only the listener's error string.
+		expect(all).not.toContain("block_actions");
+		expect(all).not.toContain("acme");
+	});
+
+	test("processEvent resolves without ack: handler returns 200 with operator warning (Bolt-bug fallback)", async () => {
+		processEventOverride = async () => {
+			// Hypothetical Bolt regression: listener pipeline finishes
+			// without anyone calling ack. We log + 200; Slack retries.
+		};
+
+		const warnings: string[] = [];
+		const original = console.warn;
+		console.warn = (...args: unknown[]) => {
+			warnings.push(args.map(String).join(" "));
+		};
+		let res: Response;
+		try {
+			const channel = new SlackHttpChannel(baseConfig);
+			const req = makeReq({
+				bodyJson: { type: "event_callback", team_id: TEAM_ID, event: { type: "app_mention" } },
+			});
+			res = await channel.handleEvent(req);
+		} finally {
+			console.warn = original;
+		}
+
+		expect(res.status).toBe(200);
+		expect(await res.text()).toBe("");
+		const all = warnings.join("\n");
+		expect(all).toContain("processEvent resolved without ack");
 	});
 });

@@ -12,6 +12,8 @@ import { createProgressStream } from "./channels/progress-stream.ts";
 import { ChannelRouter } from "./channels/router.ts";
 import { setActionFollowUpHandler } from "./channels/slack-actions.ts";
 import { createSlackChannel, readSlackTransportFromEnv } from "./channels/slack-channel-factory.ts";
+import { SlackHttpChannel } from "./channels/slack-http-receiver.ts";
+import { setSlackHttpChannelProvider } from "./channels/slack-http-routes.ts";
 import type { SlackTransport } from "./channels/slack-transport.ts";
 import { createStatusReactionController } from "./channels/status-reactions.ts";
 import { TelegramChannel } from "./channels/telegram.ts";
@@ -313,12 +315,23 @@ async function main(): Promise<void> {
 	const slackChannel: SlackTransport | null = await createSlackChannel({
 		transport: slackTransport,
 		channelsConfig,
-		port: config.port,
 		metadataBaseUrl: process.env.METADATA_BASE_URL,
 	});
 
 	if (slackChannel) {
 		slackChannel.setPhantomName(config.name);
+
+		// HTTP-mode tenants mount /slack/{events,interactivity,commands} on
+		// the existing Bun.serve listener. The provider lookup is lazy so
+		// `core/server.ts` can resolve the live channel reference per
+		// request, which keeps the route table compatible with a future
+		// hot-swap of the Slack identity without restarting the process.
+		// `instanceof` discriminates the SlackTransport union without an
+		// `as` cast even though slackTransport === "http" already implies
+		// the http variant by construction.
+		if (slackChannel instanceof SlackHttpChannel) {
+			setSlackHttpChannelProvider(() => slackChannel);
+		}
 
 		// Wire Slack reaction feedback to evolution
 		slackChannel.onReaction((event) => {
