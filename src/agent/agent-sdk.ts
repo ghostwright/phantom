@@ -12,6 +12,7 @@ import type {
 	HookJSONOutput,
 	McpSdkServerConfigWithInstance,
 	McpServerConfig,
+	Query,
 	SDKMessage,
 	SDKSystemMessage,
 	SDKUserMessage,
@@ -23,11 +24,24 @@ export type {
 	HookJSONOutput,
 	McpSdkServerConfigWithInstance,
 	McpServerConfig,
+	Query,
 	SDKMessage,
 	SDKSystemMessage,
 	SDKUserMessage,
 };
 
 export const createSdkMcpServer = anthropicCreateSdkMcpServer;
-export const query = anthropicQuery;
 export const tool = anthropicTool;
+
+export type AgentSdkQueryParams = Parameters<typeof anthropicQuery>[0];
+export type AgentSdkQuery = (params: AgentSdkQueryParams) => Query;
+
+let activeQuery: AgentSdkQuery = anthropicQuery;
+
+export function query(params: AgentSdkQueryParams): Query {
+	return activeQuery(params);
+}
+
+export function __setAgentSdkQueryForTests(queryOverride: AgentSdkQuery | null): void {
+	activeQuery = queryOverride ?? anthropicQuery;
+}
