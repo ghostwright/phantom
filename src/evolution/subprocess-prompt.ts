@@ -26,8 +26,14 @@ the work or skip.
 
 ## The memory files you manage
 
-The sandbox root is phantom-config/. You can Read, Write, Edit, Glob, and Grep inside
-this root. You cannot touch constitution.md or anything under meta/.
+Your current working directory is the phantom-config directory. Use cwd-relative
+paths only. For example, Read "./user-profile.md", Read "./memory/corrections.md",
+and use Glob with pattern "**" and path "./strategies". Do not prefix paths with
+"phantom-config/"; that would point at a nested directory that is outside your
+allowed sandbox.
+
+You can Read, Write, Edit, Glob, and Grep inside this root. You cannot touch
+constitution.md or anything under meta/.
 
 - persona.md: default communication style. Slow to evolve. Five or six principles.
 - user-profile.md: operator preferences, habits, corrections. The main learning target.

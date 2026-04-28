@@ -603,7 +603,7 @@ async function defaultRunner(input: SpawnQueryInput): Promise<SpawnQueryResult> 
 
 	try {
 		const stream = query({
-			prompt: `Read ./.staging/${drainId}.jsonl and manage memory. Follow the teaching prompt. End with a sentinel.`,
+			prompt: `Read ./.staging/${drainId}.jsonl and manage memory using cwd-relative paths like ./user-profile.md, not phantom-config/user-profile.md. Follow the teaching prompt. End with a sentinel.`,
 			options: {
 				model,
 				cwd: root,
