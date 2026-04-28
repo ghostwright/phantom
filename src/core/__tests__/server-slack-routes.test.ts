@@ -25,7 +25,9 @@ describe("server slack-http routing", () => {
 	let baseUrl: string;
 
 	const calls: Array<{ method: string; path: string }> = [];
+	let stubConnected = true;
 	const stub = {
+		isConnected: () => stubConnected,
 		async handleEvent(req: Request): Promise<Response> {
 			calls.push({ method: req.method, path: new URL(req.url).pathname });
 			return new Response("event-ok", { status: 200 });
@@ -119,7 +121,7 @@ describe("server slack-http routing", () => {
 		expect(res.status).toBe(404);
 	});
 
-	test("POST /slack/events with no channel provider returns 503", async () => {
+	test("POST /slack/events with no channel provider returns 503 with JSON body", async () => {
 		setSlackHttpChannelProvider(() => null);
 		try {
 			const res = await fetch(`${baseUrl}/slack/events`, {
@@ -128,8 +130,78 @@ describe("server slack-http routing", () => {
 				body: "{}",
 			});
 			expect(res.status).toBe(503);
+			expect(res.headers.get("content-type")).toContain("application/json");
+			expect(await res.json()).toEqual({ error: "slack channel not configured" });
 		} finally {
 			setSlackHttpChannelProvider(() => stub as never);
+		}
+	});
+
+	// Codex P1 fix: the channel provider is wired during channel setup in
+	// `src/index.ts` BEFORE `router.connectAll()` finishes running connect()
+	// on each channel. Inbound POSTs that arrive in the startup window must
+	// not dispatch into a half-initialized channel; tryHandleSlackHttp gates
+	// on `channel.isConnected()` and returns a retryable 503 so Slack's own
+	// retry schedule (up to 3 attempts within 5 minutes) resolves the race.
+	test("POST /slack/events when channel is not yet connected returns 503 with JSON body", async () => {
+		calls.length = 0;
+		stubConnected = false;
+		try {
+			const res = await fetch(`${baseUrl}/slack/events`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: "{}",
+			});
+			expect(res.status).toBe(503);
+			expect(res.headers.get("content-type")).toContain("application/json");
+			expect(await res.json()).toEqual({ error: "slack channel not ready" });
+			expect(calls).toHaveLength(0);
+		} finally {
+			stubConnected = true;
+		}
+	});
+
+	// Sibling-bug audit: the same gate must also cover the post-`disconnect()`
+	// path. SlackHttpChannel.disconnect() flips connectionState back to
+	// "disconnected" (slack-http-receiver.ts), and the auth-failure path
+	// during connect() flips it to "error". `isConnected()` returns true only
+	// for "connected", so this single gate handles all three failure modes:
+	// startup race, post-disconnect ingress, and auth-error state.
+	test("POST /slack/events after channel disconnects returns 503 (same gate covers disconnect path)", async () => {
+		stubConnected = true;
+		const okRes = await fetch(`${baseUrl}/slack/events`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: "{}",
+		});
+		expect(okRes.status).toBe(200);
+
+		stubConnected = false;
+		try {
+			const res = await fetch(`${baseUrl}/slack/events`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: "{}",
+			});
+			expect(res.status).toBe(503);
+			expect(await res.json()).toEqual({ error: "slack channel not ready" });
+		} finally {
+			stubConnected = true;
+		}
+	});
+
+	test("POST /slack/interactivity respects the same isConnected gate", async () => {
+		stubConnected = false;
+		try {
+			const res = await fetch(`${baseUrl}/slack/interactivity`, {
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: "payload=%7B%7D",
+			});
+			expect(res.status).toBe(503);
+			expect(await res.json()).toEqual({ error: "slack channel not ready" });
+		} finally {
+			stubConnected = true;
 		}
 	});
 });

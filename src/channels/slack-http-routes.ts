@@ -31,9 +31,21 @@ export async function tryHandleSlackHttp(req: Request): Promise<Response | null>
 	const channel = slackHttpChannelProvider?.();
 	if (!channel) {
 		// Socket Mode tenants never mount these routes; an inbound POST is
-		// either a probe or a misconfigured forwarder. 503 makes the
-		// distinction loud while still being a retryable signal upstream.
-		return new Response("slack http channel not configured", { status: 503 });
+		// either a probe or a misconfigured forwarder. 503 stays loud but
+		// retryable so Slack's own retry schedule (up to 3 attempts within
+		// 5 minutes) resolves a transient deploy-window race.
+		return notReady("slack channel not configured");
+	}
+	if (!channel.isConnected()) {
+		// The provider is wired in `src/index.ts` during channel setup
+		// BEFORE `router.connectAll()` runs, so an inbound POST in the
+		// startup window finds a channel object whose `connect()` (auth.test
+		// + state flip) has not completed. The same gate covers the
+		// post-`disconnect()` path (state flips back to "disconnected") and
+		// the auth-failure path (state flips to "error"); only "connected"
+		// passes. 503 lets Slack retry until the channel is ready instead
+		// of accepting events that no listener is wired to handle.
+		return notReady("slack channel not ready");
 	}
 
 	switch (url.pathname) {
@@ -54,4 +66,11 @@ function isSlackHttpPath(pathname: string): boolean {
 		pathname === SLACK_HTTP_PATHS.interactivity ||
 		pathname === SLACK_HTTP_PATHS.commands
 	);
+}
+
+function notReady(reason: string): Response {
+	return new Response(JSON.stringify({ error: reason }), {
+		status: 503,
+		headers: { "content-type": "application/json" },
+	});
 }
