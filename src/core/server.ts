@@ -1,5 +1,6 @@
 import { resolve as pathResolve } from "node:path";
 import type { AgentRuntime } from "../agent/runtime.ts";
+import { tryHandleSlackHttp } from "../channels/slack-http-routes.ts";
 import type { SlackTransport } from "../channels/slack-transport.ts";
 import { handleEmailLogin } from "../chat/email-login.ts";
 import type { PhantomConfig } from "../config/types.ts";
@@ -167,6 +168,14 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 			if (url.pathname === "/trigger" && req.method === "POST") {
 				return handleTrigger(req);
 			}
+
+			// Slack HTTP-mode ingress: phantom-slack-events on the gateway side
+			// forwards verified Slack events here through phantomd. The channel
+			// holds the per-tenant gateway signing secret; the helper returns
+			// `null` when this is not a Slack path, so we fall through to the
+			// remaining routes without overlap.
+			const slackResponse = await tryHandleSlackHttp(req);
+			if (slackResponse) return slackResponse;
 
 			if (url.pathname === "/webhook") {
 				if (!webhookHandler) {

@@ -125,7 +125,6 @@ describe("createSlackChannel", () => {
 		const ch = await createSlackChannel({
 			transport: "socket",
 			channelsConfig: null,
-			port: 3100,
 		});
 		expect(ch).toBeNull();
 	});
@@ -137,7 +136,6 @@ describe("createSlackChannel", () => {
 		const ch = await createSlackChannel({
 			transport: "socket",
 			channelsConfig: disabled,
-			port: 3100,
 		});
 		expect(ch).toBeNull();
 	});
@@ -146,7 +144,6 @@ describe("createSlackChannel", () => {
 		const ch = await createSlackChannel({
 			transport: "socket",
 			channelsConfig: SOCKET_CONFIG,
-			port: 3100,
 		});
 		expect(ch).toBeInstanceOf(SlackChannel);
 	});
@@ -158,7 +155,6 @@ describe("createSlackChannel", () => {
 			createSlackChannel({
 				transport: "http",
 				channelsConfig: null,
-				port: 3100,
 				identityFetcher: idFetcher,
 				secretsFetcher: secFetcher,
 			}),
@@ -171,7 +167,6 @@ describe("createSlackChannel", () => {
 		const ch = await createSlackChannel({
 			transport: "http",
 			channelsConfig: null,
-			port: 3100,
 			identityFetcher: idFetcher,
 			secretsFetcher: secFetcher,
 		});
@@ -190,7 +185,6 @@ describe("createSlackChannel", () => {
 		await createSlackChannel({
 			transport: "http",
 			channelsConfig: null,
-			port: 3100,
 			identityFetcher: idFetcher,
 			secretsFetcher: secFetcher,
 		});
@@ -211,7 +205,6 @@ describe("createSlackChannel", () => {
 		const ch = await createSlackChannel({
 			transport: "http",
 			channelsConfig: SOCKET_CONFIG,
-			port: 3100,
 			identityFetcher: idFetcher,
 			secretsFetcher: secFetcher,
 		});
@@ -232,7 +225,6 @@ describe("createSlackChannel", () => {
 		const ch = await createSlackChannel({
 			transport: "http",
 			channelsConfig: null,
-			port: 3100,
 			metadataBaseUrl: "http://gateway.test",
 			identityFetcher: idFetcher,
 			secretsFetcher: secFetcher,

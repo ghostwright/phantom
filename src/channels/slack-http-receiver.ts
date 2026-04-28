@@ -1,21 +1,29 @@
-// HTTP receiver mode for hosted, operator-managed deployments. Slack
-// events are captured by a shared central gateway, verified against
-// Slack's signing secret there, then forwarded over HTTPS to the
-// per-deployment Phantom on this VM. Self-hosters keep the Socket Mode
-// flow at `slack.ts`; SLACK_TRANSPORT=http opts a deployment into this
-// class.
+// HTTP receiver mode for hosted, operator-managed deployments. The Slack
+// gateway (phantom-slack-events on the cpx22 host) verifies Slack-side
+// HMAC and forwards each event to phantomd over mTLS gRPC; phantomd then
+// signs the canonical request with the per-tenant gateway secret and
+// POSTs to this in-VM Phantom on the host-side veth.
 //
-// Three security layers operate at this boundary:
-//   1. Caddy validates the gateway HMAC and strips inbound X-Phantom-* headers.
-//   2. This class re-verifies the gateway HMAC via `slack-gateway-verifier`.
-//   3. The parsed body's team_id MUST match the tenant's installer team_id.
-//      The one body shape allowed without team_id is `url_verification`.
+// On the in-VM side three security layers operate at this boundary:
+//   1. The host-side veth firewall (phantomd_tenants nft chain) only
+//      admits packets originating from the host network namespace.
+//   2. `slack-gateway-verifier` re-verifies the gateway HMAC + replay
+//      window over the raw bytes the gateway signed.
+//   3. The parsed body's team_id MUST match the tenant's installer
+//      team_id; the one body shape allowed without team_id is
+//      `url_verification`, which we short-circuit before Bolt sees it.
 //
-// `signatureVerification: false` on ExpressReceiver skips Slack's signing
-// secret because the gateway has already verified Slack's signature.
+// Why a Bun-native receiver instead of an ExpressReceiver:
+// Phantom's `Bun.serve` already owns config.port (3100) for /health,
+// /chat, /ui, /webhook, and /mcp. Spinning up a second HTTP listener on
+// the same port is impossible (EADDRINUSE) and a separate port would
+// require a second tenant ingress rule on every host. We mount the
+// three Slack ingress paths on the existing Bun.serve via
+// `tryHandleSlackHttp` (slack-http-routes.ts) and dispatch parsed
+// events into Bolt's App via a tiny `BunReceiver` whose start/stop are
+// no-ops. One process, one socket, no port collision.
 
-import { App, ExpressReceiver, type LogLevel } from "@slack/bolt";
-import type { Request, RequestHandler, Response } from "express";
+import { App, type LogLevel } from "@slack/bolt";
 import type { SlackBlock } from "./feedback.ts";
 import { registerSlackActions } from "./slack-actions.ts";
 import {
@@ -29,17 +37,9 @@ import {
 	egressUpdateMessage,
 	egressUpdateWithFeedback,
 } from "./slack-egress.ts";
-import { extractTeamId, verifyGatewaySignature } from "./slack-gateway-verifier.ts";
 import { type EventDispatchHost, type ReactionFn, registerHttpEventHandlers } from "./slack-http-events.ts";
-import {
-	type RequestWithRawBody,
-	getContentType,
-	headerString,
-	isUrlVerificationBody,
-	readRequestBody,
-	redactTokens,
-	rehydrateBody,
-} from "./slack-http-utils.ts";
+import { BunReceiver, dispatchToBolt } from "./slack-http-handlers.ts";
+import { redactTokens } from "./slack-http-utils.ts";
 import { sendIntroductionDm } from "./slack-introduction.ts";
 import type { Channel, ChannelCapabilities, InboundMessage, OutboundMessage, SentMessage } from "./types.ts";
 
@@ -49,8 +49,6 @@ export type SlackHttpChannelConfig = {
 	teamId: string;
 	installerUserId: string;
 	teamName: string;
-	listenPort: number;
-	listenPath: string;
 };
 
 type ConnectionState = "disconnected" | "connecting" | "connected" | "error";
@@ -70,13 +68,11 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 	};
 
 	private readonly app: App;
-	private readonly receiver: ExpressReceiver;
+	private readonly receiver: BunReceiver;
 	private readonly teamId: string;
 	private readonly installerUserId: string;
 	private readonly teamName: string;
 	private readonly gatewaySigningSecret: string;
-	private readonly listenPort: number;
-	private readonly listenPath: string;
 
 	private messageHandler: ((message: InboundMessage) => Promise<void>) | null = null;
 	private reactionHandler: ReactionFn | null = null;
@@ -98,23 +94,11 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 		this.installerUserId = config.installerUserId;
 		this.teamName = config.teamName;
 		this.gatewaySigningSecret = config.gatewaySigningSecret;
-		this.listenPort = config.listenPort;
-		this.listenPath = config.listenPath;
 
-		this.receiver = new ExpressReceiver({
-			signingSecret: "phase-5b-unused-gateway-verifies-instead",
-			signatureVerification: false,
-			endpoints: {
-				events: `${this.listenPath}/events`,
-				interactive: `${this.listenPath}/interactivity`,
-				commands: `${this.listenPath}/commands`,
-			},
-			processBeforeResponse: false,
-			logLevel: "ERROR" as LogLevel,
-		});
-
-		this.installVerifier();
-
+		// Bolt's `App` constructor calls `receiver.init(app)` synchronously
+		// to wire the App reference; we reuse that App for processEvent
+		// dispatches from the Bun handlers.
+		this.receiver = new BunReceiver();
 		this.app = new App({
 			token: config.botToken,
 			receiver: this.receiver,
@@ -161,54 +145,32 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 		return text.replace(/^<@[A-Z0-9]+>\s*/, "");
 	}
 
-	// Fails closed: missing headers, tampered body, stale/future timestamp -> 401;
-	// foreign or unknown team_id -> 403. Only `url_verification` may lack team_id.
-	private installVerifier(): void {
-		const expressApp = this.receiver.app;
-		const guard = this.makeGuardMiddleware();
-		expressApp.use(`${this.listenPath}/events`, guard);
-		expressApp.use(`${this.listenPath}/interactivity`, guard);
-		expressApp.use(`${this.listenPath}/commands`, guard);
+	// Public entrypoints invoked by `mountSlackHttpRoutes` against the
+	// Bun.serve listener. Each runs the verifier guard, parses the body,
+	// and dispatches the event into Bolt. Failure modes resolve to a
+	// Response (401/403/400) rather than throwing so the Bun handler can
+	// pipe them straight to the client without surrounding try/catch.
+	async handleEvent(req: Request): Promise<Response> {
+		return this.dispatch(req);
 	}
 
-	private makeGuardMiddleware(): RequestHandler {
-		const secret = this.gatewaySigningSecret;
-		const expectedTeamId = this.teamId;
+	async handleInteractivity(req: Request): Promise<Response> {
+		return this.dispatch(req);
+	}
 
-		return async (req: Request, res: Response, next): Promise<void> => {
-			let raw: Buffer;
-			try {
-				raw = await readRequestBody(req as RequestWithRawBody);
-			} catch {
-				res.status(400).end("bad request");
-				return;
-			}
+	async handleCommand(req: Request): Promise<Response> {
+		return this.dispatch(req);
+	}
 
-			(req as RequestWithRawBody).rawBody = raw;
-
-			const sigHeader = headerString(req, "x-phantom-signature");
-			const fwdHeader = headerString(req, "x-phantom-forwarded-at");
-			const eventId = headerString(req, "x-phantom-slack-event-id");
-
-			if (!verifyGatewaySignature({ sigHeader, fwdHeader, eventId, raw, secret })) {
-				res.status(401).end("unauthorized");
-				return;
-			}
-
-			const eventTeamId = extractTeamId(raw, getContentType(req));
-			if (eventTeamId === undefined) {
-				if (!isUrlVerificationBody(raw, getContentType(req))) {
-					res.status(403).end("forbidden");
-					return;
-				}
-			} else if (eventTeamId !== expectedTeamId) {
-				res.status(403).end("forbidden");
-				return;
-			}
-
-			rehydrateBody(req, raw);
-			next();
-		};
+	private async dispatch(req: Request): Promise<Response> {
+		return dispatchToBolt({
+			req,
+			app: this.app,
+			gatewaySigningSecret: this.gatewaySigningSecret,
+			expectedTeamId: this.teamId,
+			retryNumHeader: req.headers.get("x-slack-retry-num"),
+			retryReasonHeader: req.headers.get("x-slack-retry-reason"),
+		});
 	}
 
 	async connect(): Promise<void> {
@@ -228,9 +190,8 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 			}
 			console.log(`[${LOG_TAG}] Resolved bot user <@${this.botUserId}>`);
 
-			await this.receiver.start(this.listenPort);
 			this.connectionState = "connected";
-			console.log(`[${LOG_TAG}] Listening on :${this.listenPort}${this.listenPath}/{events,interactivity,commands}`);
+			console.log(`[${LOG_TAG}] Ready; routes mounted on the shared Bun.serve listener`);
 		} catch (err: unknown) {
 			this.connectionState = "error";
 			const rawMsg = err instanceof Error ? err.message : String(err);
@@ -239,8 +200,8 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 			throw err;
 		}
 
-		// Synthetic first DM. Fire after receiver.start so the channel is
-		// wired before the user can reply; gate on firstDmSent so a
+		// Synthetic first DM. Fire after the channel state flips to connected
+		// so the user can reply immediately; gate on firstDmSent so a
 		// reconnect-after-drop does not re-introduce.
 		if (!this.firstDmSent && this.installerUserId) {
 			const result = await sendIntroductionDm({
@@ -257,12 +218,11 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 
 	async disconnect(): Promise<void> {
 		if (this.connectionState === "disconnected") return;
-		try {
-			await this.receiver.stop();
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			console.warn(`[${LOG_TAG}] Error during disconnect: ${redactTokens(msg)}`);
-		}
+		// No HTTP listener to stop here; the routes are mounted on the shared
+		// Bun.serve owned by `core/server.ts`. We simply transition the
+		// state machine so the /health channel flag flips to false and
+		// downstream callers (router.disconnectAll, scheduler) see a
+		// disconnected channel.
 		this.connectionState = "disconnected";
 		console.log(`[${LOG_TAG}] Disconnected`);
 	}
