@@ -100,6 +100,15 @@ function resultMessage(result: string): SDKMessage {
 	} as SDKMessage;
 }
 
+function noConversationResult(): SDKMessage {
+	return {
+		type: "result",
+		subtype: "error_during_execution",
+		errors: ["No conversation found for session stale-session."],
+		session_id: "stale-session",
+	} as SDKMessage;
+}
+
 describe("Agent SDK boundary callers", () => {
 	let db: Database;
 	let calls: AgentSdkQueryParams[];
@@ -168,6 +177,58 @@ describe("Agent SDK boundary callers", () => {
 		expect(options?.agentProgressSummaries).toBe(true);
 		expect(options?.promptSuggestions).toBe(true);
 		expect(options?.hooks).toBeDefined();
+	});
+
+	test("chat query retries stale resume result frames without forwarding the error result", async () => {
+		const sdkEvents: SDKMessage[] = [];
+		let factoryCalls = 0;
+		__setAgentSdkQueryForTests((params) => {
+			calls.push(params);
+			if (calls.length === 1) {
+				return queryFromMessages([initMessage("stale-session"), noConversationResult()]);
+			}
+			return queryFromMessages([
+				initMessage("fresh-session"),
+				assistantMessage("chat assistant"),
+				resultMessage("chat result"),
+			]);
+		});
+
+		const sessionStore = new SessionStore(db);
+		sessionStore.create("web", "chat-session");
+		sessionStore.updateSdkSessionId("web:chat-session", "stale-session");
+		const mcpServerFactories = {
+			fake: () => {
+				factoryCalls += 1;
+				return { type: "stdio" as const, command: `node-${factoryCalls}` };
+			},
+		};
+
+		const response = await executeChatQuery(
+			{
+				config: makeConfig(),
+				sessionStore,
+				costTracker: new CostTracker(db),
+				memoryContextBuilder: null,
+				evolvedConfig: null,
+				roleTemplate: null,
+				onboardingPrompt: null,
+				mcpServerFactories,
+			},
+			"web:chat-session",
+			{ role: "user", content: "hi" },
+			Date.now(),
+			{ signal: new AbortController().signal, onSdkEvent: (message) => sdkEvents.push(message) },
+		);
+
+		expect(response).toEqual(expect.objectContaining({ text: "chat result", sessionId: "fresh-session" }));
+		expect(calls).toHaveLength(2);
+		expect(calls[0]?.options?.resume).toBe("stale-session");
+		expect(calls[1]?.options?.resume).toBeUndefined();
+		expect(factoryCalls).toBe(2);
+		expect(calls[0]?.options?.mcpServers).toEqual({ fake: { type: "stdio", command: "node-1" } });
+		expect(calls[1]?.options?.mcpServers).toEqual({ fake: { type: "stdio", command: "node-2" } });
+		expect(sdkEvents).not.toContainEqual(expect.objectContaining({ subtype: "error_during_execution" }));
 	});
 
 	test("judge query path runs through the boundary with stateless judge options", async () => {

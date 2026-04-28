@@ -16,6 +16,7 @@ import { extractTextFromMessageParam } from "./message-param-utils.ts";
 import { extractCost, extractTextFromMessage } from "./message-utils.ts";
 import { permissionOptionsFromConfig } from "./permission-options.ts";
 import { assemblePrompt } from "./prompt-assembler.ts";
+import { isNoConversationFoundResult, sdkResultErrorText } from "./sdk-result-errors.ts";
 import type { Session, SessionStore } from "./session-store.ts";
 import { getThinkingConfig } from "./thinking-config.ts";
 
@@ -64,13 +65,6 @@ export async function executeChatQuery(
 	);
 	const providerEnv = buildProviderEnv(deps.config);
 
-	let mcpServers: Record<string, McpServerConfig> | undefined;
-	if (deps.mcpServerFactories) {
-		mcpServers = Object.fromEntries(
-			await Promise.all(Object.entries(deps.mcpServerFactories).map(async ([k, f]) => [k, await f()] as const)),
-		);
-	}
-
 	const commandBlocker = createDangerousCommandBlocker();
 	const fileTracker = createFileTracker();
 	const controller = new AbortController();
@@ -93,6 +87,11 @@ export async function executeChatQuery(
 
 	const runSdk = async (useResume: boolean): Promise<void> => {
 		const permissionOptions = permissionOptionsFromConfig(deps.config);
+		const mcpServers = deps.mcpServerFactories
+			? Object.fromEntries(
+					await Promise.all(Object.entries(deps.mcpServerFactories).map(async ([k, f]) => [k, await f()] as const)),
+				)
+			: undefined;
 		const queryStream = query({
 			prompt: makePrompt(),
 			options: {
@@ -120,6 +119,9 @@ export async function executeChatQuery(
 		});
 
 		for await (const msg of queryStream) {
+			if (isNoConversationFoundResult(msg)) {
+				throw new Error(sdkResultErrorText(msg) ?? "No conversation found");
+			}
 			options.onSdkEvent(msg);
 			switch (msg.type) {
 				case "system": {

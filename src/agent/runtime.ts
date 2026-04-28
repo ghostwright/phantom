@@ -17,6 +17,7 @@ import { wrapMessageContent } from "./message-param-utils.ts";
 import { extractCost, extractTextFromMessage } from "./message-utils.ts";
 import { permissionOptionsFromConfig } from "./permission-options.ts";
 import { assemblePrompt } from "./prompt-assembler.ts";
+import { isNoConversationFoundResult, sdkResultErrorText } from "./sdk-result-errors.ts";
 import { SessionStore } from "./session-store.ts";
 import { getThinkingConfig } from "./thinking-config.ts";
 
@@ -254,6 +255,9 @@ export class AgentRuntime {
 						break;
 					}
 					case "result": {
+						if (isNoConversationFoundResult(message)) {
+							throw new Error(sdkResultErrorText(message) ?? "No conversation found");
+						}
 						cost = extractCost(message as unknown as Parameters<typeof extractCost>[0]);
 						if (message.subtype === "success") resultText = message.result || resultText;
 						break;
