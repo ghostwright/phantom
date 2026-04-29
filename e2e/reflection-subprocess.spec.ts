@@ -8,6 +8,9 @@
 //
 // Optional:
 //
+//   PHANTOM_E2E_REFLECTION_PROVIDER=openai
+//   PHANTOM_E2E_REFLECTION_MODEL=gpt-5.5
+//   PHANTOM_E2E_REFLECTION_HAIKU_MODEL=gpt-5.5
 //   PHANTOM_E2E_REFLECTION_KEEP_TMP=1
 //   PHANTOM_E2E_REFLECTION_TIMEOUT_MS=180000
 
@@ -15,11 +18,16 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
+import { PhantomConfigSchema } from "../src/config/schemas.ts";
+import type { PhantomConfig } from "../src/config/types.ts";
 import type { QueuedSession } from "../src/evolution/queue.ts";
 
 const REFLECTION_FLAG = readEnv("PHANTOM_E2E_REFLECTION");
 const SDK_MODULE = readEnv("PHANTOM_AGENT_SDK_MODULE");
 const MARKER = readEnv("PHANTOM_E2E_REFLECTION_MARKER");
+const REFLECTION_PROVIDER = readEnv("PHANTOM_E2E_REFLECTION_PROVIDER");
+const REFLECTION_MODEL = readEnv("PHANTOM_E2E_REFLECTION_MODEL");
+const REFLECTION_HAIKU_MODEL = readEnv("PHANTOM_E2E_REFLECTION_HAIKU_MODEL");
 const KEEP_TMP = readEnv("PHANTOM_E2E_REFLECTION_KEEP_TMP") === "1";
 const TEST_TIMEOUT_MS = readIntEnv("PHANTOM_E2E_REFLECTION_TIMEOUT_MS") ?? 180_000;
 const suite = REFLECTION_FLAG === "1" && SDK_MODULE && MARKER ? describe.serial : describe.skip;
@@ -55,7 +63,7 @@ suite("Phantom reflection subprocess e2e", () => {
 			const result = await runReflectionSubprocess({
 				batch: queued,
 				config,
-				phantomConfig: null,
+				phantomConfig: reflectionPhantomConfig(),
 			});
 
 			expect(result.error).toBeNull();
@@ -99,6 +107,22 @@ suite("Phantom reflection subprocess e2e", () => {
 		TEST_TIMEOUT_MS,
 	);
 });
+
+function reflectionPhantomConfig(): PhantomConfig | null {
+	if (!REFLECTION_PROVIDER && !REFLECTION_MODEL && !REFLECTION_HAIKU_MODEL) return null;
+	const model = REFLECTION_MODEL ?? REFLECTION_HAIKU_MODEL ?? "claude-haiku-4-5";
+	return PhantomConfigSchema.parse({
+		name: "reflection-e2e",
+		agent_runtime: "murph",
+		model,
+		provider: {
+			type: REFLECTION_PROVIDER ?? "anthropic",
+			model_mappings: {
+				haiku: REFLECTION_HAIKU_MODEL ?? model,
+			},
+		},
+	});
+}
 
 function seedTempTree(root: string): { configRoot: string; evolutionConfigPath: string } {
 	const configDir = join(root, "config");
