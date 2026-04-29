@@ -13,12 +13,13 @@ function err(message: string): { content: Array<{ type: "text"; text: string }>;
 	return { content: [{ type: "text" as const, text: JSON.stringify({ error: message }) }], isError: true };
 }
 
-const TOOL_DESCRIPTION = `Create, list, delete, or trigger scheduled tasks. Lets you set up recurring jobs, one-shot reminders, and automated reports.
+const TOOL_DESCRIPTION = `Create, list, delete, update, or trigger scheduled tasks. Lets you set up recurring jobs, one-shot reminders, and automated reports.
 
 Actions:
 - create: Create a new scheduled task. Returns the job id and next run time. Rejects invalid schedules, past timestamps, duplicate names, task text over 32 KB, and delivery targets that are not "owner", a channel id (C...), or a user id (U...).
 - list: List all scheduled tasks with status and next run time. Corrupt rows are logged and skipped.
 - delete: Remove a scheduled task by jobId or by name (case insensitive).
+- update: Update a scheduled task by jobId or by name. Preserves run history (run_count, last_run_at, last_run_status, consecutive_errors). Only provided fields are updated. If schedule is changed, next_run_at is recomputed.
 - run: Trigger a task immediately. Only runs when status is active and no other job is currently executing. Returns the task output.
 
 Schedule types:
@@ -60,9 +61,9 @@ export function createSchedulerToolServer(scheduler: Scheduler): McpSdkServerCon
 		TOOL_DESCRIPTION,
 		{
 			action: z
-				.enum(["create", "list", "delete", "run"])
+				.enum(["create", "list", "delete", "update", "run"])
 				.describe(
-					"create: new scheduled task. list: enumerate tasks. delete: remove by jobId or name. run: trigger immediately (only when status=active and scheduler is idle).",
+					"create: new scheduled task. list: enumerate tasks. delete: remove by jobId or name. update: modify by jobId or name. run: trigger immediately (only when status=active and scheduler is idle).",
 				),
 			name: z.string().optional().describe("Job name (required for create)"),
 			description: z.string().optional().describe("Job description"),
@@ -72,7 +73,8 @@ export function createSchedulerToolServer(scheduler: Scheduler): McpSdkServerCon
 				.optional()
 				.describe("The prompt for the agent when the job fires (required for create, 32 KB max)"),
 			delivery: JobDeliverySchema.optional().describe("Where to deliver results"),
-			jobId: z.string().optional().describe("Job ID (for delete or run)"),
+			enabled: z.boolean().optional().describe("Enable or disable the job (for update)"),
+			jobId: z.string().optional().describe("Job ID (for delete, update, or run)"),
 		},
 		async (input) => {
 			try {
@@ -129,6 +131,36 @@ export function createSchedulerToolServer(scheduler: Scheduler): McpSdkServerCon
 
 						const deleted = scheduler.deleteJob(targetId);
 						return ok({ deleted, id: targetId });
+					}
+
+					case "update": {
+						const targetId = input.jobId ?? scheduler.findJobIdByName(input.name);
+						if (!targetId) return err("Provide jobId or name to update");
+
+						// Build update object with only provided fields.
+						// If name was used for lookup (no jobId), exclude it from updates
+						// to avoid updating the name to itself.
+						const usedNameForLookup = !input.jobId && input.name;
+						const updateFields: Record<string, unknown> = {};
+						if (input.name !== undefined && !usedNameForLookup) updateFields.name = input.name;
+						if (input.description !== undefined) updateFields.description = input.description;
+						if (input.schedule !== undefined) updateFields.schedule = input.schedule;
+						if (input.task !== undefined) updateFields.task = input.task;
+						if (input.delivery !== undefined) updateFields.delivery = input.delivery;
+						if (input.enabled !== undefined) updateFields.enabled = input.enabled;
+
+						const updated = scheduler.updateJob(targetId, updateFields);
+						if (!updated) return err(`Job not found: ${targetId}`);
+
+						return ok({
+							updated: true,
+							id: updated.id,
+							name: updated.name,
+							schedule: updated.schedule,
+							nextRunAt: updated.nextRunAt,
+							delivery: updated.delivery,
+							enabled: updated.enabled,
+						});
 					}
 
 					case "run": {
