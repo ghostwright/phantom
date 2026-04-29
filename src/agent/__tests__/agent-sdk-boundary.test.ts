@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,6 +10,7 @@ import {
 	type Query,
 	type SDKMessage,
 	__setAgentSdkQueryForTests,
+	configureAgentSdkRuntime,
 	createSdkMcpServer,
 	query,
 	tool,
@@ -17,6 +18,8 @@ import {
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const BOUNDARY_FILE = "agent/agent-sdk.ts";
+const CREATE_SERVER = createSdkMcpServer as unknown as () => string;
+const CREATE_TOOL = tool as unknown as () => string;
 
 function listTypeScriptFiles(dir: string): string[] {
 	const files: string[] = [];
@@ -43,6 +46,11 @@ function queryFromMessages(messages: readonly SDKMessage[]): Query {
 }
 
 describe("Agent SDK boundary", () => {
+	afterEach(async () => {
+		__setAgentSdkQueryForTests(null);
+		await configureAgentSdkRuntime({ agentRuntime: "anthropic", env: {} });
+	});
+
 	test("exposes the runtime symbols Phantom needs", () => {
 		expect(typeof query).toBe("function");
 		expect(typeof createSdkMcpServer).toBe("function");
@@ -141,6 +149,45 @@ describe("Agent SDK boundary", () => {
 		}
 	});
 
+	test("helper wrappers dispatch to the active runtime after reconfiguration", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "phantom-agent-sdk-active-"));
+		try {
+			const fakeModule = join(dir, "active-sdk.mjs");
+			writeFileSync(
+				fakeModule,
+				`
+					export function query() {
+						return (async function* () {
+							yield { type: "result", subtype: "success", result: "active-query" };
+						})();
+					}
+					export function createSdkMcpServer() {
+						return "active-server";
+					}
+					export function tool() {
+						return "active-tool";
+					}
+				`,
+			);
+
+			await configureAgentSdkRuntime({
+				agentRuntime: "anthropic",
+				env: { [AGENT_SDK_MODULE_ENV]: pathToFileURL(fakeModule).href },
+			});
+
+			const messages: SDKMessage[] = [];
+			for await (const message of query({ prompt: "active" })) {
+				messages.push(message);
+			}
+
+			expect(messages.map((message) => (message as { result?: string }).result)).toEqual(["active-query"]);
+			expect(CREATE_SERVER()).toBe("active-server");
+			expect(CREATE_TOOL()).toBe("active-tool");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	test("keeps direct Agent SDK imports isolated to the boundary module", () => {
 		const packagePattern = "@anthropic-ai/claude-agent-sdk(?:/[^\"'`\\s)]*)?";
 		const directAgentSdkReference = new RegExp(
@@ -156,6 +203,26 @@ describe("Agent SDK boundary", () => {
 			.map((path) => ({ path, rel: relative(SRC_ROOT, path), source: readFileSync(path, "utf-8") }))
 			.filter(({ rel }) => rel !== BOUNDARY_FILE)
 			.filter(({ source }) => directAgentSdkReference.test(source))
+			.map(({ rel }) => rel);
+
+		expect(offenders).toEqual([]);
+	});
+
+	test("keeps direct Murph runtime imports out of production files", () => {
+		const packagePattern = "@murph/anthropic-sdk-shim(?:/[^\"'`\\s)]*)?";
+		const directMurphReference = new RegExp(
+			[
+				`from\\s+["']${packagePattern}["']`,
+				`import\\s+["']${packagePattern}["']`,
+				`import\\s*\\(\\s*["']${packagePattern}["']\\s*\\)`,
+				`(?:require|Bun\\.require|module\\.require)\\s*\\(\\s*["']${packagePattern}["']\\s*\\)`,
+				`createRequire\\s*\\([^)]*\\)\\s*\\(\\s*["']${packagePattern}["']\\s*\\)`,
+			].join("|"),
+		);
+		const offenders = listTypeScriptFiles(SRC_ROOT)
+			.map((path) => ({ path, rel: relative(SRC_ROOT, path), source: readFileSync(path, "utf-8") }))
+			.filter(({ rel }) => !rel.includes("__tests__"))
+			.filter(({ source }) => directMurphReference.test(source))
 			.map(({ rel }) => rel);
 
 		expect(offenders).toEqual([]);

@@ -1,5 +1,5 @@
 import { z } from "zod/v4";
-import { buildProviderEnv } from "../config/providers.ts";
+import { buildAgentRuntimeEnv, resolveAgentRuntimeModel } from "../config/providers.ts";
 import type { PhantomConfig } from "../config/types.ts";
 import { query } from "./agent-sdk.ts";
 import { extractTextFromMessage } from "./message-utils.ts";
@@ -143,7 +143,8 @@ export async function runJudgeQuery<T>(
 	options: JudgeQueryOptions<T>,
 ): Promise<JudgeQueryResult<T>> {
 	const startTime = Date.now();
-	const resolvedModel = options.model ?? config.judge_model ?? config.model;
+	const requestedModel = options.model ?? config.judge_model ?? config.model;
+	const resolvedModel = resolveAgentRuntimeModel(config, requestedModel);
 
 	const schemaJson = z.toJSONSchema(options.schema);
 	const judgePrompt = buildJudgePrompt(options.systemPrompt, schemaJson);
@@ -152,7 +153,7 @@ export async function runJudgeQuery<T>(
 	// auth, base URL, model mappings, and beta headers are consistent. Without
 	// this, a Z.AI deployment would silently route judges back to Anthropic
 	// whenever ANTHROPIC_API_KEY happened to be set in the shell.
-	const providerEnv = buildProviderEnv(config);
+	const providerEnv = buildAgentRuntimeEnv(config, resolvedModel);
 
 	const systemPrompt = buildSystemPrompt(judgePrompt, options.omitPreset === true);
 

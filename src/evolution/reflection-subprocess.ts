@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, writeFi
 import { dirname, join } from "node:path";
 import { getThinkingConfig } from "../agent/thinking-config.ts";
 import { query } from "../agent/agent-sdk.ts";
-import { buildProviderEnv } from "../config/providers.ts";
+import { buildAgentRuntimeEnv, resolveAgentRuntimeModel } from "../config/providers.ts";
 import type { PhantomConfig } from "../config/types.ts";
 import type { EvolutionConfig } from "./config.ts";
 import { runInvariantCheck } from "./invariant-check.ts";
@@ -542,8 +542,9 @@ function bumpFilesTouched(stats: Partial<ReflectionStats>, changes: VersionChang
 async function defaultRunner(input: SpawnQueryInput): Promise<SpawnQueryResult> {
 	const { tier, drainId, config, phantomConfig, systemPrompt, abortSignal } = input;
 	const root = config.paths.config_dir;
-	const providerEnv = phantomConfig ? buildProviderEnv(phantomConfig) : {};
-	const model = TIER_MODELS[tier];
+	const requestedModel = TIER_MODELS[tier];
+	const model = phantomConfig ? resolveAgentRuntimeModel(phantomConfig, requestedModel, tier) : requestedModel;
+	const providerEnv = phantomConfig ? buildAgentRuntimeEnv(phantomConfig, model, tier) : {};
 
 	// Permission rules are anchored at cwd. Read-wide, write-narrow: the
 	// subprocess can read everything inside phantom-config (except meta and

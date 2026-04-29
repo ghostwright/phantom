@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { AGENT_SDK_MODULE_ENV } from "../../agent/agent-sdk-loader.ts";
+import { AGENT_RUNTIME_ENV, AGENT_SDK_MODULE_ENV } from "../../agent/agent-sdk-loader.ts";
 import { applyStartEnv, parseStartArgs } from "../start.ts";
 
 describe("phantom start", () => {
@@ -8,6 +8,14 @@ describe("phantom start", () => {
 			help: false,
 			daemon: false,
 			agentSdkModule: "file:///tmp/murph-shim.js",
+		});
+	});
+
+	test("parses Agent SDK named runtime", () => {
+		expect(parseStartArgs(["--agent-runtime", "murph"])).toEqual({
+			help: false,
+			daemon: false,
+			agentRuntime: "murph",
 		});
 	});
 
@@ -28,6 +36,7 @@ describe("phantom start", () => {
 				daemon: false,
 				port: "3102",
 				config: "config/local.yaml",
+				agentRuntime: "murph",
 				agentSdkModule: "file:///tmp/murph-shim.js",
 			},
 			env,
@@ -36,6 +45,7 @@ describe("phantom start", () => {
 		expect(env.PORT).toBe("3102");
 		expect(env.PHANTOM_PORT_OVERRIDE).toBe("3102");
 		expect(env.PHANTOM_CONFIG_PATH).toBe("config/local.yaml");
+		expect(env[AGENT_RUNTIME_ENV]).toBe("murph");
 		expect(env[AGENT_SDK_MODULE_ENV]).toBe("file:///tmp/murph-shim.js");
 	});
 });

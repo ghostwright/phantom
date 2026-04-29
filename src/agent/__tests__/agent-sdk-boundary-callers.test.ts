@@ -15,7 +15,7 @@ const SESSION_ID = "11111111-1111-4111-8111-111111111111";
 const MESSAGE_ID = "22222222-2222-4222-8222-222222222222";
 const RESULT_ID = "33333333-3333-4333-8333-333333333333";
 
-function makeConfig(): PhantomConfig {
+function makeConfig(overrides: Record<string, unknown> = {}): PhantomConfig {
 	return PhantomConfigSchema.parse({
 		name: "phantom",
 		model: "claude-opus-4-7",
@@ -30,6 +30,7 @@ function makeConfig(): PhantomConfig {
 			allow: [],
 			deny: [],
 		},
+		...overrides,
 	});
 }
 
@@ -112,6 +113,13 @@ function noConversationResult(): SDKMessage {
 describe("Agent SDK boundary callers", () => {
 	let db: Database;
 	let calls: AgentSdkQueryParams[];
+	const watchedEnv = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ZAI_API_KEY", "MURPH_PROVIDER"] as const;
+	const savedEnv: Record<(typeof watchedEnv)[number], string | undefined> = {
+		ANTHROPIC_API_KEY: undefined,
+		OPENAI_API_KEY: undefined,
+		ZAI_API_KEY: undefined,
+		MURPH_PROVIDER: undefined,
+	};
 
 	beforeEach(() => {
 		db = new Database(":memory:");
@@ -119,10 +127,21 @@ describe("Agent SDK boundary callers", () => {
 		db.run("PRAGMA foreign_keys = ON");
 		runMigrations(db);
 		calls = [];
+		for (const key of watchedEnv) {
+			savedEnv[key] = process.env[key];
+			delete process.env[key];
+		}
 	});
 
 	afterEach(() => {
 		__setAgentSdkQueryForTests(null);
+		for (const key of watchedEnv) {
+			if (savedEnv[key] !== undefined) {
+				process.env[key] = savedEnv[key];
+			} else {
+				delete process.env[key];
+			}
+		}
 		db.close();
 	});
 
@@ -144,6 +163,34 @@ describe("Agent SDK boundary callers", () => {
 		expect(options?.persistSession).toBe(true);
 		expect(options?.hooks).toBeDefined();
 		expect(options?.mcpServers).toEqual({ fake: { type: "stdio", command: "node" } });
+	});
+
+	test("AgentRuntime main path passes Murph OpenAI model and native env", async () => {
+		process.env.OPENAI_API_KEY = "openai-secret";
+		process.env.ANTHROPIC_API_KEY = "stale-anthropic";
+		__setAgentSdkQueryForTests((params) => {
+			calls.push(params);
+			return queryFromMessages([initMessage(), assistantMessage("main assistant"), resultMessage("main result")]);
+		});
+
+		const runtime = new AgentRuntime(
+			makeConfig({
+				agent_runtime: "murph",
+				model: "gpt-5.5",
+				provider: { type: "openai" },
+			}),
+			db,
+		);
+
+		await runtime.handleMessage("slack", "C1", "hello");
+		const options = calls[0]?.options;
+
+		expect(options?.model).toBe("gpt-5.5");
+		expect(options?.env?.MURPH_PROVIDER).toBe("openai");
+		expect(options?.env?.MURPH_MODEL).toBe("gpt-5.5");
+		expect(options?.env?.MURPH_OPENAI_MODEL).toBe("gpt-5.5");
+		expect(options?.env?.OPENAI_API_KEY).toBe("openai-secret");
+		expect(options?.env?.ANTHROPIC_API_KEY).toBe("");
 	});
 
 	test("chat query path runs through the boundary with chat streaming flags", async () => {
@@ -177,6 +224,43 @@ describe("Agent SDK boundary callers", () => {
 		expect(options?.agentProgressSummaries).toBe(true);
 		expect(options?.promptSuggestions).toBe(true);
 		expect(options?.hooks).toBeDefined();
+	});
+
+	test("chat query path maps Murph Z.AI tier aliases into model and env", async () => {
+		process.env.ZAI_API_KEY = "zai-secret";
+		__setAgentSdkQueryForTests((params) => {
+			calls.push(params);
+			return queryFromMessages([initMessage(), assistantMessage("chat assistant"), resultMessage("chat result")]);
+		});
+
+		await executeChatQuery(
+			{
+				config: makeConfig({
+					agent_runtime: "murph",
+					model: "sonnet",
+					provider: { type: "zai", model_mappings: { sonnet: "glm-5.1" } },
+				}),
+				sessionStore: new SessionStore(db),
+				costTracker: new CostTracker(db),
+				memoryContextBuilder: null,
+				evolvedConfig: null,
+				roleTemplate: null,
+				onboardingPrompt: null,
+				mcpServerFactories: null,
+			},
+			"web:chat-session",
+			{ role: "user", content: "hi" },
+			Date.now(),
+			{ signal: new AbortController().signal, onSdkEvent: () => {} },
+		);
+		const options = calls[0]?.options;
+
+		expect(options?.model).toBe("glm-5.1");
+		expect(options?.env?.MURPH_PROVIDER).toBe("glm");
+		expect(options?.env?.MURPH_MODEL).toBe("glm-5.1");
+		expect(options?.env?.MURPH_GLM_MODEL).toBe("glm-5.1");
+		expect(options?.env?.ZAI_API_KEY).toBe("zai-secret");
+		expect(options?.env?.ANTHROPIC_BASE_URL).toBe("");
 	});
 
 	test("chat query retries stale resume result frames without forwarding the error result", async () => {
@@ -257,5 +341,41 @@ describe("Agent SDK boundary callers", () => {
 		expect(options?.maxTurns).toBe(1);
 		expect(options?.permissionMode).toBe("bypassPermissions");
 		expect(options?.allowDangerouslySkipPermissions).toBe(true);
+	});
+
+	test("judge query path applies exact Murph judge model mappings", async () => {
+		process.env.OPENAI_API_KEY = "openai-secret";
+		__setAgentSdkQueryForTests((params) => {
+			calls.push(params);
+			return queryFromMessages([
+				assistantMessage('{"verdict":"pass","confidence":0.9,"reasoning":"ok"}'),
+				resultMessage('{"verdict":"pass","confidence":0.9,"reasoning":"ok"}'),
+			]);
+		});
+
+		await runJudgeQuery(
+			makeConfig({
+				agent_runtime: "murph",
+				model: "gpt-5.5",
+				judge_model: "haiku",
+				provider: { type: "openai", model_mappings: { haiku: "gpt-5.5-mini" } },
+			}),
+			{
+				systemPrompt: "Judge the result.",
+				userMessage: "input",
+				schema: z.object({
+					verdict: z.enum(["pass", "fail"]),
+					confidence: z.number(),
+					reasoning: z.string(),
+				}),
+			},
+		);
+		const options = calls[0]?.options;
+
+		expect(options?.model).toBe("gpt-5.5-mini");
+		expect(options?.env?.MURPH_PROVIDER).toBe("openai");
+		expect(options?.env?.MURPH_MODEL).toBe("gpt-5.5-mini");
+		expect(options?.env?.MURPH_OPENAI_MODEL).toBe("gpt-5.5-mini");
+		expect(options?.env?.OPENAI_API_KEY).toBe("openai-secret");
 	});
 });

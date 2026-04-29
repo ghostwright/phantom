@@ -1,11 +1,12 @@
 import { parseArgs } from "node:util";
-import { AGENT_SDK_MODULE_ENV } from "../agent/agent-sdk-loader.ts";
+import { AGENT_RUNTIME_ENV, AGENT_SDK_MODULE_ENV } from "../agent/agent-sdk-loader.ts";
 
 export type StartCliOptions = {
 	help: boolean;
 	port?: string;
 	config?: string;
 	daemon: boolean;
+	agentRuntime?: string;
 	agentSdkModule?: string;
 };
 
@@ -17,6 +18,7 @@ export function parseStartArgs(args: string[]): StartCliOptions {
 			port: { type: "string", short: "p" },
 			config: { type: "string", short: "c" },
 			daemon: { type: "boolean", short: "d" },
+			"agent-runtime": { type: "string" },
 			"agent-sdk-module": { type: "string" },
 		},
 		allowPositionals: false,
@@ -27,6 +29,7 @@ export function parseStartArgs(args: string[]): StartCliOptions {
 		daemon: values.daemon === true,
 		...(typeof values.port === "string" ? { port: values.port } : {}),
 		...(typeof values.config === "string" ? { config: values.config } : {}),
+		...(typeof values["agent-runtime"] === "string" ? { agentRuntime: values["agent-runtime"] } : {}),
 		...(typeof values["agent-sdk-module"] === "string" ? { agentSdkModule: values["agent-sdk-module"] } : {}),
 	};
 }
@@ -38,6 +41,9 @@ export function applyStartEnv(options: StartCliOptions, env: Record<string, stri
 	}
 	if (options.config) {
 		env.PHANTOM_CONFIG_PATH = options.config;
+	}
+	if (options.agentRuntime) {
+		env[AGENT_RUNTIME_ENV] = options.agentRuntime;
 	}
 	if (options.agentSdkModule) {
 		env[AGENT_SDK_MODULE_ENV] = options.agentSdkModule;
@@ -54,7 +60,8 @@ export async function runStart(args: string[]): Promise<void> {
 		console.log("  -p, --port <port>     Override HTTP port");
 		console.log("  -c, --config <path>   Path to phantom.yaml");
 		console.log("  -d, --daemon          Run in background (detached)");
-		console.log("  --agent-sdk-module    Runtime module specifier for the Agent SDK boundary");
+		console.log("  --agent-runtime <runtime>  Agent SDK runtime: anthropic or murph");
+		console.log("  --agent-sdk-module <specifier>  Runtime module specifier for the Agent SDK boundary");
 		console.log("  -h, --help            Show this help");
 		return;
 	}

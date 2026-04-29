@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	type AgentSdkQueryParams,
+	type Query,
+	type SDKMessage,
+	__setAgentSdkQueryForTests,
+} from "../../agent/agent-sdk.ts";
+import { PhantomConfigSchema } from "../../config/schemas.ts";
 import type { EvolutionConfig } from "../config.ts";
 import type { QueuedSession } from "../queue.ts";
 import {
@@ -82,6 +89,16 @@ function makeQueued(overrides: Partial<SessionSummary> = {}): QueuedSession {
 	};
 }
 
+function queryFromMessages(messages: readonly SDKMessage[]): Query {
+	async function* iterator(): AsyncGenerator<SDKMessage, void> {
+		for (const message of messages) {
+			yield message;
+		}
+	}
+
+	return iterator() as Query;
+}
+
 describe("parseSentinel", () => {
 	test("parses trailing JSON sentinel with preceding prose", () => {
 		const text = `Processed 3 sessions.\n\n{"status":"ok","changes":[{"file":"user-profile.md","action":"edit","summary":"x"}]}`;
@@ -107,13 +124,32 @@ describe("parseSentinel", () => {
 
 describe("runReflectionSubprocess failure modes", () => {
 	let config: EvolutionConfig;
+	const savedEnv: Record<"ZAI_API_KEY" | "ANTHROPIC_BASE_URL", string | undefined> = {
+		ZAI_API_KEY: undefined,
+		ANTHROPIC_BASE_URL: undefined,
+	};
 
 	beforeEach(() => {
 		config = setupEnv();
+		savedEnv.ZAI_API_KEY = process.env.ZAI_API_KEY;
+		savedEnv.ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;
+		process.env.ZAI_API_KEY = undefined;
+		process.env.ANTHROPIC_BASE_URL = undefined;
 	});
 
 	afterEach(() => {
 		__setReflectionRunnerForTest(null);
+		__setAgentSdkQueryForTests(null);
+		if (savedEnv.ZAI_API_KEY !== undefined) {
+			process.env.ZAI_API_KEY = savedEnv.ZAI_API_KEY;
+		} else {
+			process.env.ZAI_API_KEY = undefined;
+		}
+		if (savedEnv.ANTHROPIC_BASE_URL !== undefined) {
+			process.env.ANTHROPIC_BASE_URL = savedEnv.ANTHROPIC_BASE_URL;
+		} else {
+			process.env.ANTHROPIC_BASE_URL = undefined;
+		}
 		rmSync(TEST_DIR, { recursive: true, force: true });
 	});
 
@@ -383,5 +419,71 @@ describe("runReflectionSubprocess failure modes", () => {
 			const entries = readdirSync(`${TEST_DIR}/.staging`);
 			expect(entries).toHaveLength(0);
 		}
+	});
+
+	test("default runner passes Murph reflection tier model and native env through the Agent SDK boundary", async () => {
+		const calls: AgentSdkQueryParams[] = [];
+		process.env.ZAI_API_KEY = "zai-secret";
+		process.env.ANTHROPIC_BASE_URL = "https://stale.example";
+		__setAgentSdkQueryForTests((params) => {
+			calls.push(params);
+			return queryFromMessages([
+				{
+					type: "assistant",
+					parent_tool_use_id: null,
+					session_id: "reflection-session",
+					uuid: "44444444-4444-4444-8444-444444444444",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: '{"status":"skip"}' }],
+						model: "glm-haiku",
+						stop_reason: "end_turn",
+						stop_sequence: null,
+						usage: { input_tokens: 1, output_tokens: 1 },
+					},
+				} as SDKMessage,
+				{
+					type: "result",
+					subtype: "success",
+					duration_ms: 1,
+					duration_api_ms: 1,
+					is_error: false,
+					num_turns: 1,
+					result: '{"status":"skip"}',
+					stop_reason: "end_turn",
+					total_cost_usd: 0,
+					usage: { input_tokens: 1, output_tokens: 1 },
+					modelUsage: {},
+					permission_denials: [],
+					uuid: "55555555-5555-4555-8555-555555555555",
+					session_id: "reflection-session",
+				} as SDKMessage,
+			]);
+		});
+
+		const result = await runReflectionSubprocess({
+			batch: [makeQueued()],
+			config,
+			phantomConfig: PhantomConfigSchema.parse({
+				name: "reflection-test",
+				agent_runtime: "murph",
+				model: "sonnet",
+				provider: { type: "zai", model_mappings: { haiku: "glm-haiku" } },
+			}),
+		});
+
+		const options = calls[0]?.options;
+		expect(result.status).toBe("skip");
+		expect(options?.model).toBe("glm-haiku");
+		expect(options?.cwd).toBe(TEST_DIR);
+		expect(options?.tools).toEqual(["Read", "Write", "Edit", "Glob", "Grep"]);
+		expect(options?.settingSources).toEqual([]);
+		expect(typeof options?.systemPrompt).toBe("string");
+		expect(options?.settings).toEqual(expect.objectContaining({ permissions: expect.any(Object) }));
+		expect(options?.env?.MURPH_PROVIDER).toBe("glm");
+		expect(options?.env?.MURPH_MODEL).toBe("glm-haiku");
+		expect(options?.env?.MURPH_GLM_MODEL).toBe("glm-haiku");
+		expect(options?.env?.ZAI_API_KEY).toBe("zai-secret");
+		expect(options?.env?.ANTHROPIC_BASE_URL).toBe("");
 	});
 });

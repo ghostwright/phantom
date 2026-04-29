@@ -129,6 +129,7 @@ describe("SWE MCP Tools", () => {
 					name: "swe-test-phantom",
 					port: 3100,
 					role: "swe",
+					agent_runtime: "anthropic",
 					model: "claude-opus-4-6",
 					provider: { type: "anthropic" as const, secret_name: "provider_token" },
 					secret_source: "env" as const,

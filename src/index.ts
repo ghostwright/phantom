@@ -1,5 +1,6 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { configureAgentSdkRuntime } from "./agent/agent-sdk.ts";
 import { createReflectiveToolServer } from "./agent/in-process-reflective-tools.ts";
 import { createInProcessToolServer } from "./agent/in-process-tools.ts";
 import { AgentRuntime } from "./agent/runtime.ts";
@@ -82,6 +83,7 @@ async function main(): Promise<void> {
 	console.log("[phantom] Starting...");
 
 	const config = await loadConfig();
+	await configureAgentSdkRuntime({ agentRuntime: config.agent_runtime, env: process.env });
 	console.log(`[phantom] Config loaded: ${config.name} (${config.model}, effort: ${config.effort})`);
 
 	// Set web UI public directory

@@ -4,7 +4,7 @@
 import { type McpServerConfig, type SDKMessage, type SDKUserMessage, query } from "./agent-sdk.ts";
 
 type MessageParam = SDKUserMessage["message"];
-import { buildProviderEnv } from "../config/providers.ts";
+import { buildAgentRuntimeEnv, resolveAgentRuntimeModel } from "../config/providers.ts";
 import type { PhantomConfig } from "../config/types.ts";
 import type { EvolvedConfig } from "../evolution/types.ts";
 import type { MemoryContextBuilder } from "../memory/context-builder.ts";
@@ -63,7 +63,8 @@ export async function executeChatQuery(
 		deps.onboardingPrompt ?? undefined,
 		undefined,
 	);
-	const providerEnv = buildProviderEnv(deps.config);
+	const queryModel = resolveAgentRuntimeModel(deps.config, deps.config.model);
+	const providerEnv = buildAgentRuntimeEnv(deps.config, queryModel);
 
 	const commandBlocker = createDangerousCommandBlocker();
 	const fileTracker = createFileTracker();
@@ -95,7 +96,7 @@ export async function executeChatQuery(
 		const queryStream = query({
 			prompt: makePrompt(),
 			options: {
-				model: deps.config.model,
+				model: queryModel,
 				...permissionOptions,
 				settingSources: ["project", "user"],
 				systemPrompt: {
@@ -169,7 +170,7 @@ export async function executeChatQuery(
 		clearTimeout(timeout);
 	}
 
-	deps.costTracker.record(sessionKey, cost, deps.config.model);
+	deps.costTracker.record(sessionKey, cost, queryModel);
 	deps.sessionStore.touch(sessionKey);
 
 	return { text: resultText, sessionId: sdkSessionId, cost, durationMs: Date.now() - startTime };

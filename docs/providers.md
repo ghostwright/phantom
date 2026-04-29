@@ -1,14 +1,47 @@
 # Provider Configuration
 
-Phantom routes every LLM query (the main agent and every evolution judge) through the Claude Agent SDK as a subprocess. By setting environment variables that the bundled `cli.js` already honors, you can point that subprocess at any Anthropic Messages API compatible endpoint without changing a line of code.
+Phantom routes every LLM query (the main agent and every evolution judge) through the Anthropic Agent SDK by default. By setting environment variables that the bundled `cli.js` already honors, you can point that subprocess at any Anthropic Messages API compatible endpoint without changing a line of code.
 
-The `provider:` block in `phantom.yaml` is a small config surface that translates into those environment variables for you.
+The `provider:` block in `phantom.yaml` is a small config surface that translates into those environment variables for you. When `agent_runtime: murph` is selected, the same block translates into native Murph route variables instead.
+
+## Agent Runtime Selector
+
+`agent_runtime` selects the Agent SDK implementation. It is separate from `provider`, which selects the model endpoint.
+
+```yaml
+agent_runtime: anthropic # anthropic | murph
+```
+
+Anthropic is the default and existing deployments do not need to set this field. Murph is opt-in and loads `@murph/anthropic-sdk-shim` from the Phantom project. If the package is not installed or linked, startup fails with an actionable message.
+
+Runtime selection precedence is:
+
+1. `phantom start --agent-sdk-module <specifier>`
+2. `PHANTOM_AGENT_SDK_MODULE`
+3. `phantom start --agent-runtime <runtime>`
+4. `PHANTOM_AGENT_RUNTIME`
+5. YAML `agent_runtime`
+6. Default `anthropic`
+
+Use the custom module escape hatch for a local compatibility harness:
+
+```bash
+phantom start --agent-sdk-module file:///path/to/runtime.mjs
+```
+
+Use the named Murph runtime when `@murph/anthropic-sdk-shim` is installed or linked:
+
+```bash
+export PHANTOM_AGENT_RUNTIME=murph
+phantom start --agent-runtime murph
+```
 
 ## Supported Providers
 
 | Type | Base URL | API Key Env | Notes |
 |------|----------|-------------|-------|
 | `anthropic` (default) | `https://api.anthropic.com` | `ANTHROPIC_API_KEY` | Claude Opus, Sonnet, Haiku |
+| `openai` | `https://api.openai.com` | `OPENAI_API_KEY` | Murph runtime only |
 | `zai` | `https://api.z.ai/api/anthropic` | `ZAI_API_KEY` | GLM-5.1 and GLM-4.5-Air, roughly 15x cheaper than Opus |
 | `openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | 100+ models through a single key |
 | `vllm` | `http://localhost:8000` | none | Self-hosted OpenAI-compatible inference |
@@ -32,6 +65,46 @@ model: claude-opus-4-7
 # .env
 ANTHROPIC_API_KEY=sk-ant-...
 ```
+
+### Murph with OpenAI
+
+Use this shape only when Murph is installed or linked into the Phantom project.
+
+```yaml
+# phantom.yaml
+agent_runtime: murph
+model: gpt-5.5
+provider:
+  type: openai
+```
+
+```bash
+# .env
+OPENAI_API_KEY=sk-...
+```
+
+Phantom passes `gpt-5.5` as the concrete SDK model and sets native Murph route env such as `MURPH_PROVIDER=openai`, `MURPH_MODEL=gpt-5.5`, and `MURPH_OPENAI_MODEL=gpt-5.5`.
+
+### Murph with Z.AI / GLM
+
+```yaml
+# phantom.yaml
+agent_runtime: murph
+model: sonnet
+provider:
+  type: zai
+  api_key_env: ZAI_API_KEY
+  model_mappings:
+    sonnet: glm-5.1
+    haiku: glm-5
+```
+
+```bash
+# .env
+ZAI_API_KEY=<your-zai-key>
+```
+
+The Murph route is native GLM, not the legacy Anthropic-compatible bridge. Phantom sets `MURPH_PROVIDER=glm`, `MURPH_MODEL=<resolved>`, and `MURPH_GLM_MODEL=<resolved>`.
 
 ### Z.AI / GLM-5.1
 
@@ -119,7 +192,7 @@ provider:
 
 ### Custom endpoint
 
-For any Anthropic Messages API compatible proxy (LM Studio, custom internal gateways, etc.).
+For the default Anthropic runtime, `custom` means any Anthropic Messages API compatible proxy. Under Murph, `custom` means an OpenAI-compatible custom endpoint.
 
 ```yaml
 # phantom.yaml
@@ -127,6 +200,16 @@ model: claude-sonnet-4-6
 provider:
   type: custom
   base_url: https://your-proxy.internal/anthropic
+  api_key_env: YOUR_CUSTOM_KEY_ENV
+```
+
+```yaml
+# phantom.yaml, Murph OpenAI-compatible custom endpoint
+agent_runtime: murph
+model: your-model
+provider:
+  type: custom
+  base_url: https://your-proxy.internal/v1
   api_key_env: YOUR_CUSTOM_KEY_ENV
 ```
 
@@ -149,6 +232,8 @@ For operators who prefer env variables over YAML edits:
 
 | Variable | Effect |
 |----------|--------|
+| `PHANTOM_AGENT_RUNTIME` | Override `agent_runtime` with `anthropic` or `murph` |
+| `PHANTOM_AGENT_SDK_MODULE` | Override the Agent SDK boundary with a custom module specifier |
 | `PHANTOM_PROVIDER_TYPE` | Override `provider.type` (validated against the supported values) |
 | `PHANTOM_PROVIDER_BASE_URL` | Override `provider.base_url` (validated as a URL) |
 | `PHANTOM_MODEL` | Override `config.model` |
@@ -157,11 +242,13 @@ These are applied on top of the YAML-loaded config during startup.
 
 ## How It Works
 
-The Claude Agent SDK runs as a subprocess. The SDK's bundled `cli.js` reads `ANTHROPIC_BASE_URL` and the `ANTHROPIC_DEFAULT_*_MODEL` aliases at call time. When `ANTHROPIC_BASE_URL` points at a non-Anthropic host, all Messages API requests go there instead.
+With the default Anthropic runtime, the Agent SDK runs as a subprocess. The SDK's bundled `cli.js` reads `ANTHROPIC_BASE_URL` and the `ANTHROPIC_DEFAULT_*_MODEL` aliases at call time. When `ANTHROPIC_BASE_URL` points at a non-Anthropic host, all Messages API requests go there instead.
 
-The `provider:` block is translated into those environment variables by `buildProviderEnv()` in [`src/config/providers.ts`](../src/config/providers.ts). The resulting map is merged into both the main agent query and the evolution judge query, so changing providers flips both tiers in lockstep.
+With the Murph runtime, Phantom emits native Murph route variables such as `MURPH_PROVIDER`, `MURPH_PROVIDER_CONFIG`, `MURPH_MODEL`, and provider-specific credential keys. Ambient route keys are shadowed so stale shell credentials do not accidentally select a different provider.
 
-## Why keep a Claude model name in `model:`?
+The `provider:` block is translated by helpers in [`src/config/providers.ts`](../src/config/providers.ts). The resulting map is merged into main agent, chat, judge, and reflection queries, so changing providers flips every Agent SDK path in lockstep.
+
+## Why keep a Claude model name in `model:` on the Anthropic runtime?
 
 The bundled `cli.js` has hardcoded model-name arrays for capability detection (thinking tokens, effort levels, compaction, etc.). Passing a literal `glm-5.1` as the model can break those checks. The recommended pattern is:
 
