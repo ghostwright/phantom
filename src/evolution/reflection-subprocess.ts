@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { getThinkingConfig } from "../agent/thinking-config.ts";
 import { buildProviderEnv } from "../config/providers.ts";
 import type { PhantomConfig } from "../config/types.ts";
 import type { EvolutionConfig } from "./config.ts";
@@ -610,6 +611,7 @@ async function defaultRunner(input: SpawnQueryInput): Promise<SpawnQueryResult> 
 				permissionMode: "bypassPermissions",
 				allowDangerouslySkipPermissions: true,
 				tools: ["Read", "Write", "Edit", "Glob", "Grep"],
+				thinking: getThinkingConfig(model),
 				systemPrompt,
 				settings: {
 					permissions: { allow, deny },

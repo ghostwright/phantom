@@ -3,6 +3,7 @@ import { z } from "zod/v4";
 import { buildProviderEnv } from "../config/providers.ts";
 import type { PhantomConfig } from "../config/types.ts";
 import { extractTextFromMessage } from "./message-utils.ts";
+import { getThinkingConfig } from "./thinking-config.ts";
 
 // Judge subprocess integration. Routes LLM judge calls through the same
 // Agent SDK `query()` subprocess as the main agent so that auth, provider,
@@ -164,6 +165,7 @@ export async function runJudgeQuery<T>(
 			systemPrompt,
 			maxTurns: 1,
 			effort: "low",
+			thinking: getThinkingConfig(resolvedModel),
 			persistSession: false,
 			env: { ...process.env, ...providerEnv },
 		},

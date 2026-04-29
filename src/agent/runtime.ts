@@ -19,6 +19,7 @@ import { extractCost, extractTextFromMessage } from "./message-utils.ts";
 import { permissionOptionsFromConfig } from "./permission-options.ts";
 import { assemblePrompt } from "./prompt-assembler.ts";
 import { SessionStore } from "./session-store.ts";
+import { getThinkingConfig } from "./thinking-config.ts";
 
 export type RuntimeEvent =
 	| { type: "init"; sessionId: string }
@@ -206,6 +207,7 @@ export class AgentRuntime {
 					systemPrompt: { type: "preset" as const, preset: "claude_code" as const, append: appendPrompt },
 					persistSession: true,
 					effort: this.config.effort,
+					thinking: getThinkingConfig(this.config.model),
 					...(this.config.max_budget_usd > 0 ? { maxBudgetUsd: this.config.max_budget_usd } : {}),
 					abortController: controller,
 					env: { ...process.env, ...providerEnv },

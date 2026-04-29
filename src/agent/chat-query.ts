@@ -18,6 +18,7 @@ import { extractCost, extractTextFromMessage } from "./message-utils.ts";
 import { permissionOptionsFromConfig } from "./permission-options.ts";
 import { assemblePrompt } from "./prompt-assembler.ts";
 import type { Session, SessionStore } from "./session-store.ts";
+import { getThinkingConfig } from "./thinking-config.ts";
 
 export type ChatQueryDeps = {
 	config: PhantomConfig;
@@ -106,6 +107,7 @@ export async function executeChatQuery(
 				},
 				persistSession: true,
 				effort: deps.config.effort,
+				thinking: getThinkingConfig(deps.config.model),
 				includePartialMessages: true,
 				agentProgressSummaries: true,
 				promptSuggestions: true,
