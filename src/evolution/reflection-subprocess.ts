@@ -610,6 +610,7 @@ async function defaultRunner(input: SpawnQueryInput): Promise<SpawnQueryResult> 
 				permissionMode: "bypassPermissions",
 				allowDangerouslySkipPermissions: true,
 				tools: ["Read", "Write", "Edit", "Glob", "Grep"],
+				thinking: { type: "adaptive" as const },
 				systemPrompt,
 				settings: {
 					permissions: { allow, deny },
