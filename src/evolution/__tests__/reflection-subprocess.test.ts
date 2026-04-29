@@ -99,6 +99,42 @@ function queryFromMessages(messages: readonly SDKMessage[]): Query {
 	return iterator() as Query;
 }
 
+function sdkAssistantUsage(inputTokens: number, outputTokens: number) {
+	return {
+		cache_creation: null,
+		cache_creation_input_tokens: null,
+		cache_read_input_tokens: null,
+		inference_geo: null,
+		input_tokens: inputTokens,
+		iterations: null,
+		output_tokens: outputTokens,
+		server_tool_use: null,
+		service_tier: null,
+		speed: null,
+	};
+}
+
+function sdkResultUsage(inputTokens: number, outputTokens: number) {
+	return {
+		cache_creation: {
+			ephemeral_1h_input_tokens: 0,
+			ephemeral_5m_input_tokens: 0,
+		},
+		cache_creation_input_tokens: 0,
+		cache_read_input_tokens: 0,
+		inference_geo: "test",
+		input_tokens: inputTokens,
+		iterations: [],
+		output_tokens: outputTokens,
+		server_tool_use: {
+			web_fetch_requests: 0,
+			web_search_requests: 0,
+		},
+		service_tier: "standard" as const,
+		speed: "standard" as const,
+	};
+}
+
 describe("parseSentinel", () => {
 	test("parses trailing JSON sentinel with preceding prose", () => {
 		const text = `Processed 3 sessions.\n\n{"status":"ok","changes":[{"file":"user-profile.md","action":"edit","summary":"x"}]}`;
@@ -434,12 +470,17 @@ describe("runReflectionSubprocess failure modes", () => {
 					session_id: "reflection-session",
 					uuid: "44444444-4444-4444-8444-444444444444",
 					message: {
+						id: "msg_reflection",
+						container: null,
 						role: "assistant",
-						content: [{ type: "text", text: '{"status":"skip"}' }],
+						content: [{ type: "text", text: '{"status":"skip"}', citations: null }],
+						context_management: null,
 						model: "glm-haiku",
+						type: "message",
+						stop_details: null,
 						stop_reason: "end_turn",
 						stop_sequence: null,
-						usage: { input_tokens: 1, output_tokens: 1 },
+						usage: sdkAssistantUsage(1, 1),
 					},
 				} as SDKMessage,
 				{
@@ -452,7 +493,7 @@ describe("runReflectionSubprocess failure modes", () => {
 					result: '{"status":"skip"}',
 					stop_reason: "end_turn",
 					total_cost_usd: 0,
-					usage: { input_tokens: 1, output_tokens: 1 },
+					usage: sdkResultUsage(1, 1),
 					modelUsage: {},
 					permission_denials: [],
 					uuid: "55555555-5555-4555-8555-555555555555",

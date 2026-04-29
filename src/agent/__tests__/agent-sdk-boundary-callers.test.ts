@@ -44,6 +44,42 @@ function queryFromMessages(messages: readonly SDKMessage[]): Query {
 	return iterator() as Query;
 }
 
+function sdkAssistantUsage(inputTokens: number, outputTokens: number) {
+	return {
+		cache_creation: null,
+		cache_creation_input_tokens: null,
+		cache_read_input_tokens: null,
+		inference_geo: null,
+		input_tokens: inputTokens,
+		iterations: null,
+		output_tokens: outputTokens,
+		server_tool_use: null,
+		service_tier: null,
+		speed: null,
+	};
+}
+
+function sdkResultUsage(inputTokens: number, outputTokens: number) {
+	return {
+		cache_creation: {
+			ephemeral_1h_input_tokens: 0,
+			ephemeral_5m_input_tokens: 0,
+		},
+		cache_creation_input_tokens: 0,
+		cache_read_input_tokens: 0,
+		inference_geo: "test",
+		input_tokens: inputTokens,
+		iterations: [],
+		output_tokens: outputTokens,
+		server_tool_use: {
+			web_fetch_requests: 0,
+			web_search_requests: 0,
+		},
+		service_tier: "standard" as const,
+		speed: "standard" as const,
+	};
+}
+
 function initMessage(sessionId = SESSION_ID): SDKMessage {
 	return {
 		type: "system",
@@ -72,12 +108,17 @@ function assistantMessage(text: string): SDKMessage {
 		session_id: SESSION_ID,
 		uuid: MESSAGE_ID,
 		message: {
+			id: "msg_test",
+			container: null,
 			role: "assistant",
-			content: [{ type: "text", text }],
+			content: [{ type: "text", text, citations: null }],
+			context_management: null,
 			model: "claude-opus-4-7",
+			type: "message",
+			stop_details: null,
 			stop_reason: "end_turn",
 			stop_sequence: null,
-			usage: { input_tokens: 1, output_tokens: 1 },
+			usage: sdkAssistantUsage(1, 1),
 		},
 	} as SDKMessage;
 }
@@ -93,7 +134,7 @@ function resultMessage(result: string): SDKMessage {
 		result,
 		stop_reason: "end_turn",
 		total_cost_usd: 0.01,
-		usage: { input_tokens: 2, output_tokens: 3 },
+		usage: sdkResultUsage(2, 3),
 		modelUsage: {},
 		permission_denials: [],
 		uuid: RESULT_ID,
