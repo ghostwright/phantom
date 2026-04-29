@@ -6,6 +6,13 @@ effort: max
 max_budget_usd: 0
 timeout_minutes: 240
 
+provider:
+  type: openrouter
+  api_key_env: OPENROUTER_API_KEY
+  model_mappings:
+    opus: moonshotai/kimi-k2.6
+    sonnet: deepseek/deepseek-v3.2
+    haiku: poolside/laguna-xs.2:free
 # Peer Phantom connections (other Phantoms this instance can query via MCP)
 # peers:
 #   swe-phantom:
