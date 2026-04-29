@@ -626,11 +626,19 @@ async function main(): Promise<void> {
 		if (progressStream) {
 			// Slack: update the progress message with the final response + feedback buttons
 			await progressStream.finish(response.text);
+			// Thread participation tracking is Socket Mode only for now (see: rossja/phantom#1)
+			if (slackChannel && slackChannelId && slackThreadTs && !(slackChannel instanceof SlackHttpChannel)) {
+				slackChannel.trackThreadParticipation(slackChannelId, slackThreadTs);
+			}
 		} else if (isSlack && slackChannel && slackChannelId && slackThreadTs) {
 			// Slack fallback: send direct reply with feedback
 			const thinkingTs = await slackChannel.postThinking(slackChannelId, slackThreadTs);
 			if (thinkingTs) {
 				await slackChannel.updateWithFeedback(slackChannelId, thinkingTs, response.text);
+			}
+			// Thread participation tracking is Socket Mode only for now (see: rossja/phantom#1)
+			if (!(slackChannel instanceof SlackHttpChannel)) {
+				slackChannel.trackThreadParticipation(slackChannelId, slackThreadTs);
 			}
 		} else {
 			// All other channels: send via router

@@ -52,6 +52,7 @@ export class SlackChannel implements Channel {
 	private ownerUserId: string | null;
 	private phantomName: string;
 	private rejectedUsers = new Set<string>();
+	private participatedThreads = new Set<string>();
 
 	constructor(config: SlackChannelConfig) {
 		if (config.transport && config.transport !== "socket") {
@@ -199,6 +200,10 @@ export class SlackChannel implements Channel {
 		return egressRemoveReaction(this.egressContext(), channel, messageTs, emoji);
 	}
 
+	trackThreadParticipation(channelId: string, threadTs: string): void {
+		this.participatedThreads.add(`${channelId}:${threadTs}`);
+	}
+
 	private registerEventHandlers(): void {
 		this.app.event("app_mention", async ({ event, client: _client }) => {
 			if (!this.messageHandler) return;
@@ -251,7 +256,13 @@ export class SlackChannel implements Channel {
 			if (this.botUserId && userId === this.botUserId) return;
 
 			const channelType = msg.channel_type as string | undefined;
-			if (channelType !== "im") return;
+			if (channelType !== "im") {
+				// In channels, only respond to thread replies in threads we've participated in
+				const incomingThreadTs = msg.thread_ts as string | undefined;
+				if (!incomingThreadTs) return;
+				const threadKey = `${msg.channel as string}:${incomingThreadTs}`;
+				if (!this.participatedThreads.has(threadKey)) return;
+			}
 
 			if (userId && !this.isOwner(userId)) {
 				console.log(`[slack] Ignoring DM from non-owner: ${userId}`);
