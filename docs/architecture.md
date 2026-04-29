@@ -58,16 +58,26 @@ Phantom is a single Bun process that runs on a VM. It combines an agent runtime,
 
 ### HTTP Server
 
-`src/core/server.ts` - Bun.serve() on port 3100. Three routes:
+`src/core/server.ts` - Bun.serve() on port 3100. Key routes:
 - `/health` - JSON health status (status, uptime, version, channels, memory, evolution)
 - `/mcp` - MCP Streamable HTTP endpoint
 - `/webhook` - Inbound webhook receiver
+- `/chat/*` - Web chat API (SSE streaming, sessions, attachments, push subscriptions)
+- `/ui/*` - Static pages and login (magic link auth)
 
 ### Channel Router
 
 `src/channels/router.ts` - Multiplexes messages from all connected channels. Each channel implements the `Channel` interface: `connect()`, `disconnect()`, `send()`, `onMessage()`.
 
-Channels: Slack (Socket Mode), Telegram (long polling), Email (IMAP/SMTP), Webhook (HTTP), CLI (readline).
+Channels: Slack (Socket Mode), Web Chat (SSE streaming at `/chat`), Telegram (long polling), Email (IMAP/SMTP), Webhook (HTTP), CLI (readline).
+
+### Web Chat Channel
+
+`src/chat/` - A full browser-based chat channel with a React 19 SPA at `/chat`. The backend uses Server-Sent Events (SSE) to stream a 32-event wire format from the Agent SDK to the client in real time. Two independent transcripts are maintained: the wire-format message store (what the client sees) and the SDK conversation (what the agent sees). This two-transcript invariant means the client can render markdown, tool calls, thinking blocks, and subagent progress without coupling to SDK internals.
+
+Auth uses cookie-based sessions with magic link login. On first run without Slack, a login email is sent via Resend (or a bootstrap token is printed to stdout). Web Push notifications (VAPID) alert users when the agent responds while the tab is in the background.
+
+File attachments (images, PDFs, text files) are uploaded via multipart POST and passed to the agent as context. Type allowlist and size limits are enforced server-side.
 
 ### Agent Runtime
 
@@ -94,15 +104,13 @@ Embeddings via Ollama (nomic-embed-text, 768d vectors). Hybrid search using dens
 
 ### Self-Evolution Engine
 
-`src/evolution/engine.ts` - 6-step pipeline that runs after each session:
-1. **Observation Extraction** - identify corrections, preferences, domain facts
-2. **Self-Critique** - review session against current config
-3. **Config Delta Generation** - propose minimal config changes
-4. **5-Gate Validation** - constitution, regression, size, drift, safety
-5. **Application** - approved changes written to files, version bumped
-6. **Consolidation** - periodic observation compression and pattern extraction
+`src/evolution/` wraps a three-layer learning loop:
 
-LLM judges (Sonnet) available for gates when API key is set. Falls back to heuristic validation.
+1. **Conditional firing gate** (`gate.ts`) - one Haiku call per session decides fire or skip. Failsafe defaults to fire on any gate error.
+2. **Persistent queue + cadence** (`queue.ts`, `cadence.ts`) - fired sessions live in SQLite until the 180-minute cron or the depth-based demand trigger drains the queue. The cadence `inFlight` guard serializes drains.
+3. **Reflection subprocess** (`reflection-subprocess.ts`) - the Agent SDK spawns a sandboxed memory manager against `phantom-config/`. The agent reads the batch, reads the memory files, and decides what to learn, what to compact, when to skip, and which model tier to run at. TypeScript snapshots, parses the sentinel, runs a nine-invariant byte-compare check, and commits or rolls back.
+
+`constitution.md` is immutable at three layers: SDK deny list, teaching prompt, and post-write byte compare (invariant I2). Retry bound: three invariant failures in a row graduates a queue row to `evolution_queue_poison` for manual review. See `docs/self-evolution.md` for the full invariant list and failure modes.
 
 ### MCP Server
 
@@ -116,7 +124,7 @@ LLM judges (Sonnet) available for gates when API key is set. Falls back to heuri
 
 ## Data Flow
 
-1. Message arrives via channel (Slack mention, webhook POST, etc.)
+1. Message arrives via channel (Slack mention, webhook POST, web chat, etc.)
 2. Channel router normalizes to `InboundMessage`
 3. Session manager finds or creates a session
 4. Prompt assembler builds the full system prompt
@@ -125,16 +133,19 @@ LLM judges (Sonnet) available for gates when API key is set. Falls back to heuri
 7. Memory consolidation runs (non-blocking)
 8. Evolution pipeline runs (non-blocking)
 
+For web chat specifically: the client sends `POST /chat/sessions/:id/message`, the server starts an Agent SDK `query()`, and SDK events are translated to wire frames and pushed to all connected SSE streams for that session (supporting multi-tab). The wire format includes session lifecycle, text streaming, thinking blocks, tool calls with input streaming, and subagent progress.
+
 ## Technology Stack
 
 | Component | Technology |
 |-----------|------------|
 | Runtime | Bun (TypeScript, no compilation) |
-| Agent | @anthropic-ai/claude-agent-sdk (Opus 4.6) |
+| Agent | @anthropic-ai/claude-agent-sdk (Opus 4.7) |
 | Vector DB | Qdrant (Docker) |
 | Embeddings | Ollama (nomic-embed-text) |
 | State DB | SQLite (Bun built-in) |
-| Channels | Slack Bolt, Telegraf, ImapFlow, Nodemailer |
+| Channels | Slack Bolt, Web Chat (SSE), Telegraf, ImapFlow, Nodemailer |
+| Chat Client | React 19, Vite, shadcn/ui, Tailwind v4 |
 | Config | YAML + Zod validation |
 | Process | systemd (on Specter VMs) |
 
@@ -143,12 +154,13 @@ LLM judges (Sonnet) available for gates when API key is set. Falls back to heuri
 ```
 src/
   agent/           - Runtime, prompt assembler, hooks, cost tracking
+  chat/            - Web chat backend (SSE streaming, sessions, attachments, push notifications)
   channels/        - Slack, Telegram, Email, Webhook, CLI, status reactions
   cli/             - CLI commands (init, start, doctor, token, status)
   config/          - YAML config loaders, Zod schemas
   core/            - HTTP server, graceful shutdown
   db/              - SQLite connection, migrations
-  evolution/       - Engine, reflection, validation, versioning, judges
+  evolution/       - Engine, gate, queue, cadence, reflection subprocess, invariant check, versioning
   mcp/             - MCP server, tools, auth, transport, dynamic tools, peers
   memory/          - Qdrant client, episodic/semantic/procedural stores
   onboarding/      - First-run detection, state, prompt injection

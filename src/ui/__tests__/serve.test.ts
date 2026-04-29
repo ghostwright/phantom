@@ -29,7 +29,6 @@ describe("login page", () => {
 		const res = await handleUiRequest(req("/ui/login"));
 		expect(res.status).toBe(200);
 		const body = await res.text();
-		expect(body).toContain("Phantom");
 		expect(body).toContain("login-form");
 		expect(body).toContain("Access token");
 	});
@@ -107,7 +106,8 @@ describe("auth required", () => {
 		const res = await handleUiRequest(req("/ui/index.html", { cookie: `phantom_session=${sessionToken}` }));
 		expect(res.status).toBe(200);
 		const body = await res.text();
-		expect(body).toContain("Phantom Web UI");
+		expect(body).toContain("data-agent-name");
+		expect(body).toContain("phantom-nav-brand");
 	});
 });
 
@@ -117,7 +117,8 @@ describe("static file serving", () => {
 		const res = await handleUiRequest(req("/ui/", { cookie: `phantom_session=${sessionToken}` }));
 		expect(res.status).toBe(200);
 		const body = await res.text();
-		expect(body).toContain("Phantom Web UI");
+		expect(body).toContain("data-agent-name");
+		expect(body).toContain("phantom-nav-brand");
 	});
 
 	test("serves _base.html", async () => {
@@ -177,6 +178,33 @@ describe("path traversal protection", () => {
 		);
 		// /ui/test doesn't exist, so 404 is correct
 		expect(res.status).toBe(404);
+	});
+});
+
+describe("cache control", () => {
+	test("dashboard JS returns no-store cache control", async () => {
+		const { sessionToken } = createSession();
+		const res = await handleUiRequest(req("/ui/dashboard/dashboard.js", { cookie: `phantom_session=${sessionToken}` }));
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Cache-Control")).toBe("no-store, no-cache, must-revalidate");
+		expect(res.headers.get("Pragma")).toBe("no-cache");
+		expect(res.headers.get("Expires")).toBe("0");
+	});
+
+	test("non-dashboard assets keep no-cache", async () => {
+		const { sessionToken } = createSession();
+		const res = await handleUiRequest(req("/ui/index.html", { cookie: `phantom_session=${sessionToken}` }));
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Cache-Control")).toBe("no-cache");
+	});
+
+	test("dashboard non-JS assets keep no-cache", async () => {
+		const { sessionToken } = createSession();
+		const res = await handleUiRequest(
+			req("/ui/dashboard/dashboard.css", { cookie: `phantom_session=${sessionToken}` }),
+		);
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Cache-Control")).toBe("no-cache");
 	});
 });
 

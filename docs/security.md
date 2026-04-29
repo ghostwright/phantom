@@ -42,12 +42,39 @@ These are configured automatically by the [app manifest](../slack-app-manifest.y
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `ANTHROPIC_API_KEY` | Yes | Claude Opus 4.6 API access |
+| `ANTHROPIC_API_KEY` | Yes | Claude Opus 4.7 API access |
 | `SLACK_BOT_TOKEN` | For Slack | Bot user OAuth token (`xoxb-`) |
 | `SLACK_APP_TOKEN` | For Slack | App-level token for Socket Mode (`xapp-`) |
 | `SLACK_CHANNEL_ID` | For Slack | Default channel for intro message on first start |
 | `TELEGRAM_BOT_TOKEN` | For Telegram | Telegram bot token from @BotFather |
+| `OWNER_EMAIL` | For web chat | Email address for magic link login to `/chat` |
+| `RESEND_API_KEY` | For email login | Resend API key for sending magic link emails |
 | `PORT` | No (default 3100) | HTTP server port |
+
+## Web Chat Authentication
+
+The web chat at `/chat` uses cookie-based sessions with magic link login:
+
+- On first visit, the user enters their email address
+- Phantom sends a one-time magic link via Resend (or prints a bootstrap token to stdout)
+- Clicking the link sets a session cookie (30-day expiry, HttpOnly, SameSite=Lax)
+- The cookie is validated on every chat API request and SSE connection
+
+On first run without Slack, Phantom triggers the login flow automatically for `OWNER_EMAIL`. The magic link token is single-use and expires after 30 minutes.
+
+### Web Push (VAPID)
+
+Web Push notifications use VAPID (Voluntary Application Server Identification). The VAPID key pair is generated on first use and stored in SQLite (the `kv_store` table). Private keys never leave the server. Push subscriptions are per-browser and stored in SQLite.
+
+### File Attachment Security
+
+Uploads to `/chat/sessions/:id/attachments` are validated server-side:
+
+- **Type allowlist**: images (JPEG, PNG, GIF, WebP), PDF, and text/code files only
+- **Size limits**: images 10 MB, PDFs 32 MB, text 1 MB, total request 40 MB
+- **Per-request cap**: 10 files maximum
+- **Filename sanitization**: path separators, special characters, and leading dots are stripped
+- **Preview Content-Disposition**: attachment previews use `inline` disposition so browsers render them rather than downloading
 
 ## MCP Authentication
 
@@ -155,6 +182,35 @@ Dynamic tools (registered at runtime by the agent) execute code in isolated subp
 - Bun script handlers use `--env-file=` to prevent automatic loading of `.env` files
 - Tool input is passed via the TOOL_INPUT environment variable (JSON string)
 
+## Avatar Upload
+
+The Settings > Identity card accepts PNG, JPEG, and WebP images up to 2 MB,
+stored at `data/identity/avatar.<ext>` with a companion `avatar.meta.json`.
+The upload path is locked down across several layers:
+
+- **Zero server-side image decoding.** Bun writes bytes verbatim; the image
+  is only ever decoded inside the browser's sandboxed renderer. This
+  eliminates the "malformed JPEG crashes Bun" class of attack.
+- **MIME allowlist plus magic-byte sniff.** `image/png`, `image/jpeg`,
+  `image/webp` only. SVG is rejected at MIME AND by inspecting the first
+  bytes, which catches SVG (or any other format) renamed to `.png` and
+  submitted with a forged MIME.
+- **Extension derived from the validated MIME.** The operator's filename is
+  never used in any filesystem path, so path traversal via a crafted
+  filename is impossible.
+- **2 MB cap enforced at content-length AND at read.** The client-side
+  Content-Length header is treated as a hint; the server re-checks after
+  reading so a lying or missing header cannot bypass the cap.
+- **Atomic tmp + rename.** Both the image file and its meta JSON are
+  written to `*.tmp` first and then renamed, so a mid-write failure leaves
+  the previous avatar intact.
+- **Auth posture.** POST + DELETE require the cookie session (owner).
+  `GET /ui/avatar` and the scope-friendly mirror `GET /chat/icon` are
+  public because the landing page renders before login.
+
+The avatar is operator-visual state, not configuration; it is not subject to
+the phantom.yaml audit log.
+
 ## Webhook Callback URL Validation
 
 Webhook callback URLs are validated before use to prevent SSRF attacks:
@@ -170,7 +226,7 @@ Phantom's security is defense-in-depth, with multiple independent layers:
 
 1. **Owner access control** - Only the configured owner can talk to the agent (Slack user ID filtering)
 2. **Constitution** - 8 immutable behavioral principles the agent cannot override
-3. **LLM safety judges** - Independent Sonnet 4.6 judges review evolution changes, triple-judge with minority veto
+3. **LLM safety judges** - Independent Sonnet judges review evolution changes, triple-judge with minority veto. Sonnet is the default cross-model judge since main runs on Opus; operators may opt into Opus judges explicitly.
 4. **Dangerous command blocker** - Regex patterns catch obvious destructive commands (not a security boundary)
 5. **Subprocess isolation** - Dynamic tools run in clean environments without secrets
 6. **MCP authentication** - Bearer tokens with scoped access (read/operator/admin)

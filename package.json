@@ -1,6 +1,6 @@
 {
   "name": "phantom",
-  "version": "0.18.2",
+  "version": "0.20.2",
   "type": "module",
   "bin": {
     "phantom": "src/cli/main.ts"
@@ -17,22 +17,24 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.77",
-    "@anthropic-ai/sdk": "^0.80.0",
+    "@block65/webcrypto-web-push": "^1.0.2",
     "@modelcontextprotocol/sdk": "^1.28.0",
+    "@playwright/mcp": "0.0.70",
     "@slack/bolt": "^4.6.0",
     "croner": "^10.0.1",
     "imapflow": "^1.2.18",
     "nodemailer": "^8.0.4",
+    "playwright": "1.59.1",
     "resend": "^6.9.4",
     "telegraf": "^4.16.3",
     "yaml": "^2.6.0",
-    "zod": "^3.24.0",
-    "zod-to-json-schema": "^3.25.1"
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.0",
     "@types/bun": "latest",
     "@types/nodemailer": "^7.0.11",
+    "@vitejs/plugin-react": "^6.0.1",
     "typescript": "^5.7.0"
   }
 }

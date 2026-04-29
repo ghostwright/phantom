@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="phantom-light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-agent-name-title>{{AGENT_NAME_CAPITALIZED}} memory</title>
+<link rel="icon" href="data:,">
+<script>(function(){var s=localStorage.getItem('phantom-theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.setAttribute('data-theme',s||(d?'phantom-dark':'phantom-light'));})();</script>
+<script src="/ui/_agent-name.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px; --space-10:40px; --space-12:48px; --space-16:64px;
+  --radius-sm:8px; --radius-md:10px; --radius-lg:14px; --radius-pill:9999px;
+  --motion-fast:100ms; --motion-base:150ms; --ease-out:cubic-bezier(0.25,0.46,0.45,0.94);
+}
+[data-theme="phantom-light"] { --color-base-100:#faf9f5; --color-base-200:#ffffff; --color-base-300:#ece9df; --color-base-content:#1c1917; --color-primary:#4850c4; --color-primary-content:#ffffff; --color-success:#16a34a; --color-error:#dc2626; --color-warning:#ca8a04; --color-info:#2563eb; color-scheme:light; }
+[data-theme="phantom-dark"] { --color-base-100:#0b0a09; --color-base-200:#161412; --color-base-300:#26211d; --color-base-content:#f7f6f1; --color-primary:#7078e0; --color-primary-content:#0b0a09; --color-success:#4ade80; --color-error:#f87171; --color-warning:#fbbf24; --color-info:#60a5fa; color-scheme:dark; }
+html { transition: background-color 150ms ease, color 150ms ease; }
+body { background:var(--color-base-100); color:var(--color-base-content); font-family:Inter,system-ui,sans-serif; margin:0; min-height:100vh; font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased; }
+
+.phantom-page { max-width:1100px; margin:0 auto; padding:var(--space-8); }
+.phantom-nav { display:flex; align-items:center; gap:var(--space-4); padding:var(--space-3) var(--space-8); border-bottom:1px solid var(--color-base-300); position:sticky; top:0; background:color-mix(in oklab, var(--color-base-100) 85%, transparent); backdrop-filter:blur(8px); z-index:10; }
+.phantom-nav-brand { display:inline-flex; align-items:center; gap:var(--space-2); font-family:'Instrument Serif',Georgia,serif; font-size:18px; color:var(--color-base-content); text-decoration:none; }
+.phantom-nav-logo { display:inline-flex; width:22px; height:22px; border-radius:6px; background:var(--color-primary); align-items:center; justify-content:center; color:var(--color-primary-content); font-family:'Instrument Serif',serif; font-size:14px; }
+.phantom-breadcrumb-sep { color:color-mix(in oklab, var(--color-base-content) 25%, transparent); }
+.phantom-breadcrumb { font-size:13px; color:color-mix(in oklab, var(--color-base-content) 60%, transparent); }
+
+.phantom-h1 { font-family:'Instrument Serif',Georgia,serif; font-size:32px; font-weight:500; line-height:1.15; letter-spacing:-0.01em; margin:0 0 var(--space-3); }
+.phantom-eyebrow { font-family:Inter,sans-serif; font-size:11px; font-weight:600; line-height:1; letter-spacing:0.08em; text-transform:uppercase; color:color-mix(in oklab, var(--color-base-content) 50%, transparent); margin:0 0 var(--space-3); }
+.phantom-body { font-family:Inter,sans-serif; font-size:14px; line-height:1.55; }
+.phantom-muted { color:color-mix(in oklab, var(--color-base-content) 55%, transparent); }
+.phantom-mono { font-family:'JetBrains Mono',monospace; font-size:12px; font-variant-numeric:tabular-nums; }
+.phantom-meta { font-family:'JetBrains Mono',monospace; font-size:11px; color:color-mix(in oklab, var(--color-base-content) 50%, transparent); }
+
+.phantom-card { background:var(--color-base-200); border:1px solid var(--color-base-300); border-radius:var(--radius-lg); padding:var(--space-5); }
+.phantom-card-compact { background:var(--color-base-200); border:1px solid var(--color-base-300); border-radius:var(--radius-md); padding:var(--space-4); }
+.phantom-card-compact:hover { border-color:color-mix(in oklab, var(--color-primary) 28%, var(--color-base-300)); }
+
+.phantom-tabs { display:inline-flex; gap:2px; padding:3px; background:color-mix(in oklab, var(--color-base-content) 5%, transparent); border-radius:var(--radius-md); margin-bottom:var(--space-6); }
+.phantom-tab { font-size:13px; font-weight:500; padding:7px 14px; border-radius:var(--radius-sm); color:color-mix(in oklab, var(--color-base-content) 65%, transparent); background:transparent; border:0; cursor:pointer; transition:background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out); font-family:Inter,sans-serif; }
+.phantom-tab[aria-selected="true"] { background:var(--color-base-200); color:var(--color-base-content); box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+
+.phantom-input { width:100%; box-sizing:border-box; font-family:Inter,sans-serif; font-size:14px; line-height:1.4; background:var(--color-base-200); color:var(--color-base-content); border:1px solid var(--color-base-300); border-radius:var(--radius-md); padding:10px 14px; transition:border-color 150ms, box-shadow 150ms; }
+.phantom-input:focus { outline:none; border-color:var(--color-primary); box-shadow:0 0 0 3px color-mix(in oklab, var(--color-primary) 18%, transparent); }
+
+.phantom-form-row { display:flex; gap:var(--space-3); align-items:center; margin-bottom:var(--space-5); }
+
+.phantom-col { display:flex; flex-direction:column; gap:var(--space-3); }
+
+.phantom-badge { display:inline-flex; align-items:center; gap:6px; font:500 11px/1 Inter,sans-serif; padding:4px 9px; border-radius:var(--radius-pill); }
+.phantom-badge-success { background:color-mix(in oklab, var(--color-success) 12%, transparent); color:var(--color-success); }
+.phantom-badge-error { background:color-mix(in oklab, var(--color-error) 12%, transparent); color:var(--color-error); }
+.phantom-badge-warning { background:color-mix(in oklab, var(--color-warning) 14%, transparent); color:var(--color-warning); }
+
+.phantom-button-ghost { background:transparent; color:var(--color-base-content); border:1px solid var(--color-base-300); border-radius:var(--radius-pill); font-size:11px; padding:5px 12px; cursor:pointer; transition:background-color 100ms; font-family:Inter,sans-serif; }
+.phantom-button-ghost:hover { background:color-mix(in oklab, var(--color-base-content) 5%, transparent); }
+
+.tab-panel { display:none; }
+.tab-panel.active { display:block; }
+
+.episode-row { display:flex; align-items:center; justify-content:space-between; gap:var(--space-4); }
+.episode-summary { font-size:13px; line-height:1.55; flex:1; }
+.fact-group { margin-bottom:var(--space-6); }
+</style>
+</head>
+<body>
+
+<nav class="phantom-nav" aria-label="Primary">
+  <a href="/ui/" class="phantom-nav-brand">
+    <span class="phantom-nav-logo" data-agent-name-initial>&nbsp;</span>
+    <span data-agent-name>&nbsp;</span>
+  </a>
+  <span class="phantom-breadcrumb-sep">/</span>
+  <span class="phantom-breadcrumb">Memory</span>
+  <div style="margin-left:auto;">
+    <button id="theme-toggle" class="phantom-button-ghost" style="font-size:12px; padding:6px 12px;">Toggle theme</button>
+  </div>
+</nav>
+
+<main class="phantom-page">
+
+  <section style="margin-bottom:var(--space-8);">
+    <p class="phantom-eyebrow">Three tier vector memory</p>
+    <h1 class="phantom-h1">Memory explorer</h1>
+    <p class="phantom-body phantom-muted">Episodic events, semantic facts, and procedural workflows. Stored in Qdrant with hybrid dense and sparse retrieval.</p>
+  </section>
+
+  <div class="phantom-tabs" role="tablist">
+    <button class="phantom-tab" role="tab" aria-selected="true" data-tab="episodic">Episodic</button>
+    <button class="phantom-tab" role="tab" aria-selected="false" data-tab="semantic">Semantic facts</button>
+    <button class="phantom-tab" role="tab" aria-selected="false" data-tab="procedural">Procedural</button>
+  </div>
+
+  <section id="tab-episodic" class="tab-panel active">
+    <div class="phantom-form-row">
+      <input class="phantom-input" type="text" placeholder="Search 1,284 episodes by content, channel, or outcome">
+    </div>
+    <div class="phantom-col">
+
+      <div class="phantom-card-compact">
+        <div class="episode-row">
+          <div style="flex:1;">
+            <p class="episode-summary">Helped Cheema debug a Specter VM cloud-init failure. Root cause was a missing tini binary in the container layer. Fixed by adding tini to the Dockerfile RUN apt-get install line.</p>
+            <p class="phantom-meta">slack #infra, 14h ago, 11 turns</p>
+          </div>
+          <span class="phantom-badge phantom-badge-success">resolved</span>
+          <button class="phantom-button-ghost">Forget</button>
+        </div>
+      </div>
+
+      <div class="phantom-card-compact">
+        <div class="episode-row">
+          <div style="flex:1;">
+            <p class="episode-summary">Generated the weekly cost report dashboard. Operator preferred the daily breakdown over the per-channel split. Updated procedural memory to default to daily breakdowns for cost reports.</p>
+            <p class="phantom-meta">scheduled weekly-cost, 1d ago, 1 turn</p>
+          </div>
+          <span class="phantom-badge phantom-badge-success">delivered</span>
+          <button class="phantom-button-ghost">Forget</button>
+        </div>
+      </div>
+
+      <div class="phantom-card-compact">
+        <div class="episode-row">
+          <div style="flex:1;">
+            <p class="episode-summary">Tried to deploy the new auth flow but the rsync overwrote the production .env. Operator caught it before restart. Created strategy entry to always pass --exclude env to rsync deploys.</p>
+            <p class="phantom-meta">cli local, 2d ago, 7 turns</p>
+          </div>
+          <span class="phantom-badge phantom-badge-warning">corrected</span>
+          <button class="phantom-button-ghost">Forget</button>
+        </div>
+      </div>
+
+      <div class="phantom-card-compact">
+        <div class="episode-row">
+          <div style="flex:1;">
+            <p class="episode-summary">Composed a refund email to a stripe customer. Operator approved on first draft. Email sent via phantom_send_email and confirmation logged.</p>
+            <p class="phantom-meta">slack DM Cheema, 3d ago, 4 turns</p>
+          </div>
+          <span class="phantom-badge phantom-badge-success">resolved</span>
+          <button class="phantom-button-ghost">Forget</button>
+        </div>
+      </div>
+
+      <div class="phantom-card-compact">
+        <div class="episode-row">
+          <div style="flex:1;">
+            <p class="episode-summary">Attempted to clone a private repo but the gh CLI was not authenticated. Asked operator for a personal access token via phantom_collect_secrets. Cloned successfully on retry.</p>
+            <p class="phantom-meta">slack #ops, 4d ago, 9 turns</p>
+          </div>
+          <span class="phantom-badge phantom-badge-success">resolved</span>
+          <button class="phantom-button-ghost">Forget</button>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section id="tab-semantic" class="tab-panel">
+    <div class="phantom-card">
+
+      <div class="fact-group">
+        <p class="phantom-eyebrow">Operator preferences</p>
+        <div class="phantom-col">
+          <div style="font-size:13px; line-height:1.6;">Bun is the default TypeScript runtime. Use Node only if explicitly asked.</div>
+          <div style="font-size:13px; line-height:1.6;">Reply pacing in Slack: batch tool calls into one status reaction per message.</div>
+          <div style="font-size:13px; line-height:1.6;">Cost reports default to daily breakdown, never per-channel split.</div>
+          <div style="font-size:13px; line-height:1.6;">No em dashes in any text the agent emits. Use commas, periods, or hyphens.</div>
+        </div>
+      </div>
+
+      <div class="fact-group">
+        <p class="phantom-eyebrow">Repository conventions</p>
+        <div class="phantom-col">
+          <div style="font-size:13px; line-height:1.6;">Agent config files live under <span class="phantom-mono">phantom-config/</span>. Never commit secrets there.</div>
+          <div style="font-size:13px; line-height:1.6;">Production deploys use rsync with explicit excludes for env, config, data, and dotfiles.</div>
+          <div style="font-size:13px; line-height:1.6;">All TypeScript files under 300 lines. Split if approaching 250.</div>
+        </div>
+      </div>
+
+      <div class="fact-group">
+        <p class="phantom-eyebrow">Infrastructure facts</p>
+        <div class="phantom-col">
+          <div style="font-size:13px; line-height:1.6;">Specter VMs use Caddy for TLS and systemd for the phantom unit.</div>
+          <div style="font-size:13px; line-height:1.6;">Qdrant stores three named vectors per memory: episodic, semantic, procedural.</div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section id="tab-procedural" class="tab-panel">
+    <div class="phantom-col">
+
+      <div class="phantom-card">
+        <p class="phantom-eyebrow">Stripe customer cache</p>
+        <p style="font-size:13px; line-height:1.6;">Cache stripe.customers.retrieve results for 30 minutes keyed by customer id. Expire on subscription update events. Reduces stripe API calls by 80 percent on multi-customer days.</p>
+      </div>
+
+      <div class="phantom-card">
+        <p class="phantom-eyebrow">Production deploy</p>
+        <p style="font-size:13px; line-height:1.6;">Run rsync with --exclude=env, --exclude=config, --exclude=data, --exclude=*.db. Then ssh to the host and restart the systemd unit. Wait 5 seconds, then curl /health and confirm 200.</p>
+      </div>
+
+      <div class="phantom-card">
+        <p class="phantom-eyebrow">Slack incident triage</p>
+        <p style="font-size:13px; line-height:1.6;">When a #infra incident message comes in, immediately drop a status reaction, pull the most recent error logs from the affected service, and post a summary in thread within 2 minutes.</p>
+      </div>
+
+    </div>
+  </section>
+
+</main>
+
+<script>
+(function(){
+  var toggle=document.getElementById('theme-toggle');
+  toggle.addEventListener('click',function(){ var c=document.documentElement.getAttribute('data-theme'); var n=c==='phantom-dark'?'phantom-light':'phantom-dark'; document.documentElement.setAttribute('data-theme',n); localStorage.setItem('phantom-theme',n); });
+  document.querySelectorAll('.phantom-tab').forEach(function(tab){
+    tab.addEventListener('click',function(){
+      document.querySelectorAll('.phantom-tab').forEach(function(t){t.setAttribute('aria-selected','false');});
+      tab.setAttribute('aria-selected','true');
+      var name=tab.getAttribute('data-tab');
+      document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});
+      document.getElementById('tab-'+name).classList.add('active');
+    });
+  });
+})();
+</script>
+</body>
+</html>

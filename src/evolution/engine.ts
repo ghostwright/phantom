@@ -1,225 +1,332 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
-import { applyApproved } from "./application.ts";
+import type { AgentRuntime } from "../agent/runtime.ts";
 import { type EvolutionConfig, loadEvolutionConfig } from "./config.ts";
-import { recordObservations, runConsolidation } from "./consolidation.ts";
-import { ConstitutionChecker } from "./constitution.ts";
-import { addCase, loadSuite, pruneSuite } from "./golden-suite.ts";
-import { runQualityJudge } from "./judges/quality-judge.ts";
-import { type JudgeCosts, emptyJudgeCosts } from "./judges/types.ts";
+import type { GateDecision } from "./gate-types.ts";
+import { appendGateLog, decideGate, recordGateDecision } from "./gate.ts";
 import {
-	checkForAutoRollback,
 	getMetricsSnapshot,
 	readMetrics,
-	resetConsolidationCounter,
+	recordReflectionRun,
 	updateAfterEvolution,
-	updateAfterRollback,
 	updateAfterSession,
 } from "./metrics.ts";
-import {
-	buildCritiqueFromObservations,
-	extractObservations,
-	extractObservationsWithLLM,
-	generateDeltas,
-} from "./reflection.ts";
-import type { EvolutionResult, EvolutionVersion, EvolvedConfig, GoldenCase, SessionSummary } from "./types.ts";
-import { validateAll, validateAllWithJudges } from "./validation.ts";
-import { getHistory, readVersion, rollback as versionRollback } from "./versioning.ts";
+import type { EvolutionQueue } from "./queue.ts";
+import { runReflectionSubprocess } from "./reflection-subprocess.ts";
+import type {
+	EvolutionLogEntry,
+	EvolutionResult,
+	EvolvedConfig,
+	ReflectionSubprocessResult,
+	SessionSummary,
+} from "./types.ts";
+import { getEvolutionLog, readVersion } from "./versioning.ts";
+
+// Phase 3 evolution engine.
+//
+// The 6-judge `runCycle` pipeline is deleted. `afterSession` is now a thin
+// mutex-guarded wrapper that delegates to the reflection subprocess via the
+// batch processor (production path) or a direct inline call (unit tests).
+// The mutex stays as Phase 0 belt-and-suspenders: it has no cost on the
+// happy path and protects against a future caller reaching
+// `afterSessionInternal` outside the cadence.
+
+export type EnqueueResult = {
+	enqueued: boolean;
+	decision: GateDecision;
+	inlineResult?: EvolutionResult;
+};
 
 export class EvolutionEngine {
 	private config: EvolutionConfig;
-	private checker: ConstitutionChecker;
-	private llmJudgesEnabled: boolean;
-	private dailyCostUsd = 0;
-	private dailyCostResetDate = "";
+	private reflectionEnabled: boolean;
+	private runtime: AgentRuntime | null;
 
-	constructor(configPath?: string) {
+	// Phase 0 belt-and-suspenders mutex. The Phase 2 cadence serialises
+	// drains through its own `inFlight` guard so this is redundant on the
+	// production path, but it remains load-bearing for the direct-call
+	// `afterSession` unit tests and for a future caller that might reach
+	// `afterSessionInternal` outside the cadence.
+	private activeCycle: Promise<EvolutionResult> | null = null;
+	private activeCycleSessionId: string | null = null;
+	private activeCycleSkipCount = 0;
+
+	// Dedup set so the C2 retry of a failed row does not double-count
+	// session_count. Process restart clears this; a row pending retry
+	// across a restart double-counts on its first post-restart drain.
+	// Acceptable blip.
+	private countedSessionKeys = new Set<string>();
+
+	private queue: EvolutionQueue | null = null;
+	private onEnqueue: (() => void) | null = null;
+	private onConfigApplied: (() => void) | null = null;
+
+	constructor(configPath?: string, runtime?: AgentRuntime) {
 		this.config = loadEvolutionConfig(configPath);
-		this.checker = new ConstitutionChecker(this.config);
-		this.llmJudgesEnabled = this.resolveJudgeMode();
-		if (this.llmJudgesEnabled) {
-			console.log("[evolution] LLM judges enabled (API key detected)");
+		// Constitution presence is a hard precondition. The reflection
+		// subprocess never writes constitution.md (sandbox deny + invariant
+		// I2 byte compare), but the engine still expects the file to exist
+		// so the subprocess can read it as identity context. Fail loud at
+		// boot rather than at first drain.
+		if (!existsSync(this.config.paths.constitution)) {
+			throw new Error(
+				`Constitution file not found at ${this.config.paths.constitution}. The constitution is required for the evolution engine to function.`,
+			);
+		}
+		this.runtime = runtime ?? null;
+		this.reflectionEnabled = this.resolveReflectionMode();
+		if (this.reflectionEnabled) {
+			console.log("[evolution] reflection subprocess enabled");
 		} else {
-			console.log("[evolution] LLM judges disabled (no API key or config override)");
+			console.log("[evolution] reflection subprocess disabled (config override or no auth detected)");
 		}
 	}
 
-	private resolveJudgeMode(): boolean {
-		const setting = this.config.judges?.enabled ?? "auto";
+	setRuntime(runtime: AgentRuntime): void {
+		this.runtime = runtime;
+	}
+
+	setQueueWiring(queue: EvolutionQueue, onEnqueue: () => void): void {
+		this.queue = queue;
+		this.onEnqueue = onEnqueue;
+	}
+
+	setOnConfigApplied(callback: () => void): void {
+		this.onConfigApplied = callback;
+	}
+
+	private resolveReflectionMode(): boolean {
+		const setting = this.config.reflection?.enabled ?? "auto";
 		if (setting === "never") return false;
 		if (setting === "always") return true;
-		return !!process.env.ANTHROPIC_API_KEY;
+
+		if (this.runtime) {
+			const provider = this.runtime.getPhantomConfig().provider;
+			if (provider.type !== "anthropic") return true;
+			if (provider.base_url) return true;
+		}
+		if (process.env.ANTHROPIC_API_KEY) return true;
+		const home = process.env.HOME ?? homedir();
+		if (existsSync(join(home, ".claude", ".credentials.json"))) return true;
+		return false;
 	}
 
 	usesLLMJudges(): boolean {
-		return this.llmJudgesEnabled;
-	}
-
-	/** Memory consolidation runs outside afterSession() but still needs to respect the daily cap. */
-	isWithinCostCap(): boolean {
-		return !this.isDailyCostCapReached();
-	}
-
-	/** Consolidation judge costs happen outside the evolution pipeline but count toward the daily cap. */
-	trackExternalJudgeCost(cost: { totalUsd: number }): void {
-		this.resetDailyCostIfNewDay();
-		this.dailyCostUsd += cost.totalUsd;
+		return this.reflectionEnabled;
 	}
 
 	getEvolutionConfig(): EvolutionConfig {
 		return this.config;
 	}
 
+	private skippedResult(): EvolutionResult {
+		return { version: this.getCurrentVersion(), changes_applied: [], changes_rejected: [] };
+	}
+
+	async enqueueIfWorthy(session: SessionSummary): Promise<EnqueueResult> {
+		const decision = await decideGate(session, this.runtime);
+		appendGateLog(this.config, session, decision);
+		recordGateDecision(this.config, decision);
+
+		if (!decision.fire) {
+			return { enqueued: false, decision };
+		}
+
+		if (this.queue) {
+			this.queue.enqueue(session, decision);
+			this.onEnqueue?.();
+			return { enqueued: true, decision };
+		}
+
+		// Fallback path: no queue wired. Unit tests that construct a bare
+		// EvolutionEngine exercise this. Run the pipeline inline.
+		const result = await this.afterSessionInternal(session);
+		return { enqueued: false, decision, inlineResult: result };
+	}
+
 	/**
-	 * Main entry point: run the full 6-step evolution pipeline after a session.
-	 * When useLLMJudges is true, uses Sonnet-powered judges for observation
-	 * extraction, safety gate, constitution gate, regression gate, and quality
-	 * assessment. Falls back to heuristics on LLM failure.
+	 * Phase 2 batch entry point. Called once per queued batch by
+	 * `batch-processor.ts` inside the Phase 0 mutex. Signature takes the
+	 * full batch (not a single session) because the reflection subprocess
+	 * operates on whole drains.
+	 *
+	 * The engine updates session metrics here rather than inside the
+	 * subprocess because `session_count` must increment exactly once per
+	 * unique `session_key` regardless of whether the subprocess wrote
+	 * anything. The dedup set guards against the C2 retry double-count.
+	 */
+	async runDrainPipeline(batch: import("./queue.ts").QueuedSession[]): Promise<ReflectionSubprocessResult> {
+		for (const q of batch) {
+			const session = q.session_summary;
+			if (this.countedSessionKeys.has(session.session_key)) continue;
+			this.countedSessionKeys.add(session.session_key);
+			updateAfterSession(this.config, session.outcome);
+		}
+
+		// Disabled-mode short-circuit. With reflection.enabled:"never" or auto
+		// + no credentials, the engine MUST NOT spawn the SDK subprocess. We
+		// still record a synthetic skip in reflection_stats so operators can
+		// see drain activity in metrics, and we still return a clean ok-style
+		// result so the cadence drains the queue rather than wedging on a
+		// transient-failure loop.
+		if (!this.reflectionEnabled) {
+			const result = this.disabledDrainResult();
+			recordReflectionRun(this.config, result.statsDelta);
+			this.logDrainSummary(result);
+			return result;
+		}
+
+		const result = await runReflectionSubprocess({
+			batch,
+			config: this.config,
+			phantomConfig: this.runtime ? this.runtime.getPhantomConfig() : null,
+		});
+
+		recordReflectionRun(this.config, result.statsDelta);
+
+		if (result.status === "ok" && result.changes.length > 0) {
+			updateAfterEvolution(this.config);
+			this.notifyConfigApplied();
+		}
+
+		this.logDrainSummary(result);
+		return result;
+	}
+
+	/**
+	 * Build a synthetic ReflectionSubprocessResult for the disabled-mode
+	 * short-circuit. The shape is the cleanest possible "drain consumed,
+	 * nothing happened" so the batch processor maps it to disposition:"skip"
+	 * and the cadence deletes the queue rows via markProcessed.
+	 */
+	private disabledDrainResult(): ReflectionSubprocessResult {
+		return {
+			drainId: `disabled-${Date.now().toString(36)}`,
+			status: "skip",
+			tier: "haiku",
+			escalatedFromTier: null,
+			version: this.getCurrentVersion(),
+			changes: [],
+			invariantHardFailures: [],
+			invariantSoftWarnings: [],
+			costUsd: 0,
+			durationMs: 0,
+			error: null,
+			incrementRetryOnFailure: false,
+			statsDelta: { drains: 1, status_skip: 1 },
+		};
+	}
+
+	/**
+	 * Direct-call entry point kept for the unit test path. Wraps a single
+	 * session as a batch of one and runs the reflection subprocess behind
+	 * the Phase 0 mutex. Also bridges into the existing `EvolutionResult`
+	 * shape so legacy tests see the expected return type.
 	 */
 	async afterSession(session: SessionSummary): Promise<EvolutionResult> {
-		const startTime = Date.now();
-		const judgeCosts = emptyJudgeCosts();
+		return this.afterSessionInternal(session);
+	}
 
-		// Step 1: Observation Extraction (LLM or heuristic)
-		let observations: import("./types.ts").SessionObservation[];
-		if (this.llmJudgesEnabled && !this.isDailyCostCapReached()) {
-			const currentConfig = this.getConfig();
-			const result = await extractObservationsWithLLM(session, currentConfig);
-			observations = result.observations;
-			if (result.judgeCost) {
-				addCost(judgeCosts.observation_extraction, result.judgeCost);
-				this.incrementDailyCost(result.judgeCost.totalUsd);
-			}
-		} else {
-			observations = extractObservations(session);
-		}
-
-		// Step 0: Update session metrics (after extraction so hadCorrections uses observation results)
-		const hadCorrections = observations.some((o) => o.type === "correction");
-		updateAfterSession(this.config, session.outcome, hadCorrections);
-
-		if (observations.length === 0) {
-			return { version: this.getCurrentVersion(), changes_applied: [], changes_rejected: [] };
-		}
-
-		// Record observations for later consolidation
-		recordObservations(this.config, session.session_id, observations);
-
-		// Step 2: Self-Critique (uses observations to build critique)
-		const currentConfig = this.getConfig();
-		const critique = buildCritiqueFromObservations(observations, session, currentConfig);
-
-		// Step 3: Config Delta Generation
-		const deltas = generateDeltas(critique, session.session_id);
-		if (deltas.length === 0) {
-			return { version: this.getCurrentVersion(), changes_applied: [], changes_rejected: [] };
-		}
-
-		// Step 4: 5-Gate Validation (LLM or heuristic)
-		const goldenSuite = loadSuite(this.config);
-		let validationResults: import("./types.ts").ValidationResult[];
-
-		if (this.llmJudgesEnabled && !this.isDailyCostCapReached()) {
-			const judgeResult = await validateAllWithJudges(deltas, this.checker, goldenSuite, this.config, currentConfig);
-			validationResults = judgeResult.results;
-			mergeCosts(judgeCosts, judgeResult.judgeCosts);
-			this.incrementDailyCost(totalCostFromJudgeCosts(judgeResult.judgeCosts));
-		} else {
-			validationResults = validateAll(deltas, this.checker, goldenSuite, this.config);
-		}
-
-		// Step 5: Application
-		const metricsSnapshot = getMetricsSnapshot(this.config);
-		const { applied, rejected } = applyApproved(validationResults, this.config, session.session_id, metricsSnapshot);
-
-		if (applied.length > 0) {
-			updateAfterEvolution(this.config);
+	private async afterSessionInternal(session: SessionSummary): Promise<EvolutionResult> {
+		if (this.activeCycle !== null) {
+			this.activeCycleSkipCount += 1;
+			const activeId = this.activeCycleSessionId ?? "unknown";
 			console.log(
-				`[evolution] Applied ${applied.length} changes (v${this.getCurrentVersion()}) in ${Date.now() - startTime}ms`,
+				`[evolution] cycle already in progress (active=${activeId}, skips=${this.activeCycleSkipCount}), ` +
+					`skipping session ${session.session_id} (session_key=${session.session_key})`,
 			);
-
-			// Promote successful corrections to golden suite
-			if (session.outcome === "success" && hadCorrections) {
-				for (const change of applied) {
-					const goldenCase: GoldenCase = {
-						id: crypto.randomUUID(),
-						description: `Correction: ${change.rationale.slice(0, 100)}`,
-						lesson: change.content,
-						session_id: session.session_id,
-						created_at: new Date().toISOString(),
-					};
-					addCase(this.config, goldenCase);
-				}
-			}
+			return this.skippedResult();
 		}
 
-		if (rejected.length > 0) {
-			console.log(`[evolution] Rejected ${rejected.length} changes`);
-			for (const r of rejected) {
-				console.log(`  - ${r.change.file}: ${r.reasons.join(", ")}`);
-			}
+		const cyclePromise = this.runSingleSession(session);
+		this.activeCycle = cyclePromise;
+		this.activeCycleSessionId = session.session_id;
+		this.activeCycleSkipCount = 0;
+		try {
+			return await cyclePromise;
+		} finally {
+			this.activeCycle = null;
+			this.activeCycleSessionId = null;
+			this.activeCycleSkipCount = 0;
+		}
+	}
+
+	private async runSingleSession(session: SessionSummary): Promise<EvolutionResult> {
+		if (!this.countedSessionKeys.has(session.session_key)) {
+			this.countedSessionKeys.add(session.session_key);
+			updateAfterSession(this.config, session.outcome);
 		}
 
-		// Quality Assessment (LLM only, non-blocking)
-		if (this.llmJudgesEnabled && !this.isDailyCostCapReached()) {
-			try {
-				const qualityResult = await runQualityJudge(session, currentConfig);
-				judgeCosts.quality_assessment.calls++;
-				judgeCosts.quality_assessment.totalUsd += qualityResult.costUsd;
-				judgeCosts.quality_assessment.totalInputTokens += qualityResult.inputTokens;
-				judgeCosts.quality_assessment.totalOutputTokens += qualityResult.outputTokens;
-				this.incrementDailyCost(qualityResult.costUsd);
-
-				if (qualityResult.data.regression_signal) {
-					console.warn(
-						`[evolution] Quality judge detected regression signal: ${qualityResult.data.regression_reasoning ?? "no details"}`,
-					);
-				}
-				console.log(
-					`[evolution] Session quality: ${qualityResult.data.overall_score.toFixed(2)} (${qualityResult.data.goal_accomplished.verdict})`,
-				);
-			} catch (error: unknown) {
-				const msg = error instanceof Error ? error.message : String(error);
-				console.warn(`[evolution] Quality judge failed (non-blocking): ${msg}`);
-			}
+		// Disabled-mode short-circuit on the direct-call path too. Same
+		// invariants as runDrainPipeline: still record stats, still return a
+		// clean skip, never spawn the SDK.
+		if (!this.reflectionEnabled) {
+			const result = this.disabledDrainResult();
+			recordReflectionRun(this.config, result.statsDelta);
+			this.logDrainSummary(result);
+			return {
+				version: this.getCurrentVersion(),
+				changes_applied: [],
+				changes_rejected: [],
+			};
 		}
 
-		// Step 6: Periodic Consolidation (if cadence reached)
-		const metrics = readMetrics(this.config);
-		if (metrics.sessions_since_consolidation >= this.config.cadence.consolidation_interval) {
-			try {
-				const report = runConsolidation(this.config);
-				resetConsolidationCounter(this.config);
-				console.log(
-					`[evolution] Consolidation: ${report.principlesExtracted} principles, ` +
-						`${report.observationsPruned} observations pruned`,
-				);
-			} catch (err: unknown) {
-				const msg = err instanceof Error ? err.message : String(err);
-				console.warn(`[evolution] Consolidation failed: ${msg}`);
-			}
+		const queued: import("./queue.ts").QueuedSession = {
+			id: 0,
+			session_id: session.session_id,
+			session_key: session.session_key,
+			gate_decision: { fire: true, source: "failsafe", reason: "direct-call path", haiku_cost_usd: 0 },
+			session_summary: session,
+			enqueued_at: new Date().toISOString(),
+			retry_count: 0,
+		};
+
+		const result = await runReflectionSubprocess({
+			batch: [queued],
+			config: this.config,
+			phantomConfig: this.runtime ? this.runtime.getPhantomConfig() : null,
+		});
+
+		recordReflectionRun(this.config, result.statsDelta);
+
+		if (result.status === "ok" && result.changes.length > 0) {
+			updateAfterEvolution(this.config);
+			this.notifyConfigApplied();
 		}
 
-		// Check auto-rollback
-		const rollbackCheck = checkForAutoRollback(this.config);
-		if (rollbackCheck.shouldRollback) {
-			console.warn(`[evolution] Auto-rollback triggered: ${rollbackCheck.reason}`);
-			this.rollback(this.getCurrentVersion() - 1);
-		}
-
-		// Record judge costs to persistent metrics (daily tracking already done incrementally above)
-		if (this.llmJudgesEnabled) {
-			this.recordJudgeCosts(judgeCosts);
-		}
-
-		// Enforce golden suite cap
-		this.pruneGoldenSuite();
+		this.logDrainSummary(result);
 
 		return {
 			version: this.getCurrentVersion(),
-			changes_applied: applied,
-			changes_rejected: rejected.map((r) => ({ change: r.change, reasons: r.reasons })),
+			changes_applied: result.changes,
+			changes_rejected: result.invariantHardFailures.map((f) => ({
+				change: {
+					file: f.file ?? "(multi)",
+					type: "edit" as const,
+					summary: f.message,
+					rationale: `invariant ${f.check} failed`,
+					session_ids: [session.session_id],
+				},
+				reasons: [`${f.check}: ${f.message}`],
+			})),
 		};
+	}
+
+	private logDrainSummary(result: ReflectionSubprocessResult): void {
+		if (result.status === "ok" && result.changes.length > 0) {
+			console.log(
+				`[evolution] Applied ${result.changes.length} changes (v${result.version}) via ${result.tier}` +
+					` in ${result.durationMs}ms cost=$${result.costUsd.toFixed(4)}`,
+			);
+		} else if (result.status === "skip") {
+			console.log(`[evolution] drain ${result.drainId} skipped by subprocess`);
+		} else if (result.invariantHardFailures.length > 0) {
+			const summary = result.invariantHardFailures.map((f) => f.check).join(",");
+			console.warn(`[evolution] drain ${result.drainId} invariant fail: ${summary}`);
+		} else if (result.error) {
+			console.warn(`[evolution] drain ${result.drainId} ${result.status}: ${result.error}`);
+		}
 	}
 
 	getConfig(): EvolvedConfig {
@@ -248,70 +355,21 @@ export class EvolutionEngine {
 		return readVersion(this.config).version;
 	}
 
-	getVersionHistory(limit = 50): EvolutionVersion[] {
-		return getHistory(this.config, limit);
+	getEvolutionLog(limit = 50): EvolutionLogEntry[] {
+		return getEvolutionLog(this.config, limit);
 	}
 
 	getMetrics() {
 		return readMetrics(this.config);
 	}
 
-	rollback(toVersion: number): void {
-		versionRollback(this.config, toVersion);
-		updateAfterRollback(this.config);
-		console.log(`[evolution] Rolled back to version ${toVersion}`);
-	}
-
-	private resetDailyCostIfNewDay(): void {
-		const today = new Date().toISOString().slice(0, 10);
-		if (this.dailyCostResetDate !== today) {
-			this.dailyCostUsd = 0;
-			this.dailyCostResetDate = today;
-		}
-	}
-
-	private isDailyCostCapReached(): boolean {
-		this.resetDailyCostIfNewDay();
-		const cap = this.config.judges?.cost_cap_usd_per_day ?? 50.0;
-		if (this.dailyCostUsd >= cap) {
-			console.warn(
-				`[evolution] Daily cost cap reached ($${this.dailyCostUsd.toFixed(2)} >= $${cap}), using heuristics`,
-			);
-			return true;
-		}
-		return false;
-	}
-
-	private incrementDailyCost(usd: number): void {
-		this.resetDailyCostIfNewDay();
-		this.dailyCostUsd += usd;
-	}
-
-	private pruneGoldenSuite(): void {
-		const maxSize = this.config.judges?.max_golden_suite_size ?? 50;
-		const removed = pruneSuite(this.config, maxSize);
-		if (removed > 0) {
-			console.log(`[evolution] Pruned ${removed} oldest golden suite entries (cap: ${maxSize})`);
-		}
-	}
-
-	private recordJudgeCosts(costs: JudgeCosts): void {
-		const metricsPath = this.config.paths.metrics_file;
+	private notifyConfigApplied(): void {
+		if (!this.onConfigApplied) return;
 		try {
-			const raw = readFileSync(metricsPath, "utf-8");
-			const metrics = JSON.parse(raw);
-			if (!metrics.judge_costs) {
-				metrics.judge_costs = emptyJudgeCosts();
-			}
-			for (const key of Object.keys(costs) as Array<keyof JudgeCosts>) {
-				metrics.judge_costs[key].calls += costs[key].calls;
-				metrics.judge_costs[key].totalUsd += costs[key].totalUsd;
-				metrics.judge_costs[key].totalInputTokens += costs[key].totalInputTokens;
-				metrics.judge_costs[key].totalOutputTokens += costs[key].totalOutputTokens;
-			}
-			writeFileSync(metricsPath, JSON.stringify(metrics, null, 2), "utf-8");
-		} catch {
-			// Metrics file may not exist yet
+			this.onConfigApplied();
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`[evolution] onConfigApplied callback threw: ${msg}`);
 		}
 	}
 }
@@ -322,25 +380,4 @@ function readConfigFile(path: string): string {
 	} catch {
 		return "";
 	}
-}
-
-function addCost(target: JudgeCosts[keyof JudgeCosts], source: JudgeCosts[keyof JudgeCosts]): void {
-	target.calls += source.calls;
-	target.totalUsd += source.totalUsd;
-	target.totalInputTokens += source.totalInputTokens;
-	target.totalOutputTokens += source.totalOutputTokens;
-}
-
-function mergeCosts(target: JudgeCosts, source: JudgeCosts): void {
-	for (const key of Object.keys(source) as Array<keyof JudgeCosts>) {
-		addCost(target[key], source[key]);
-	}
-}
-
-function totalCostFromJudgeCosts(costs: JudgeCosts): number {
-	let total = 0;
-	for (const key of Object.keys(costs) as Array<keyof JudgeCosts>) {
-		total += costs[key].totalUsd;
-	}
-	return total;
 }

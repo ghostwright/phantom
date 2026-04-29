@@ -7,9 +7,9 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License"></a>
-  <img src="https://img.shields.io/badge/tests-822%20passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-1819%20passed-brightgreen.svg" alt="Tests">
   <a href="https://hub.docker.com/r/ghostwright/phantom"><img src="https://img.shields.io/docker/pulls/ghostwright/phantom.svg" alt="Docker Pulls"></a>
-  <img src="https://img.shields.io/badge/version-0.18.2-orange.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.20.2-orange.svg" alt="Version">
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@ AI agents today are disposable. You open a chat, get an answer, close the tab, a
 
 Phantom takes a different approach: **give the AI its own computer.** A dedicated machine where it installs software, spins up databases, builds dashboards, remembers what you told it last week, and gets measurably better at your job every day. Your laptop stays yours. The agent's workspace is its own.
 
-This is not a chatbot. It is a co-worker that runs on Slack, has its own email address, creates its own tools, and builds infrastructure without asking for permission. Don't take our word for it - scroll down to see what production Phantoms have actually built.
+This is not a chatbot. It is a co-worker that runs on Slack, has a web chat interface at `/chat`, has its own email address, creates its own tools, and builds infrastructure without asking for permission. Don't take our word for it - scroll down to see what production Phantoms have actually built.
 
 ## What This Actually Looks Like
 
@@ -75,6 +75,34 @@ A Phantom discovered [Vigil](https://github.com/baudsmithstudios/vigil), a light
 
 This is what happens when you give an AI its own computer.
 
+## Bring Your Own Model
+
+Phantom is not locked to any single AI backend. It ships with support for seven providers out of the box, configured through a single YAML block:
+
+- **Anthropic** (default) - Claude Opus, Sonnet, Haiku
+- **Z.AI** - GLM-5.1 and GLM-4.5-Air via [Z.AI's Anthropic-compatible API](https://docs.z.ai/guides/llm/glm-5). Roughly 15x cheaper than Claude Opus for comparable coding quality.
+- **OpenRouter** - 100+ models through one key
+- **Ollama** - Any GGUF model on your own GPU, zero API cost
+- **vLLM** - Self-hosted inference with OpenAI-compatible endpoints
+- **LiteLLM** - Local proxy bridging OpenAI, Gemini, and more
+- **Custom** - Any Anthropic Messages API compatible endpoint
+
+Switching providers is two lines of YAML:
+
+```yaml
+# phantom.yaml
+model: claude-opus-4-7
+provider:
+  type: zai
+  api_key_env: ZAI_API_KEY
+  model_mappings:
+    sonnet: glm-5.1
+```
+
+Set `ZAI_API_KEY` in `.env`, restart, done. Both the main agent and every evolution judge flow through the chosen provider from that point on. The tools are the same, the memory is the same, the self-evolution pipeline is the same. Only the brain changes.
+
+Anthropic stays the default. Existing deployments continue to work with no configuration changes. See [docs/providers.md](docs/providers.md) for the full reference.
+
 ## Quick Start
 
 ### Docker (recommended)
@@ -87,6 +115,17 @@ docker compose up -d
 ```
 
 Your Phantom is running. Qdrant starts for memory, Ollama pulls the embedding model, and the agent boots. Check health at `http://localhost:3100/health`. With Slack configured, it DMs you when it's ready. Add `RESEND_API_KEY` for email sending. See [Getting Started](docs/getting-started.md) for full setup.
+
+> **Security note, Docker socket mount:** `docker-compose.yaml` mounts
+> `/var/run/docker.sock` into the Phantom container so it can spawn sibling
+> containers (e.g. sandboxed code execution). This is an intentional
+> architectural trade-off: the socket grants the container **root-equivalent
+> access to the Docker daemon**, which means a compromised Phantom process
+> could create, modify, or destroy any container on the host. Mitigations:
+> run Phantom on a dedicated machine or VM (not your personal workstation),
+> and do not expose the host's Docker socket to untrusted workloads. See
+> [docs/security.md](docs/security.md) for the full threat model.
+
 
 ### Managed (free)
 
@@ -175,11 +214,13 @@ Because the agent that can only use pre-built tools hits a ceiling. Phantom buil
 | Feature | Why it matters |
 |---------|----------------|
 | **Its own computer** | Your laptop stays yours. The agent installs software, runs 24/7, and builds infrastructure on its own machine. |
+| **Bring your own model** | Anthropic, Z.AI (GLM-5.1), OpenRouter, Ollama, vLLM, LiteLLM, or any Anthropic Messages API compatible endpoint. Pick your backend in YAML, same agent everywhere. |
 | **Self-evolution** | The agent rewrites its own config after every session, validated by LLM judges. Day 30 knows things Day 1 didn't. |
 | **Persistent memory** | Three tiers of vector memory. Mention something on Monday, it uses it on Wednesday. No re-explaining. |
 | **Dynamic tools** | Creates and registers its own MCP tools at runtime. Tools survive restarts and work across sessions. |
 | **Encrypted secrets** | AES-256-GCM encrypted forms with magic-link auth. No plain-text credentials in config files. |
 | **Email identity** | Every Phantom has its own email address. Send reports to people outside your Slack workspace. |
+| **Web chat** | A full browser-based chat client at `/chat` with SSE streaming, file attachments, and Web Push notifications. No Slack required. |
 | **Shareable pages** | Generates dashboards and tools on a public URL with auth. Share a link, anyone can see it. |
 | **MCP server** | Claude Code connects to your Phantom. Other Phantoms connect to your Phantom. It is an API, not a dead end. |
 
@@ -198,10 +239,10 @@ Because the agent that can only use pre-built tools hits a ceiling. Phantom buil
 |                                          |
 |  Channels       Agent Runtime            |
 |  Slack          query() + hooks          |
-|  Telegram       Prompt Assembler         |
-|  Email          base + role + evolved    |
-|  Webhook        + memory context         |
-|  CLI                                     |
+|  Web Chat       Prompt Assembler         |
+|  Telegram       base + role + evolved    |
+|  Email          + memory context         |
+|  Webhook / CLI                           |
 |                                          |
 |  Memory System  Self-Evolution Engine    |
 |  Qdrant         6-step pipeline          |
@@ -222,9 +263,9 @@ Because the agent that can only use pre-built tools hits a ceiling. Phantom buil
 
 </div>
 
-## Connect from Claude Code
+## Connect from Claude
 
-Generate a token, then add Phantom to your MCP config.
+First, generate a token. The command outputs a bearer token. Save it for the next step.
 
 **Bare metal:**
 ```bash
@@ -238,13 +279,25 @@ docker exec phantom bun run phantom token create --client claude-code --scope op
 
 **Or just ask your Phantom in Slack:** "Create an MCP token for Claude Code." It will generate the token and give you the config snippet.
 
-Then add this to your Claude Code MCP config:
+Then use the token to connect. Replace `YOUR_TOKEN` below with the token from the command above. For local instances, use `http://localhost:3100/mcp` instead of the `ghostwright.dev` URL.
+
+### Claude Code (CLI)
+
+Add via the CLI:
+
+```bash
+claude mcp add phantom https://your-phantom.ghostwright.dev/mcp \
+  --transport http \
+  --header "Authorization: Bearer YOUR_TOKEN"
+```
+
+Or add directly to your project's `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "phantom": {
-      "type": "streamableHttp",
+      "type": "http",
       "url": "https://your-phantom.ghostwright.dev/mcp",
       "headers": {
         "Authorization": "Bearer YOUR_TOKEN"
@@ -254,7 +307,33 @@ Then add this to your Claude Code MCP config:
 }
 ```
 
-Now Claude Code can query your Phantom's memory, ask it questions, check status, and use any dynamic tools the agent has built.
+### Claude Desktop
+
+Claude Desktop only supports stdio transport, so you need [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) to bridge the connection.
+
+Add this to your `claude_desktop_config.json` (Settings → Developer → Edit Config):
+
+```json
+{
+  "mcpServers": {
+    "phantom": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "https://your-phantom.ghostwright.dev/mcp",
+        "--header",
+        "Authorization: Bearer YOUR_TOKEN"
+      ]
+    }
+  }
+}
+```
+
+Restart Claude Desktop after saving. The first connection may take a moment while `mcp-remote` is downloaded.
+
+### Verify
+
+Once connected, Claude can query your Phantom's memory, ask it questions, check status, and use any dynamic tools the agent has built.
 
 ## Self-Evolution
 
@@ -267,7 +346,7 @@ The core differentiator. After every session:
 5. **Apply** - write approved changes, bump version
 6. **Consolidate** - periodically compress observations into principles
 
-Safety-critical gates use Sonnet 4.6 as a cross-model judge. Triple-judge voting with minority veto: one dissenting judge blocks the change. Every version is stored. You can diff day 1 and day 30. You can roll back.
+Safety-critical gates use Sonnet as the default cross-model judge (main runs on Opus, so judges run on Sonnet to avoid self-enhancement bias). Operators may opt into Opus judges explicitly for deeper reasoning at higher cost. Triple-judge voting with minority veto: one dissenting judge blocks the change. Every version is stored. You can diff day 1 and day 30. You can roll back.
 
 ## The Ghostwright Ecosystem
 
@@ -301,7 +380,7 @@ bun run phantom start
 ```
 
 ```bash
-bun test              # 770 tests
+bun test              # 1584 tests
 bun run lint          # Biome
 bun run typecheck     # tsc --noEmit
 ```

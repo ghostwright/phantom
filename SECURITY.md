@@ -64,7 +64,7 @@ The self-evolution pipeline validates every proposed config change through 5 gat
 4. **Drift gate** - cumulative changes must stay within bounds
 5. **Safety gate** - changes must not weaken security boundaries
 
-Safety-critical gates use Sonnet 4.6 as a cross-model judge (not Opus judging its own output). Triple-judge voting with minority veto: one dissenting judge blocks the change.
+Safety-critical gates use Sonnet as the default cross-model judge. Cross-model evaluation avoids self-enhancement bias: the main agent runs on Opus, so judges run on Sonnet. Operators may opt into Opus judges explicitly for deeper reasoning at higher cost. Triple-judge voting with minority veto: one dissenting judge blocks the change.
 
 Implementation: `src/evolution/validation.ts`
 

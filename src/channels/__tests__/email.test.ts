@@ -5,7 +5,18 @@ import { EmailChannel, type EmailChannelConfig } from "../email.ts";
 const mockConnect = mock(() => Promise.resolve());
 const mockLogout = mock(() => Promise.resolve());
 const mockGetMailboxLock = mock(() => Promise.resolve({ release: () => {} }));
-const mockIdle = mock(() => new Promise(() => {}));
+const mockIdle = mock(
+	(opts?: { abort?: AbortSignal }) =>
+		new Promise<void>((_resolve, reject) => {
+			if (opts?.abort) {
+				if (opts.abort.aborted) {
+					reject(new Error("abort"));
+					return;
+				}
+				opts.abort.addEventListener("abort", () => reject(new Error("abort")), { once: true });
+			}
+		}),
+);
 const mockFetch = mock(function* () {
 	// Empty generator - no unread messages
 });
@@ -139,6 +150,34 @@ describe("EmailChannel", () => {
 
 		const callArgs = (mockSendMail.mock.calls as unknown as Array<Array<Record<string, unknown>>>)[0][0];
 		expect(callArgs.text).toBe("Plain text content");
+	});
+
+	test("disconnect awaits IDLE loop before logout", async () => {
+		const channel = new EmailChannel(testConfig);
+		await channel.connect();
+
+		// disconnect should complete without hanging — the IDLE loop
+		// must terminate before logout is called
+		await channel.disconnect();
+
+		// Verify logout was called (meaning IDLE loop finished first)
+		expect(mockLogout).toHaveBeenCalledTimes(1);
+		expect(channel.isConnected()).toBe(false);
+	});
+
+	test("rapid disconnect and reconnect does not leak IDLE loops", async () => {
+		const channel = new EmailChannel(testConfig);
+		await channel.connect();
+
+		await channel.disconnect();
+		mockGetMailboxLock.mockClear();
+
+		// Reconnect should work cleanly without competing for the lock
+		await channel.connect();
+		expect(channel.isConnected()).toBe(true);
+		expect(mockGetMailboxLock).toHaveBeenCalledTimes(1);
+
+		await channel.disconnect();
 	});
 
 	test("send generates unique message ID", async () => {

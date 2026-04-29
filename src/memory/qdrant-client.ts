@@ -139,6 +139,48 @@ export class QdrantClient {
 		});
 	}
 
+	async scroll(
+		collection: string,
+		opts: {
+			limit: number;
+			offset?: string | number;
+			filter?: Record<string, unknown>;
+			orderBy?: { key: string; direction: "asc" | "desc" };
+			withPayload?: boolean;
+		},
+	): Promise<{ points: QdrantSearchResult[]; nextOffset: string | number | null }> {
+		const body: Record<string, unknown> = {
+			limit: opts.limit,
+			with_payload: opts.withPayload ?? true,
+		};
+		if (opts.offset !== undefined) body.offset = opts.offset;
+		if (opts.filter) body.filter = opts.filter;
+		if (opts.orderBy) body.order_by = { key: opts.orderBy.key, direction: opts.orderBy.direction };
+
+		const response = (await this.request("POST", `/collections/${collection}/points/scroll`, body)) as {
+			result?: {
+				points?: Array<{ id: string | number; payload?: Record<string, unknown>; vector?: unknown }>;
+				next_page_offset?: string | number | null;
+			};
+		};
+
+		const rawPoints = response.result?.points ?? [];
+		const points: QdrantSearchResult[] = rawPoints.map((p) => ({
+			id: String(p.id),
+			score: 0,
+			payload: p.payload ?? {},
+		}));
+		const nextOffset = response.result?.next_page_offset ?? null;
+		return { points, nextOffset };
+	}
+
+	async countPoints(collection: string, exact = true): Promise<number> {
+		const response = (await this.request("POST", `/collections/${collection}/points/count`, {
+			exact,
+		})) as { result?: { count?: number } };
+		return response.result?.count ?? 0;
+	}
+
 	async updatePayload(collection: string, id: string, payload: Record<string, unknown>): Promise<void> {
 		await this.request("POST", `/collections/${collection}/points/payload`, {
 			payload,

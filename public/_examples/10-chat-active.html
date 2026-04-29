@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="phantom-light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-agent-name-title>Chat with {{AGENT_NAME_CAPITALIZED}}</title>
+<link rel="icon" href="data:,">
+<script>(function(){var s=localStorage.getItem('phantom-theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.setAttribute('data-theme',s||(d?'phantom-dark':'phantom-light'));})();</script>
+<script src="/ui/_agent-name.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px; --space-10:40px; --space-12:48px; --space-16:64px;
+  --radius-sm:8px; --radius-md:10px; --radius-lg:14px; --radius-pill:9999px;
+  --motion-fast:100ms; --motion-base:150ms; --ease-out:cubic-bezier(0.25,0.46,0.45,0.94);
+}
+[data-theme="phantom-light"] { --color-base-100:#faf9f5; --color-base-200:#ffffff; --color-base-300:#ece9df; --color-base-content:#1c1917; --color-primary:#4850c4; --color-primary-content:#ffffff; --color-success:#16a34a; --color-error:#dc2626; --color-warning:#ca8a04; --color-info:#2563eb; color-scheme:light; }
+[data-theme="phantom-dark"] { --color-base-100:#0b0a09; --color-base-200:#161412; --color-base-300:#26211d; --color-base-content:#f7f6f1; --color-primary:#7078e0; --color-primary-content:#0b0a09; --color-success:#4ade80; --color-error:#f87171; --color-warning:#fbbf24; --color-info:#60a5fa; color-scheme:dark; }
+html { transition: background-color 150ms ease, color 150ms ease; }
+body { background:var(--color-base-100); color:var(--color-base-content); font-family:Inter,system-ui,sans-serif; margin:0; min-height:100vh; font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased; padding-bottom:140px; }
+
+.phantom-page-narrow { max-width:760px; margin:0 auto; padding:var(--space-8) var(--space-6); }
+.phantom-nav { display:flex; align-items:center; gap:var(--space-4); padding:var(--space-3) var(--space-8); border-bottom:1px solid var(--color-base-300); position:sticky; top:0; background:color-mix(in oklab, var(--color-base-100) 85%, transparent); backdrop-filter:blur(8px); z-index:10; }
+.phantom-nav-brand { display:inline-flex; align-items:center; gap:var(--space-2); font-family:'Instrument Serif',Georgia,serif; font-size:18px; color:var(--color-base-content); text-decoration:none; }
+.phantom-nav-logo { display:inline-flex; width:22px; height:22px; border-radius:6px; background:var(--color-primary); align-items:center; justify-content:center; color:var(--color-primary-content); font-family:'Instrument Serif',serif; font-size:14px; }
+
+.phantom-chat-thread { display:flex; flex-direction:column; gap:var(--space-5); padding:var(--space-6) 0; }
+
+.phantom-chat-bubble-user { align-self:flex-end; max-width:72%; padding:var(--space-3) var(--space-4); background:var(--color-primary); color:var(--color-primary-content); border-radius:var(--radius-lg); border-bottom-right-radius:4px; font-size:14px; line-height:1.55; }
+
+.phantom-chat-bubble-assistant { align-self:flex-start; max-width:80%; padding:var(--space-3) var(--space-4); background:var(--color-base-200); border:1px solid var(--color-base-300); border-radius:var(--radius-lg); border-bottom-left-radius:4px; font-size:14px; line-height:1.6; }
+
+.phantom-chat-tool-card { display:flex; align-items:center; gap:var(--space-3); padding:var(--space-2) var(--space-3); background:color-mix(in oklab, var(--color-base-content) 4%, transparent); border:1px solid var(--color-base-300); border-radius:var(--radius-md); font-family:'JetBrains Mono',monospace; font-size:12px; margin:var(--space-2) 0; }
+.phantom-chat-tool-card .icon { width:14px; height:14px; color:var(--color-primary); flex-shrink:0; }
+.phantom-chat-tool-card .name { color:var(--color-primary); }
+.phantom-chat-tool-card .arg { color:color-mix(in oklab, var(--color-base-content) 65%, transparent); }
+
+@keyframes phantom-thinking { 0%,80%,100% { opacity:0.3; } 40% { opacity:1; } }
+.phantom-chat-thinking { align-self:flex-start; display:inline-flex; align-items:center; gap:6px; padding:var(--space-3) var(--space-4); background:var(--color-base-200); border:1px solid var(--color-base-300); border-radius:var(--radius-lg); border-bottom-left-radius:4px; }
+.phantom-chat-thinking .dot { width:6px; height:6px; border-radius:50%; background:color-mix(in oklab, var(--color-base-content) 50%, transparent); animation:phantom-thinking 1.4s infinite ease-in-out; }
+.phantom-chat-thinking .dot:nth-child(2) { animation-delay:0.16s; }
+.phantom-chat-thinking .dot:nth-child(3) { animation-delay:0.32s; }
+
+.composer { position:fixed; left:0; right:0; bottom:0; background:color-mix(in oklab, var(--color-base-100) 92%, transparent); backdrop-filter:blur(12px); border-top:1px solid var(--color-base-300); padding:var(--space-4) var(--space-6); }
+.composer-inner { max-width:760px; margin:0 auto; display:flex; align-items:flex-end; gap:var(--space-3); }
+.phantom-textarea { flex:1; box-sizing:border-box; font-family:Inter,sans-serif; font-size:15px; line-height:1.5; background:var(--color-base-200); color:var(--color-base-content); border:1px solid var(--color-base-300); border-radius:var(--radius-lg); padding:14px 16px; resize:none; min-height:52px; max-height:160px; transition:border-color 150ms; }
+.phantom-textarea:focus { outline:none; border-color:var(--color-primary); }
+
+.phantom-button-primary { display:inline-flex; align-items:center; justify-content:center; gap:var(--space-2); font-family:Inter,sans-serif; font-size:14px; font-weight:500; padding:14px 22px; border-radius:var(--radius-pill); border:1px solid transparent; background:var(--color-primary); color:var(--color-primary-content); cursor:pointer; transition:opacity 100ms; }
+.phantom-button-primary:hover { opacity:0.88; }
+
+.phantom-meta { font-family:'JetBrains Mono',monospace; font-size:11px; color:color-mix(in oklab, var(--color-base-content) 50%, transparent); margin-top:6px; display:block; }
+</style>
+</head>
+<body>
+
+<nav class="phantom-nav" aria-label="Primary">
+  <a href="/ui/" class="phantom-nav-brand">
+    <span class="phantom-nav-logo" data-agent-name-initial>&nbsp;</span>
+    <span data-agent-name>&nbsp;</span>
+  </a>
+</nav>
+
+<main class="phantom-page-narrow">
+  <div class="phantom-chat-thread">
+
+    <div class="phantom-chat-bubble-user">
+      Can you build me a quick preview page that shows the new dashboard layout? I want to see how it looks before we ship.
+    </div>
+
+    <div class="phantom-chat-bubble-assistant">
+      On it. I will compose a page using the phantom-* vocabulary, save it under <span style="font-family:'JetBrains Mono',monospace; font-size:12px; background:color-mix(in oklab, var(--color-base-content) 6%, transparent); padding:1px 6px; border-radius:4px;">/ui/preview-dashboard.html</span>, then preview it in both themes before sharing the link.
+
+      <div class="phantom-chat-tool-card">
+        <svg class="icon" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z"/></svg>
+        <span class="name">phantom_create_page</span>
+        <span class="arg">path: "preview-dashboard.html"</span>
+      </div>
+
+      <div class="phantom-chat-tool-card">
+        <svg class="icon" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        <span class="name">phantom_preview_page</span>
+        <span class="arg">path: "preview-dashboard.html"</span>
+      </div>
+    </div>
+
+    <div class="phantom-chat-bubble-user">
+      Use the warm cream theme as the default and make sure the cost chart uses real data from yesterday.
+    </div>
+
+    <div class="phantom-chat-bubble-assistant">
+      Got it. Switching to the warm cream theme and pulling cost data from the metrics SQLite from the last 24 hours. The chart will use <span style="font-family:'JetBrains Mono',monospace; font-size:12px; background:color-mix(in oklab, var(--color-base-content) 6%, transparent); padding:1px 6px; border-radius:4px;">window.phantomChart()</span> so it stays theme-aware on toggle. I will share the magic link as soon as the preview validates clean.
+      <span class="phantom-meta">2 tool calls, 1.4s elapsed</span>
+    </div>
+
+    <div class="phantom-chat-thinking" aria-label="thinking">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    </div>
+
+  </div>
+</main>
+
+<div class="composer">
+  <div class="composer-inner">
+    <textarea class="phantom-textarea" placeholder="Message..."></textarea>
+    <button class="phantom-button-primary">Send</button>
+  </div>
+</div>
+
+</body>
+</html>

@@ -2,35 +2,18 @@ import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 import { z } from "zod";
 
+// Phase 3 evolution config schema.
+//
+// The 6-judge pipeline deletion removed most of the legacy knobs. What
+// remains is paths plus a reflection enable flag. The cadence cron
+// interval and demand trigger depth live in `phantom-config/meta/evolution.json`
+// (see `loadCadenceConfig` in cadence.ts), not in this YAML, because the
+// operator wants to tune them without touching the repo config.
+
 export const EvolutionConfigSchema = z.object({
-	cadence: z
-		.object({
-			reflection_interval: z.number().int().positive().default(1),
-			consolidation_interval: z.number().int().positive().default(10),
-			full_review_interval: z.number().int().positive().default(50),
-			drift_check_interval: z.number().int().positive().default(20),
-		})
-		.default({}),
-	gates: z
-		.object({
-			drift_threshold: z.number().min(0).max(1).default(0.7),
-			max_file_lines: z.number().int().positive().default(200),
-			auto_rollback_threshold: z.number().min(0).max(1).default(0.1),
-			auto_rollback_window: z.number().int().positive().default(5),
-		})
-		.default({}),
 	reflection: z
 		.object({
-			model: z.string().default("claude-sonnet-4-20250514"),
-			effort: z.enum(["low", "medium", "high", "max"]).default("high"),
-			max_budget_usd: z.number().positive().default(0.5),
-		})
-		.default({}),
-	judges: z
-		.object({
 			enabled: z.enum(["auto", "always", "never"]).default("auto"),
-			cost_cap_usd_per_day: z.number().positive().default(50.0),
-			max_golden_suite_size: z.number().int().positive().default(50),
 		})
 		.default({}),
 	paths: z
@@ -40,7 +23,6 @@ export const EvolutionConfigSchema = z.object({
 			version_file: z.string().default("phantom-config/meta/version.json"),
 			metrics_file: z.string().default("phantom-config/meta/metrics.json"),
 			evolution_log: z.string().default("phantom-config/meta/evolution-log.jsonl"),
-			golden_suite: z.string().default("phantom-config/meta/golden-suite.jsonl"),
 			session_log: z.string().default("phantom-config/memory/session-log.jsonl"),
 		})
 		.default({}),

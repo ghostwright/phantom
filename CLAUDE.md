@@ -1,16 +1,17 @@
 # Phantom
 
-Phantom is an autonomous AI co-worker that runs as a persistent Bun process on a VM. It wraps the Claude Agent SDK (Opus 4.6), maintains vector-backed memory across sessions, rewrites its own configuration through a validated self-evolution engine, communicates via Slack/Telegram/Email/Webhook, and exposes all capabilities as an MCP server. 27,000+ lines of TypeScript, 822 tests, v0.18.2. Apache 2.0, repo at ghostwright/phantom.
+Phantom is an autonomous AI co-worker that runs as a persistent Bun process on a VM. It wraps the Claude Agent SDK as a subprocess (Anthropic by default, swappable via a `provider:` config block to Z.AI/GLM-5.1, OpenRouter, Ollama, vLLM, LiteLLM, or any Anthropic Messages API compatible endpoint). It maintains vector-backed memory across sessions, rewrites its own configuration through a validated self-evolution engine, communicates via Slack/Web Chat/Telegram/Email/Webhook, and exposes all capabilities as an MCP server. 30,000+ lines of TypeScript, 1,819 tests, v0.20.2. Apache 2.0, repo at ghostwright/phantom.
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
 | Runtime | Bun (TypeScript-native, built-in SQLite, no bundler) |
-| Agent | Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) with Opus 4.6, 1M context |
+| Agent | Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) subprocess. Provider is configurable via `src/config/providers.ts`: Anthropic (default), Z.AI, OpenRouter, Ollama, vLLM, LiteLLM, custom. |
 | Memory | Qdrant (vector DB, Docker) + Ollama (nomic-embed-text, local embeddings) |
 | State | SQLite via Bun (sessions, tasks, metrics, evolution versions, scheduled jobs) |
-| Channels | Slack (Socket Mode, primary), Telegram (long polling), Email (IMAP/SMTP), Webhook (HMAC-SHA256), CLI |
+| Channels | Slack (Socket Mode), Web Chat (SSE streaming), Telegram (long polling), Email (IMAP/SMTP), Webhook (HMAC-SHA256), CLI |
+| Chat Client | React 19 + Vite + shadcn/ui + Tailwind v4 SPA at `/chat` |
 | Web UI | Tailwind v4 Browser CDN + DaisyUI v5, static files from public/ |
 | MCP | Streamable HTTP on /mcp, bearer token auth, 17+ tools |
 | Infrastructure | Docker (compose), Specter VMs (Hetzner), systemd (bare metal) |
@@ -21,7 +22,7 @@ Phantom is an autonomous AI co-worker that runs as a persistent Bun process on a
 
 **TypeScript is plumbing. The Agent SDK is the brain.**
 
-The Agent SDK (Opus 4.6) has full computer access: Read, Write, Edit, Bash, Glob, Grep, WebSearch, Agent tools. It can understand natural language, read code, explore repos, detect tech stacks, clone repos, install packages, write configs, and reason about anything.
+The Agent SDK (Opus 4.7) has full computer access: Read, Write, Edit, Bash, Glob, Grep, WebSearch, Agent tools. It can understand natural language, read code, explore repos, detect tech stacks, clone repos, install packages, write configs, and reason about anything.
 
 TypeScript handles: starting processes, routing messages, managing sessions, storing data, serving HTTP endpoints, tracking state. Mechanical, deterministic work.
 
@@ -41,13 +42,22 @@ If you find yourself writing a function that does something the agent can do bet
 
 ```bash
 bun install                          # Install dependencies
-bun test                             # Run 770 tests
+bun test                             # Run 1,819 tests
 bun run src/index.ts                 # Start the server
 bun run src/cli/main.ts init --yes   # Initialize config (reads env vars)
 bun run src/cli/main.ts doctor       # Check all subsystems
 bun run src/cli/main.ts status       # Quick one-liner status
 bun run lint                         # Biome check
 bun run typecheck                    # tsc --noEmit
+
+# Chat UI (separate build)
+cd chat-ui && bun install            # Install chat-ui dependencies
+cd chat-ui && bun run build          # Build production SPA to chat-ui/dist/
+cd chat-ui && bun run typecheck      # Type-check the chat client
+cd chat-ui && bun run dev            # Dev server on :5173 (proxy to :3100)
+
+# Chat-UI dev loop: run Phantom on :3100 in one terminal, Vite on :5173 in another.
+# Vite proxies /chat/* API calls to :3100. Open http://localhost:5173/chat.
 ```
 
 ## Project Structure
@@ -60,6 +70,19 @@ src/
     prompt-assembler.ts # System prompt: base + role + evolved + memory context
     hooks.ts            # Safety hooks (dangerous command blocker, file tracker)
     in-process-tools.ts # In-process MCP tool servers (dynamic, scheduler, web UI)
+  chat/
+    http.ts             # SSE endpoint, session management, message routing
+    http-handlers.ts    # Request handlers for chat API routes
+    types.ts            # 32-event SSE wire format (discriminated union)
+    sdk-to-wire.ts      # Translates Agent SDK events to chat wire frames
+    session-store.ts    # In-memory chat session state
+    message-store.ts    # Persistent message history (SQLite)
+    stream-bus.ts       # Fan-out SSE event bus (multi-tab support)
+    upload.ts           # File attachment upload handler
+    validators.ts       # Type allowlist and size limits for attachments
+    first-run.ts        # Email-based first login (Resend)
+    email-login.ts      # Magic link email delivery
+    notifications/      # Web Push (VAPID keys, subscriptions, triggers)
   channels/
     slack.ts            # Slack Socket Mode (primary channel, owner access control)
     telegram.ts         # Telegram via Telegraf
@@ -82,7 +105,7 @@ src/
     reflection.ts       # Post-session observation extraction
     validation.ts       # 5-gate validation (constitution, regression, size, drift, safety)
     versioning.ts       # Git-like config versioning with rollback
-    judges/             # LLM judges (Sonnet 4.6 as judge model)
+    judge-models.ts     # Sonnet is the default judge; Opus is opt-in
   mcp/
     server.ts           # MCP Streamable HTTP server
     tools-universal.ts  # 8 universal MCP tools
@@ -116,6 +139,7 @@ src/
 config/                 # YAML configs (phantom.yaml, channels.yaml, mcp.yaml, roles/)
 phantom-config/         # Evolved agent config (constitution, persona, domain knowledge)
 public/                 # Web UI files (_base.html template, index.html)
+chat-ui/                # React 19 SPA (Vite + shadcn + Tailwind v4). Built to public/chat/
 scripts/
   install.sh            # Standalone install script for Ubuntu/Debian
   docker-entrypoint.sh  # Docker bootstrap (wait for deps, model pull, init)
@@ -124,7 +148,7 @@ docs/                   # Documentation (architecture, channels, mcp, security, 
 
 ## Architecture Overview
 
-Message flow: Slack message -> SlackChannel adapter -> ChannelRouter -> SessionManager (find/create session) -> PromptAssembler (base + role + evolved config + memory context) -> AgentRuntime.query() (Opus 4.6 with full tools) -> response -> ChannelRouter -> Slack thread reply.
+Message flow: Slack message -> SlackChannel adapter -> ChannelRouter -> SessionManager (find/create session) -> PromptAssembler (base + role + evolved config + memory context) -> AgentRuntime.query() (Opus 4.7 with full tools) -> response -> ChannelRouter -> Slack thread reply. Web chat uses the same flow: POST /chat/sessions/:id/message -> SSE stream of wire frames -> React client renders in real time. Two separate transcripts (wire-format message store for the client, SDK conversation for the agent) are kept in sync.
 
 After each session: EvolutionEngine runs 6-step reflection pipeline -> 5-gate validation -> approved changes applied to phantom-config/ -> version bumped.
 
@@ -134,7 +158,7 @@ MCP flow: External client -> /mcp endpoint -> bearer auth -> MCP Server -> tool 
 
 **Qdrant over LanceDB:** WAL durability with crash recovery. Native hybrid search (dense + BM25 sparse vectors). Named vectors for separate embedding spaces. Mmap mode for low memory. TypeScript REST client works with Bun (no NAPI addon risk).
 
-**Sonnet as judge model:** Cross-model evaluation avoids self-enhancement bias. Opus judging its own output creates a conflict of interest. Safety/constitution gates use triple-judge minority veto (one dissent blocks the change).
+**Sonnet as default judge model:** The evolution pipeline uses Sonnet as the default judge model for safety-critical gates. Cross-model evaluation avoids self-enhancement bias: the main agent runs on Opus, so judges run on Sonnet. Operators may opt into Opus judges for deeper reasoning at higher cost. Safety/constitution gates use triple-judge minority veto (one dissent blocks the change).
 
 **Factory pattern for MCP servers:** The SDK connects each MCP server instance to one transport and rejects reuse. In-process MCP servers must be recreated per query() call. The registries they wrap are singletons, but the MCP server wrapper is new each time.
 
@@ -178,6 +202,40 @@ Full checklist at `docs/deploy-checklist.md`. Both modes are first-class.
 
 Production deployments are managed internally. Do NOT modify production deployments without explicit approval. Code-only updates use rsync with --exclude for config/phantom-config/data.
 
+### Deploy gotchas (read before any Docker redeploy or fresh VM provision)
+
+For a **fresh VM from scratch with the latest local source**, follow `docs/deploy-new-phantom.md`. It captures every trap we have hit including stale SSH host keys, the `phantom-config/` build-context requirement on first deploy, pre-chowning ALL named volumes to uid 999 before the first `docker compose up`, the `claude login` flow over docker exec, the iTerm paste-into-TUI workaround, and the Slack token sharing trap.
+
+For an **update to an existing Docker deployment**, three specific traps to never repeat:
+
+**1. rsync with multiple trailing-slash sources merges into the target root.** Do NOT pass several `dir/` sources to a single target. The contents collapse together and `--delete` then wipes the original directory names. Always one rsync per source directory:
+
+```bash
+rsync -az --delete src/     specter@<IP>:/home/specter/phantom/src/
+rsync -az --delete public/  specter@<IP>:/home/specter/phantom/public/
+rsync -az --delete scripts/ specter@<IP>:/home/specter/phantom/scripts/
+```
+
+**2. Alpine overlays into the `phantom_public` (or any phantom) volume must chown to uid 999.** Phantom inside the container runs as `uid=999(phantom)`. The host source files are owned by `specter` at uid 1000, and `cp -av` preserves numeric ownership. Without the chown, the volume ends up owned by uid 1000 and the phantom container cannot write to `/app/public` (or wherever the volume mounts). Bake the chown into the overlay:
+
+```bash
+docker run --rm \
+  -v phantom_phantom_public:/dst \
+  -v /home/specter/phantom/public:/src \
+  alpine sh -c 'cp -av /src/. /dst/ && chown -R 999:999 /dst'
+```
+
+**3. New Docker volumes are root-owned by default.** When `docker compose up` creates a fresh named volume, the volume root is owned by `root:root`, not by the container's user. Phantom's first-boot entrypoint then crashes with `Permission denied` when it tries to seed skills, plugins, or phantom-config into the volume. **Pre-create and pre-chown every named volume BEFORE the first `docker compose up`** on a fresh VM:
+
+```bash
+for vol in phantom_phantom_claude phantom_phantom_evolved phantom_phantom_data phantom_phantom_public; do
+  docker volume create $vol
+  docker run --rm -v $vol:/dst alpine chown -R 999:999 /dst
+done
+```
+
+Verify after every deploy with `docker exec phantom sh -c 'touch /app/public/_w && rm /app/public/_w && echo OK'`. If write fails, repeat the chown step on the affected volume.
+
 ## Known Bugs
 
 1. **Onboarding re-fires on restart (LOW):** When evolution generation is 0, the intro DM sends again on restart. Needs an "intro_sent" flag in SQLite.
@@ -193,6 +251,7 @@ Production deployments are managed internally. Do NOT modify production deployme
 | `src/channels/slack.ts` | Primary channel. Owner access control, threading, reactions. |
 | `src/mcp/server.ts` | MCP server setup. Tool registration, auth integration. |
 | `src/memory/system.ts` | Memory coordinator. How the three tiers connect. |
+| `src/chat/http.ts` | Web chat backend. SSE streaming, session routing, API handlers. |
 | `src/core/server.ts` | HTTP server. Routes, health endpoint, version. |
 | `config/roles/swe.yaml` | SWE role template. Onboarding questions, tools, evolution focus. |
 | `phantom-config/constitution.md` | Immutable principles the evolution engine cannot modify. |

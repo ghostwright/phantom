@@ -42,7 +42,7 @@ This is the most important architectural principle in Phantom. If you read one s
 
 **TypeScript is plumbing. The Agent SDK is the brain.**
 
-Phantom wraps the Claude Agent SDK (Opus 4.6) with full computer access: filesystem, shell, Docker, network, and web search. The agent can read code, understand natural language, detect tech stacks, clone repos, and reason about anything.
+Phantom wraps the Claude Agent SDK (Opus 4.7) with full computer access: filesystem, shell, Docker, network, and web search. The agent can read code, understand natural language, detect tech stacks, clone repos, and reason about anything.
 
 TypeScript handles the mechanical, deterministic parts: starting processes, routing messages, managing sessions, storing data, serving HTTP endpoints, tracking state. Things that need to be fast, predictable, and always-on.
 
@@ -87,7 +87,7 @@ If you are unsure whether something belongs in TypeScript or in a prompt, open a
 ## Running Tests
 
 ```bash
-# Run the full suite (770 tests)
+# Run the full suite (1,819 tests)
 bun test
 
 # Run a single test file
@@ -101,6 +101,11 @@ bun run lint
 
 # Typecheck
 bun run typecheck
+
+# Chat UI (separate build, separate package.json)
+cd chat-ui && bun install        # Install chat-ui dependencies
+cd chat-ui && bun run build      # Build production SPA
+cd chat-ui && bun run typecheck  # Type-check the chat client
 ```
 
 All three must pass before submitting a PR: tests, lint, and typecheck.

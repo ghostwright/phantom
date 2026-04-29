@@ -67,7 +67,7 @@ PHANTOM_NAME=<whatever name I chose>
 ```
 
 Optional additions:
-- `PHANTOM_MODEL=claude-sonnet-4-6` (default) or `claude-opus-4-6` for deeper reasoning
+- `PHANTOM_MODEL=claude-opus-4-7` (default) or `claude-sonnet-4-6` for lower cost
 - `RESEND_API_KEY=<key>` if the user wants email sending from {name}@ghostwright.dev
 
 Show me the file (with secrets redacted) so I can confirm it looks right.

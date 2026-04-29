@@ -1,152 +1,181 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { EvolutionConfig } from "../config.ts";
 import {
-	checkForAutoRollback,
+	emptyReflectionStats,
 	getMetricsSnapshot,
 	readMetrics,
-	resetConsolidationCounter,
+	recordReflectionRun,
 	updateAfterEvolution,
-	updateAfterRollback,
 	updateAfterSession,
+	writeMetrics,
 } from "../metrics.ts";
+import type { EvolutionMetrics } from "../types.ts";
+
+// Phase 3 metrics tests. Auto-rollback, daily cost cap, and the
+// consolidation counter are gone; the new reflection_stats block is the
+// primary observability window and must merge correctly across drains.
 
 const TEST_DIR = "/tmp/phantom-test-metrics";
 
 function testConfig(): EvolutionConfig {
 	return {
-		cadence: { reflection_interval: 1, consolidation_interval: 10, full_review_interval: 50, drift_check_interval: 20 },
-		gates: { drift_threshold: 0.7, max_file_lines: 200, auto_rollback_threshold: 0.1, auto_rollback_window: 5 },
-		reflection: { model: "claude-sonnet-4-20250514", effort: "high", max_budget_usd: 0.5 },
-		judges: { enabled: "auto", cost_cap_usd_per_day: 50.0, max_golden_suite_size: 50 },
+		reflection: { enabled: "never" },
 		paths: {
 			config_dir: TEST_DIR,
 			constitution: `${TEST_DIR}/constitution.md`,
 			version_file: `${TEST_DIR}/meta/version.json`,
 			metrics_file: `${TEST_DIR}/meta/metrics.json`,
 			evolution_log: `${TEST_DIR}/meta/evolution-log.jsonl`,
-			golden_suite: `${TEST_DIR}/meta/golden-suite.jsonl`,
 			session_log: `${TEST_DIR}/memory/session-log.jsonl`,
 		},
 	};
 }
 
-describe("Metrics", () => {
-	beforeEach(() => {
-		mkdirSync(`${TEST_DIR}/meta`, { recursive: true });
-		writeFileSync(
-			`${TEST_DIR}/meta/metrics.json`,
-			JSON.stringify({
-				session_count: 0,
-				success_count: 0,
-				failure_count: 0,
-				correction_count: 0,
-				evolution_count: 0,
-				rollback_count: 0,
-				last_session_at: null,
-				last_evolution_at: null,
-				success_rate_7d: 0,
-				correction_rate_7d: 0,
-				sessions_since_consolidation: 0,
-			}),
-			"utf-8",
-		);
-	});
+function seed(): void {
+	rmSync(TEST_DIR, { recursive: true, force: true });
+	mkdirSync(`${TEST_DIR}/meta`, { recursive: true });
+	writeFileSync(`${TEST_DIR}/meta/metrics.json`, "{}", "utf-8");
+}
 
-	afterEach(() => {
-		rmSync(TEST_DIR, { recursive: true, force: true });
-	});
+describe("evolution metrics", () => {
+	beforeEach(() => seed());
+	afterEach(() => rmSync(TEST_DIR, { recursive: true, force: true }));
 
-	test("readMetrics returns initial metrics", () => {
+	test("readMetrics fills defaults on an empty file", () => {
 		const metrics = readMetrics(testConfig());
 		expect(metrics.session_count).toBe(0);
+		expect(metrics.evolution_count).toBe(0);
 		expect(metrics.success_count).toBe(0);
 	});
 
-	test("readMetrics returns defaults when file missing", () => {
-		rmSync(`${TEST_DIR}/meta/metrics.json`);
+	test("readMetrics preserves existing fields but fills unseen fields with defaults", () => {
+		writeFileSync(`${TEST_DIR}/meta/metrics.json`, JSON.stringify({ session_count: 5 }), "utf-8");
 		const metrics = readMetrics(testConfig());
-		expect(metrics.session_count).toBe(0);
+		expect(metrics.session_count).toBe(5);
+		expect(metrics.success_rate_7d).toBe(0);
 	});
 
-	test("updateAfterSession increments session count", () => {
+	test("writeMetrics round-trips a full metrics object", () => {
 		const config = testConfig();
-		const metrics = updateAfterSession(config, "success", false);
-		expect(metrics.session_count).toBe(1);
-		expect(metrics.success_count).toBe(1);
-		expect(metrics.failure_count).toBe(0);
-		expect(metrics.last_session_at).not.toBeNull();
+		const next: EvolutionMetrics = {
+			session_count: 10,
+			success_count: 8,
+			failure_count: 1,
+			evolution_count: 2,
+			last_session_at: "2026-04-14T10:00:00Z",
+			last_evolution_at: "2026-04-14T10:05:00Z",
+			success_rate_7d: 0.8,
+		};
+		writeMetrics(config, next);
+		const read = readMetrics(config);
+		expect(read.session_count).toBe(10);
+		expect(read.success_rate_7d).toBe(0.8);
 	});
 
-	test("updateAfterSession tracks failures", () => {
+	test("updateAfterSession increments session_count and success_count", () => {
 		const config = testConfig();
-		const metrics = updateAfterSession(config, "failure", false);
-		expect(metrics.failure_count).toBe(1);
-		expect(metrics.success_count).toBe(0);
-	});
-
-	test("updateAfterSession tracks corrections", () => {
-		const config = testConfig();
-		const metrics = updateAfterSession(config, "success", true);
-		expect(metrics.correction_count).toBe(1);
-	});
-
-	test("updateAfterSession calculates rolling rates", () => {
-		const config = testConfig();
-		updateAfterSession(config, "success", false);
-		updateAfterSession(config, "success", false);
-		updateAfterSession(config, "failure", true);
+		updateAfterSession(config, "success");
+		updateAfterSession(config, "success");
+		updateAfterSession(config, "failure");
 		const metrics = readMetrics(config);
-		expect(metrics.success_rate_7d).toBeCloseTo(0.67, 1);
-		expect(metrics.correction_rate_7d).toBeCloseTo(0.33, 1);
+		expect(metrics.session_count).toBe(3);
+		expect(metrics.success_count).toBe(2);
+		expect(metrics.failure_count).toBe(1);
 	});
 
-	test("updateAfterEvolution increments evolution count", () => {
+	test("updateAfterEvolution bumps evolution_count and last_evolution_at", () => {
 		const config = testConfig();
-		const metrics = updateAfterEvolution(config);
-		expect(metrics.evolution_count).toBe(1);
+		updateAfterEvolution(config);
+		updateAfterEvolution(config);
+		const metrics = readMetrics(config);
+		expect(metrics.evolution_count).toBe(2);
 		expect(metrics.last_evolution_at).not.toBeNull();
 	});
 
-	test("updateAfterRollback increments rollback count", () => {
+	test("getMetricsSnapshot returns a flat tuple for version tagging", () => {
 		const config = testConfig();
-		const metrics = updateAfterRollback(config);
-		expect(metrics.rollback_count).toBe(1);
-	});
-
-	test("resetConsolidationCounter resets to 0", () => {
-		const config = testConfig();
-		updateAfterSession(config, "success", false);
-		updateAfterSession(config, "success", false);
-		let metrics = readMetrics(config);
-		expect(metrics.sessions_since_consolidation).toBe(2);
-
-		resetConsolidationCounter(config);
-		metrics = readMetrics(config);
-		expect(metrics.sessions_since_consolidation).toBe(0);
-	});
-
-	test("getMetricsSnapshot returns current snapshot", () => {
-		const config = testConfig();
-		updateAfterSession(config, "success", false);
+		updateAfterSession(config, "success");
+		updateAfterSession(config, "success");
 		const snapshot = getMetricsSnapshot(config);
-		expect(snapshot.session_count).toBe(1);
-		expect(snapshot.success_rate_7d).toBe(1);
+		expect(snapshot.session_count).toBe(2);
+		expect(snapshot.success_rate_7d).toBeCloseTo(1, 2);
 	});
 
-	test("checkForAutoRollback says no when not enough sessions", () => {
-		const config = testConfig();
-		updateAfterSession(config, "success", false);
-		const result = checkForAutoRollback(config);
-		expect(result.shouldRollback).toBe(false);
-	});
+	describe("reflection_stats", () => {
+		test("emptyReflectionStats initialises all fields to zero", () => {
+			const stats = emptyReflectionStats();
+			expect(stats.drains).toBe(0);
+			expect(stats.stage_haiku_runs).toBe(0);
+			expect(stats.total_cost_usd).toBe(0);
+			expect(stats.files_touched).toEqual({});
+		});
 
-	test("checkForAutoRollback does not trigger when metrics are stable", () => {
-		const config = testConfig();
-		for (let i = 0; i < 6; i++) {
-			updateAfterSession(config, "success", false);
-		}
-		const result = checkForAutoRollback(config);
-		expect(result.shouldRollback).toBe(false);
+		test("recordReflectionRun merges a delta into metrics.json", () => {
+			const config = testConfig();
+			recordReflectionRun(config, {
+				drains: 1,
+				stage_haiku_runs: 1,
+				status_ok: 1,
+				total_cost_usd: 0.001,
+				files_touched: { "user-profile.md": 1 },
+			});
+			const metrics = JSON.parse(readFileSync(`${TEST_DIR}/meta/metrics.json`, "utf-8"));
+			expect(metrics.reflection_stats.drains).toBe(1);
+			expect(metrics.reflection_stats.stage_haiku_runs).toBe(1);
+			expect(metrics.reflection_stats.files_touched["user-profile.md"]).toBe(1);
+		});
+
+		test("recordReflectionRun accumulates across multiple drains", () => {
+			const config = testConfig();
+			recordReflectionRun(config, { drains: 1, stage_haiku_runs: 1, status_ok: 1, total_cost_usd: 0.001 });
+			recordReflectionRun(config, { drains: 1, stage_sonnet_runs: 1, status_ok: 1, total_cost_usd: 0.01 });
+			recordReflectionRun(config, { drains: 1, stage_haiku_runs: 1, status_skip: 1, total_cost_usd: 0.0005 });
+			const metrics = JSON.parse(readFileSync(`${TEST_DIR}/meta/metrics.json`, "utf-8"));
+			expect(metrics.reflection_stats.drains).toBe(3);
+			expect(metrics.reflection_stats.stage_haiku_runs).toBe(2);
+			expect(metrics.reflection_stats.stage_sonnet_runs).toBe(1);
+			expect(metrics.reflection_stats.status_ok).toBe(2);
+			expect(metrics.reflection_stats.status_skip).toBe(1);
+			expect(metrics.reflection_stats.total_cost_usd).toBeCloseTo(0.0115, 5);
+		});
+
+		test("files_touched accumulates per-file counts", () => {
+			const config = testConfig();
+			recordReflectionRun(config, {
+				drains: 1,
+				files_touched: { "user-profile.md": 1, "persona.md": 1 },
+			});
+			recordReflectionRun(config, {
+				drains: 1,
+				files_touched: { "user-profile.md": 1, "domain-knowledge.md": 1 },
+			});
+			const metrics = JSON.parse(readFileSync(`${TEST_DIR}/meta/metrics.json`, "utf-8"));
+			expect(metrics.reflection_stats.files_touched["user-profile.md"]).toBe(2);
+			expect(metrics.reflection_stats.files_touched["persona.md"]).toBe(1);
+			expect(metrics.reflection_stats.files_touched["domain-knowledge.md"]).toBe(1);
+		});
+
+		test("recordReflectionRun tolerates a missing metrics.json", () => {
+			rmSync(`${TEST_DIR}/meta/metrics.json`);
+			const config = testConfig();
+			recordReflectionRun(config, { drains: 1, stage_haiku_runs: 1 });
+			const metrics = JSON.parse(readFileSync(`${TEST_DIR}/meta/metrics.json`, "utf-8"));
+			expect(metrics.reflection_stats.drains).toBe(1);
+		});
+
+		test("recordReflectionRun preserves existing non-reflection metrics", () => {
+			writeFileSync(
+				`${TEST_DIR}/meta/metrics.json`,
+				JSON.stringify({ session_count: 42, gate_stats: { total_decisions: 7 } }),
+				"utf-8",
+			);
+			const config = testConfig();
+			recordReflectionRun(config, { drains: 1 });
+			const metrics = JSON.parse(readFileSync(`${TEST_DIR}/meta/metrics.json`, "utf-8"));
+			expect(metrics.session_count).toBe(42);
+			expect(metrics.gate_stats.total_decisions).toBe(7);
+			expect(metrics.reflection_stats.drains).toBe(1);
+		});
 	});
 });

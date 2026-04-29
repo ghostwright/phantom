@@ -90,7 +90,7 @@ async function checkConfig(): Promise<CheckResult> {
 	}
 	try {
 		const { loadConfig } = await import("../config/loader.ts");
-		const config = loadConfig();
+		const config = await loadConfig();
 		return { name: "Config", status: "ok", message: `${config.name} (${config.role}, port ${config.port})` };
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);

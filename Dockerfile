@@ -17,7 +17,16 @@ COPY config/ config/
 COPY phantom-config/ phantom-config/
 COPY scripts/ scripts/
 COPY public/ public/
+COPY skills-builtin/ skills-builtin/
 COPY tsconfig.json biome.json ./
+
+# --- Chat UI Build Stage ---
+FROM oven/bun:1 AS chat-ui-builder
+WORKDIR /app/chat-ui
+COPY chat-ui/package.json chat-ui/bun.lock* ./
+RUN bun install --frozen-lockfile
+COPY chat-ui/ ./
+RUN bun run build
 
 # --- Runtime Stage ---
 FROM oven/bun:1-slim
@@ -61,8 +70,8 @@ RUN DPKG_ARCH=$(dpkg --print-architecture) && \
 # Claude Code CLI refuses --dangerously-skip-permissions when running as root,
 # so the container MUST run as a non-root user. Docker socket access is granted
 # via group_add in docker-compose.yaml (matching the host's docker GID).
-RUN groupadd --system phantom && \
-    useradd --system --gid phantom --create-home --home-dir /home/phantom phantom && \
+RUN groupadd --system --gid 999 phantom && \
+    useradd --system --uid 999 --gid phantom --create-home --home-dir /home/phantom phantom && \
     mkdir -p /home/phantom/.claude && \
     chown -R phantom:phantom /home/phantom
 
@@ -72,8 +81,37 @@ COPY --from=builder /app/src ./src
 COPY --from=builder /app/config ./config
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/public ./public
+COPY --from=chat-ui-builder /app/chat-ui/dist ./public/chat
+COPY --from=builder /app/skills-builtin ./skills-builtin
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/tsconfig.json ./
+
+# Install Chromium headless shell + system deps for Playwright.
+# Must run after node_modules is copied so bunx can resolve playwright.
+# --only-shell skips the full Chromium binary (saves ~75 MiB off the full
+# chrome channel); the custom phantom_preview_page tool uses
+# chromium.launch() which picks the headless shell automatically for
+# headless=true. The @playwright/mcp embed path uses a contextGetter so it
+# never needs the full chrome channel binary.
+#
+# Image cost breakdown (verified on the built image vs. the pre-Playwright
+# baseline, total delta roughly 996 MiB over the non-Playwright baseline):
+#   ~327 MB  chromium_headless_shell-* binary at
+#            /home/phantom/.cache/ms-playwright/chromium_headless_shell-*
+#   ~91 MB   /usr/share/fonts pulled by --with-deps (DejaVu, Liberation,
+#            Noto Core)
+#   ~500+ MB /usr/lib X11 / GTK / libasound / libnss3 / libcups / libatk
+#            and the other shared libraries apt-get pulls for Chromium
+#
+# --only-shell only affects the Chromium binary. The system deps are the
+# dominant cost and cannot be trimmed without breaking Chromium's ability
+# to start. If you are trying to shrink this image, the headless shell
+# binary is the only safe target; the /usr/lib growth is load-bearing.
+ENV PLAYWRIGHT_BROWSERS_PATH=/home/phantom/.cache/ms-playwright
+RUN mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" && \
+    bunx playwright install --with-deps --only-shell chromium && \
+    chown -R phantom:phantom /home/phantom/.cache && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy default phantom-config (constitution.md, persona.md, etc.)
 # These get backed up so they survive the empty volume mount on first run.
@@ -85,6 +123,9 @@ RUN mkdir -p /app/data /app/repos && \
 
 # Backup phantom-config defaults so they survive empty volume mount
 RUN cp -r /app/phantom-config /app/phantom-config-defaults
+
+# Backup image-bundled public assets for entrypoint seeding
+RUN cp -r /app/public /app/public-defaults
 
 # Make entrypoint executable
 RUN chmod +x /app/scripts/docker-entrypoint.sh

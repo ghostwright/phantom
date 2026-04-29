@@ -12,3 +12,6 @@ local/
 *.db-shm
 .DS_Store
 bun.lockb
+chat-ui/node_modules
+chat-ui/dist
+chat-ui/.vite

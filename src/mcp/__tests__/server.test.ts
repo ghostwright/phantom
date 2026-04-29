@@ -28,22 +28,18 @@ function createMockEvolution() {
 			userProfile: "Test user",
 			domainKnowledge: "Test domain knowledge",
 			strategies: { taskPatterns: "patterns", toolPreferences: "prefs", errorRecovery: "recovery" },
-			meta: { version: 3, metricsSnapshot: { session_count: 10, success_rate_7d: 0.9, correction_rate_7d: 0.1 } },
+			meta: { version: 3, metricsSnapshot: { session_count: 10, success_rate_7d: 0.9 } },
 		}),
 		getMetrics: () => ({
 			session_count: 10,
 			success_count: 9,
 			failure_count: 1,
-			correction_count: 1,
 			evolution_count: 3,
-			rollback_count: 0,
 			last_session_at: new Date().toISOString(),
 			last_evolution_at: new Date().toISOString(),
 			success_rate_7d: 0.9,
-			correction_rate_7d: 0.1,
-			sessions_since_consolidation: 2,
 		}),
-		getVersionHistory: () => [],
+		getEvolutionLog: () => [],
 	};
 }
 
@@ -119,9 +115,13 @@ describe("PhantomMcpServer", () => {
 			port: 3100,
 			role: "swe",
 			model: "claude-opus-4-6",
+			provider: { type: "anthropic" as const, secret_name: "provider_token" },
+			secret_source: "env" as const,
 			effort: "max" as const,
 			max_budget_usd: 0,
 			timeout_minutes: 240,
+			permissions: { default_mode: "bypassPermissions" as const, allow: [], deny: [] },
+			evolution: { reflection_enabled: "auto" as const, cadence_minutes: 180, demand_trigger_depth: 5 },
 		};
 
 		mcpServer = new PhantomMcpServer(
@@ -334,9 +334,13 @@ describe("PhantomMcpServer", () => {
 					port: 3100,
 					role: "swe",
 					model: "claude-opus-4-6",
+					provider: { type: "anthropic" as const, secret_name: "provider_token" },
+					secret_source: "env" as const,
 					effort: "max" as const,
 					max_budget_usd: 0,
 					timeout_minutes: 240,
+					permissions: { default_mode: "bypassPermissions", allow: [], deny: [] },
+					evolution: { reflection_enabled: "auto", cadence_minutes: 180, demand_trigger_depth: 5 },
 				},
 				db: rlDb,
 				startedAt: Date.now(),

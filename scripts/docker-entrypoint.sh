@@ -9,6 +9,66 @@ if [ ! -f /app/phantom-config/constitution.md ]; then
   cp -r /app/phantom-config-defaults/* /app/phantom-config/ 2>/dev/null || true
 fi
 
+# Seed the agent-notes baseline on every start, not just first run. On existing
+# VMs the phantom_evolved named volume was populated before the Phase 0 Part B
+# change added this file, so the bootstrap skip above fires and the new file
+# never lands in the live path. This block runs unconditionally: if the target
+# is missing, copy the committed baseline from the image and hand ownership to
+# the phantom user so the agent can append to it.
+if [ ! -f /app/phantom-config/memory/agent-notes.md ] \
+  && [ -f /app/phantom-config-defaults/memory/agent-notes.md ]; then
+  mkdir -p /app/phantom-config/memory
+  cp /app/phantom-config-defaults/memory/agent-notes.md /app/phantom-config/memory/agent-notes.md
+  chown -R 999:999 /app/phantom-config/memory 2>/dev/null || true
+  echo "[phantom] Seeded agent-notes.md baseline"
+fi
+
+# Seed built-in skills into the user-scope .claude/skills volume on first run.
+# Existing skills (user edits) are preserved: we only copy directories that are
+# missing. The source lives at /app/skills-builtin/ and is a pristine copy from
+# the repo; the target is on the phantom_claude Docker volume.
+if [ -d /app/skills-builtin ]; then
+  mkdir -p /home/phantom/.claude/skills
+  for skill_dir in /app/skills-builtin/*/; do
+    name=$(basename "$skill_dir")
+    target="/home/phantom/.claude/skills/$name"
+    if [ ! -d "$target" ]; then
+      echo "[phantom] Seeding built-in skill: $name"
+      cp -r "$skill_dir" "$target"
+    fi
+  done
+fi
+
+# Seed Phantom's four default plugins into the user-scope settings.json on
+# first run. The seeder preserves operator choices: any plugin key that is
+# already mentioned (true or false) is left alone. Only missing keys are
+# added with value true. Other settings.json fields are preserved untouched.
+if [ -f /app/src/plugins/seed.ts ]; then
+  mkdir -p /home/phantom/.claude
+  echo "[phantom] Seeding default plugins..."
+  bun run /app/src/plugins/seed.ts --apply || echo "[phantom] WARNING: plugin seeding failed (continuing)"
+fi
+
+# Sync image-bundled public assets on every start.
+# The phantom_public volume preserves agent-created pages across deploys.
+# Image-owned files (chat-ui SPA, base template) must refresh from the new image.
+if [ -d /app/public-defaults ]; then
+  echo "[phantom] Syncing public assets from image..."
+  rm -rf /app/public/chat 2>/dev/null || true
+  cp -r /app/public-defaults/chat /app/public/chat 2>/dev/null || true
+  if [ -d /app/public-defaults/dashboard ]; then
+    rm -rf /app/public/dashboard 2>/dev/null || true
+    cp -r /app/public-defaults/dashboard /app/public/dashboard 2>/dev/null || true
+    chown -R 999:999 /app/public/dashboard 2>/dev/null || true
+  fi
+  for f in _base.html _components.html _agent-name.js index.html phantom-logo.svg; do
+    [ -f "/app/public-defaults/$f" ] && cp "/app/public-defaults/$f" "/app/public/$f"
+  done
+  [ -d /app/public-defaults/_examples ] && rm -rf /app/public/_examples && cp -r /app/public-defaults/_examples /app/public/_examples
+  chown -R 999:999 /app/public 2>/dev/null || true
+  echo "[phantom] Public assets synced"
+fi
+
 # Determine service URLs from environment (with Docker Compose defaults)
 QDRANT_URL="${QDRANT_URL:-http://qdrant:6333}"
 OLLAMA_URL="${OLLAMA_URL:-http://ollama:11434}"

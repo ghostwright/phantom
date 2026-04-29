@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="phantom-light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-agent-name-title>{{AGENT_NAME_CAPITALIZED}} skills</title>
+<link rel="icon" href="data:,">
+<script>(function(){var s=localStorage.getItem('phantom-theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.setAttribute('data-theme',s||(d?'phantom-dark':'phantom-light'));})();</script>
+<script src="/ui/_agent-name.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px; --space-10:40px; --space-12:48px; --space-16:64px;
+  --radius-sm:8px; --radius-md:10px; --radius-lg:14px; --radius-pill:9999px;
+  --motion-fast:100ms; --motion-base:150ms; --ease-out:cubic-bezier(0.25,0.46,0.45,0.94);
+}
+[data-theme="phantom-light"] { --color-base-100:#faf9f5; --color-base-200:#ffffff; --color-base-300:#ece9df; --color-base-content:#1c1917; --color-primary:#4850c4; --color-primary-content:#ffffff; --color-success:#16a34a; --color-error:#dc2626; --color-warning:#ca8a04; --color-info:#2563eb; color-scheme:light; }
+[data-theme="phantom-dark"] { --color-base-100:#0b0a09; --color-base-200:#161412; --color-base-300:#26211d; --color-base-content:#f7f6f1; --color-primary:#7078e0; --color-primary-content:#0b0a09; --color-success:#4ade80; --color-error:#f87171; --color-warning:#fbbf24; --color-info:#60a5fa; color-scheme:dark; }
+html { transition: background-color 150ms ease, color 150ms ease; }
+body { background:var(--color-base-100); color:var(--color-base-content); font-family:Inter,system-ui,sans-serif; margin:0; min-height:100vh; font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased; }
+
+.phantom-page { max-width:1240px; margin:0 auto; padding:var(--space-8); }
+.phantom-nav { display:flex; align-items:center; gap:var(--space-4); padding:var(--space-3) var(--space-8); border-bottom:1px solid var(--color-base-300); position:sticky; top:0; background:color-mix(in oklab, var(--color-base-100) 85%, transparent); backdrop-filter:blur(8px); z-index:10; }
+.phantom-nav-brand { display:inline-flex; align-items:center; gap:var(--space-2); font-family:'Instrument Serif',Georgia,serif; font-size:18px; color:var(--color-base-content); text-decoration:none; }
+.phantom-nav-logo { display:inline-flex; width:22px; height:22px; border-radius:6px; background:var(--color-primary); align-items:center; justify-content:center; color:var(--color-primary-content); font-family:'Instrument Serif',serif; font-size:14px; }
+.phantom-breadcrumb-sep { color:color-mix(in oklab, var(--color-base-content) 25%, transparent); }
+.phantom-breadcrumb { font-size:13px; color:color-mix(in oklab, var(--color-base-content) 60%, transparent); }
+
+.phantom-h1 { font-family:'Instrument Serif',Georgia,serif; font-size:32px; font-weight:500; line-height:1.15; letter-spacing:-0.01em; margin:0 0 var(--space-3); }
+.phantom-eyebrow { font-family:Inter,sans-serif; font-size:11px; font-weight:600; line-height:1; letter-spacing:0.08em; text-transform:uppercase; color:color-mix(in oklab, var(--color-base-content) 50%, transparent); margin:0 0 var(--space-2); }
+.phantom-body { font-family:Inter,sans-serif; font-size:14px; line-height:1.55; }
+.phantom-muted { color:color-mix(in oklab, var(--color-base-content) 55%, transparent); }
+.phantom-mono { font-family:'JetBrains Mono',monospace; font-size:12px; font-variant-numeric:tabular-nums; }
+
+.phantom-card { background:var(--color-base-200); border:1px solid var(--color-base-300); border-radius:var(--radius-lg); padding:var(--space-5); }
+.phantom-card-compact { background:var(--color-base-200); border:1px solid var(--color-base-300); border-radius:var(--radius-md); padding:var(--space-4); cursor:pointer; transition:border-color 100ms; }
+.phantom-card-compact:hover { border-color:color-mix(in oklab, var(--color-primary) 30%, var(--color-base-300)); }
+.phantom-card-compact[aria-current="page"] { border-color:var(--color-primary); background:color-mix(in oklab, var(--color-primary) 4%, var(--color-base-200)); }
+
+.phantom-grid-main-side { display:grid; grid-template-columns:1fr 2fr; gap:var(--space-5); align-items:start; }
+@media (max-width:900px) { .phantom-grid-main-side { grid-template-columns:1fr; } }
+
+.phantom-col { display:flex; flex-direction:column; gap:var(--space-3); }
+.phantom-row { display:flex; align-items:center; gap:var(--space-3); }
+
+.phantom-form-row { display:flex; flex-direction:column; gap:var(--space-2); }
+.phantom-label { font-size:12px; font-weight:500; color:color-mix(in oklab, var(--color-base-content) 72%, transparent); }
+.phantom-textarea { width:100%; box-sizing:border-box; font-family:'JetBrains Mono',ui-monospace,monospace; font-size:12.5px; line-height:1.6; background:var(--color-base-100); color:var(--color-base-content); border:1px solid var(--color-base-300); border-radius:var(--radius-md); padding:var(--space-4); min-height:420px; resize:vertical; }
+.phantom-textarea:focus { outline:none; border-color:var(--color-primary); box-shadow:0 0 0 3px color-mix(in oklab, var(--color-primary) 18%, transparent); }
+
+.phantom-alert { display:flex; gap:var(--space-3); align-items:flex-start; padding:var(--space-3) var(--space-4); border:1px solid var(--color-base-300); border-radius:var(--radius-md); background:var(--color-base-200); font-size:13px; line-height:1.5; }
+.phantom-alert-warning { border-color:color-mix(in oklab, var(--color-warning) 45%, var(--color-base-300)); background:color-mix(in oklab, var(--color-warning) 8%, transparent); color:color-mix(in oklab, var(--color-warning) 90%, var(--color-base-content)); }
+
+.phantom-button { display:inline-flex; align-items:center; gap:var(--space-2); font-family:Inter,sans-serif; font-size:13px; font-weight:500; padding:9px 18px; border-radius:var(--radius-pill); border:1px solid transparent; cursor:pointer; transition:opacity 100ms; }
+.phantom-button-primary { background:var(--color-primary); color:var(--color-primary-content); }
+.phantom-button-primary:hover { opacity:0.88; }
+.phantom-button-ghost { background:transparent; color:var(--color-base-content); border:1px solid var(--color-base-300); }
+.phantom-button-ghost:hover { background:color-mix(in oklab, var(--color-base-content) 5%, transparent); }
+
+.phantom-meta { font-family:'JetBrains Mono',monospace; font-size:11px; color:color-mix(in oklab, var(--color-base-content) 50%, transparent); }
+
+.skill-card-title { font-size:13px; font-weight:600; margin:0 0 4px; }
+.skill-card-desc { font-size:12px; color:color-mix(in oklab, var(--color-base-content) 60%, transparent); margin:0; line-height:1.45; }
+</style>
+</head>
+<body>
+
+<nav class="phantom-nav" aria-label="Primary">
+  <a href="/ui/" class="phantom-nav-brand">
+    <span class="phantom-nav-logo" data-agent-name-initial>&nbsp;</span>
+    <span data-agent-name>&nbsp;</span>
+  </a>
+  <span class="phantom-breadcrumb-sep">/</span>
+  <span class="phantom-breadcrumb">Skills</span>
+  <div style="margin-left:auto;">
+    <button id="theme-toggle" class="phantom-button-ghost" style="font-size:12px; padding:6px 12px;">Toggle theme</button>
+  </div>
+</nav>
+
+<main class="phantom-page">
+
+  <section style="margin-bottom:var(--space-8);">
+    <p class="phantom-eyebrow">Skills</p>
+    <h1 class="phantom-h1">Skills editor</h1>
+    <p class="phantom-body phantom-muted">Markdown skill files the agent loads on demand. Each skill has YAML frontmatter that controls when and how it activates.</p>
+  </section>
+
+  <section class="phantom-grid-main-side">
+
+    <aside class="phantom-col">
+      <div class="phantom-card-compact">
+        <p class="skill-card-title">phantom-ui</p>
+        <p class="skill-card-desc">Visual design system and component vocabulary</p>
+      </div>
+      <div class="phantom-card-compact" aria-current="page">
+        <p class="skill-card-title">phantom-ui (editing)</p>
+        <p class="skill-card-desc">Visual design system and component vocabulary</p>
+      </div>
+      <div class="phantom-card-compact">
+        <p class="skill-card-title">stripe-customer-cache</p>
+        <p class="skill-card-desc">30-minute cache for stripe customer lookups</p>
+      </div>
+      <div class="phantom-card-compact">
+        <p class="skill-card-title">specter-deploy</p>
+        <p class="skill-card-desc">Specter VM cloud-init and deploy procedure</p>
+      </div>
+      <div class="phantom-card-compact">
+        <p class="skill-card-title">slack-triage</p>
+        <p class="skill-card-desc">Incident response in #infra channels</p>
+      </div>
+      <div class="phantom-card-compact">
+        <p class="skill-card-title">cost-report</p>
+        <p class="skill-card-desc">Weekly cost analysis with daily breakdown</p>
+      </div>
+    </aside>
+
+    <div class="phantom-card">
+      <div class="phantom-form-row" style="margin-bottom:var(--space-4);">
+        <label class="phantom-label">phantom-ui/SKILL.md</label>
+        <textarea class="phantom-textarea" spellcheck="false">---
+name: phantom-ui
+description: visual design system and component vocabulary
+when_to_use: Use when creating or updating a page served at /ui/&lt;path&gt;.
+allowed-tools: Read, Glob
+---
+
+# UI skill
+
+You are authoring a page in the operator dashboard surface. Pages
+are served at /ui/&lt;path&gt; behind magic-link cookie auth. This skill
+is your reference material for the design system. It is not rails.
+
+## Direction in one sentence
+
+Warm cream light theme paired with a warm deep dark theme,
+Instrument Serif display face over Inter Variable UI text, indigo
+accent at #4850c4 light and #7078e0 dark, 1px borders everywhere,
+zero default shadow chrome, tabular numerics on every number,
+pill-shaped primary buttons, color-mix(in oklab) for every tint.
+
+## Use the base template
+
+public/_base.html declares all tokens and vocabulary classes. When
+you call phantom_create_page with title and content, the content is
+wrapped in this template and inherits everything for free.</textarea>
+      </div>
+
+      <div class="phantom-alert phantom-alert-warning" style="margin-bottom:var(--space-4);">
+        <span style="font-weight:600;">Lint warning</span>
+        <span>Frontmatter is missing the optional <span class="phantom-mono">version</span> field. Recommended for shareable skills.</span>
+      </div>
+
+      <div class="phantom-row" style="justify-content:space-between;">
+        <span class="phantom-meta">198 lines, last edited 2 hours ago</span>
+        <div class="phantom-row" style="gap:var(--space-2);">
+          <button class="phantom-button phantom-button-ghost">Revert</button>
+          <button class="phantom-button phantom-button-primary">Save</button>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+</main>
+
+<script>
+(function(){
+  var toggle=document.getElementById('theme-toggle');
+  toggle.addEventListener('click',function(){ var c=document.documentElement.getAttribute('data-theme'); var n=c==='phantom-dark'?'phantom-light':'phantom-dark'; document.documentElement.setAttribute('data-theme',n); localStorage.setItem('phantom-theme',n); });
+})();
+</script>
+</body>
+</html>

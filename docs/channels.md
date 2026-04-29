@@ -2,9 +2,53 @@
 
 Phantom communicates through pluggable channel adapters. Each channel implements a standard interface, and the agent does not care where messages originate.
 
+## Web Chat
+
+A browser-based chat interface at `/chat`. No Slack required. This is the simplest way to talk to a Phantom - open the URL in a browser and start typing.
+
+### Access
+
+Navigate to `https://your-phantom-host/chat`. On first visit, you will be prompted to log in.
+
+### Authentication
+
+Cookie-based sessions with magic link login:
+
+1. Enter your email address on the login page
+2. Phantom sends a magic link via Resend (requires `RESEND_API_KEY` in `.env`)
+3. Click the link to authenticate. The session cookie lasts 30 days.
+
+On first run without Slack configured, Phantom sends a login email to `OWNER_EMAIL` automatically. If Resend is not configured, a bootstrap token is printed to stdout instead.
+
+### Configuration
+
+Set these in `.env`:
+
+```
+OWNER_EMAIL=you@example.com     # Required for email-based login
+RESEND_API_KEY=re_...           # Required for magic link emails
+```
+
+No channel YAML configuration is needed. The chat channel is always available when the HTTP server is running.
+
+### Features
+
+- **SSE streaming** - responses stream token-by-token via Server-Sent Events
+- **32-event wire format** - session lifecycle, text, thinking blocks, tool calls with input streaming, subagent progress
+- **Multi-tab support** - open the same session in multiple tabs, all stay in sync
+- **File attachments** - upload images (JPEG, PNG, GIF, WebP up to 10 MB), PDFs (up to 32 MB), and text/code files (up to 1 MB). Up to 10 files per message.
+- **Web Push notifications** - get notified when the agent responds while the tab is in the background. Uses VAPID keys stored in SQLite.
+- **Session management** - create, rename, archive, and delete sessions from the sidebar
+- **Markdown rendering** - full markdown with code syntax highlighting, tables, and lists
+- **Auto-rename** - sessions are automatically titled based on the first exchange
+
+### Tech Stack
+
+The chat client is a React 19 SPA built with Vite, shadcn/ui, and Tailwind v4. The production build lives at `public/chat/` and is served as static files. The Dockerfile includes a dedicated build stage for the chat client.
+
 ## Slack
 
-The primary channel. Uses Socket Mode (no public URL required).
+Uses Socket Mode (no public URL required).
 
 ### Setup (App Manifest)
 

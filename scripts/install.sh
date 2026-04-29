@@ -2,9 +2,8 @@
 set -euo pipefail
 
 # Phantom Install Script
-# Works on a fresh Ubuntu 22.04+ / Debian 12+ machine with zero manual steps.
+# Works on Ubuntu 22.04+ / Debian 12+ (Linux) and macOS (via Homebrew).
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/ghostwright/phantom/main/scripts/install.sh | bash
 #   bash install.sh --yes
 #   ANTHROPIC_API_KEY=sk-ant-... SLACK_BOT_TOKEN=xoxb-... bash install.sh --yes
 
@@ -69,9 +68,34 @@ fi
 step "Pre-flight checks"
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
-  error "macOS detected. This script is for Linux servers."
-  error "For local development, clone the repo and run 'bun install' directly."
-  exit 1
+  info "macOS detected — switching to Homebrew-based install."
+
+  if ! command -v brew &> /dev/null; then
+    error "Homebrew not found. Install it first: https://brew.sh"
+    exit 1
+  fi
+
+  # SECURITY: Install Docker Desktop via signed Homebrew cask.
+  # Replaces the unsafe 'curl -fsSL https://get.docker.com | bash' pattern.
+  if ! command -v docker &> /dev/null; then
+    info "Installing Docker Desktop via Homebrew cask..."
+    brew install --cask docker
+    success "Docker Desktop installed. Open Docker.app once to finish first-run setup."
+  else
+    success "Docker found: $(docker --version)"
+  fi
+
+  # SECURITY: Install Bun via Homebrew verified formula.
+  # Replaces the unsafe 'curl -fsSL https://bun.sh/install | bash' pattern.
+  if ! command -v bun &> /dev/null; then
+    info "Installing Bun via Homebrew..."
+    brew install bun
+    success "Bun installed: $(bun --version)"
+  else
+    success "Bun found: $(bun --version)"
+  fi
+
+  SKIP_SYSTEMD=true   # macOS has no systemd; use launchd or run manually
 fi
 
 if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
@@ -79,7 +103,7 @@ if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; t
   exit 1
 fi
 
-if [ "$(id -u)" -ne 0 ]; then
+if [[ "$OSTYPE" != "darwin"* ]] && [ "$(id -u)" -ne 0 ]; then
   error "This script must be run as root (or with sudo)."
   error "Try: sudo bash install.sh $*"
   exit 1
@@ -95,50 +119,68 @@ else
   success "git found: $(git --version)"
 fi
 
-# ---------- Install Docker ----------
+# ---------- Install Docker (Linux only — macOS handled above) ----------
 
-if ! command -v docker &> /dev/null; then
-  info "Installing Docker..."
-  curl -fsSL https://get.docker.com | bash > /dev/null 2>&1
-  systemctl enable docker
-  systemctl start docker
-  success "Docker installed: $(docker --version)"
-elif ! systemctl is-active --quiet docker 2>/dev/null; then
-  warn "Docker installed but not running. Starting..."
-  systemctl start docker
-  success "Docker started"
-else
-  success "Docker found: $(docker --version)"
+if [[ "$OSTYPE" != "darwin"* ]]; then
+  if ! command -v docker &> /dev/null; then
+    info "Installing Docker via apt (official Docker repository)..."
+    # SECURITY: Uses the apt package with GPG verification instead of curl | bash.
+    # See: https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository
+    apt-get update -qq
+    apt-get install -y -qq ca-certificates curl gnupg lsb-release > /dev/null 2>&1
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+      | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+      https://download.docker.com/linux/ubuntu \
+      $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+      | tee /etc/apt/sources.list.d/docker.list > /dev/null
+    apt-get update -qq
+    apt-get install -y -qq docker-ce docker-ce-cli containerd.io \
+      docker-buildx-plugin docker-compose-plugin > /dev/null 2>&1
+    systemctl enable docker
+    systemctl start docker
+    success "Docker installed: $(docker --version)"
+  elif ! systemctl is-active --quiet docker 2>/dev/null; then
+    warn "Docker installed but not running. Starting..."
+    systemctl start docker
+    success "Docker started"
+  else
+    success "Docker found: $(docker --version)"
+  fi
+
+  # Ensure docker compose plugin is available
+  if ! docker compose version &> /dev/null; then
+    info "Installing Docker Compose plugin..."
+    apt-get update -qq && apt-get install -y -qq docker-compose-plugin > /dev/null 2>&1
+    success "Docker Compose plugin installed"
+  fi
 fi
 
-# Ensure docker compose plugin is available
-if ! docker compose version &> /dev/null; then
-  info "Installing Docker Compose plugin..."
-  apt-get update -qq && apt-get install -y -qq docker-compose-plugin > /dev/null 2>&1
-  success "Docker Compose plugin installed"
-fi
+# ---------- Install Bun (Linux only — macOS handled above) ----------
 
-# ---------- Install Bun ----------
-
-if ! command -v bun &> /dev/null; then
-  info "Installing Bun..."
-  curl -fsSL https://bun.sh/install | bash > /dev/null 2>&1
-  # Bun installs to ~/.bun/bin/bun. Copy to /usr/local/bin for system-wide access.
-  if [ -f /root/.bun/bin/bun ]; then
-    cp /root/.bun/bin/bun /usr/local/bin/bun
-  elif [ -f "$HOME/.bun/bin/bun" ]; then
-    cp "$HOME/.bun/bin/bun" /usr/local/bin/bun
+if [[ "$OSTYPE" != "darwin"* ]]; then
+  if ! command -v bun &> /dev/null; then
+    info "Installing Bun via npm (avoids curl | bash)..."
+    # SECURITY: Install via npm rather than the curl | bash installer.
+    if ! command -v npm &> /dev/null; then
+      apt-get update -qq && apt-get install -y -qq nodejs npm > /dev/null 2>&1
+    fi
+    npm install -g bun > /dev/null 2>&1
+    BUN_PATH="$(npm root -g 2>/dev/null)/bun/bin/bun"
+    [ -f "$BUN_PATH" ] && cp "$BUN_PATH" /usr/local/bin/bun
+    success "Bun installed: $(/usr/local/bin/bun --version)"
+  elif ! bun --version > /dev/null 2>&1; then
+    warn "Bun binary appears broken. Reinstalling via npm..."
+    npm install -g bun > /dev/null 2>&1
+    BUN_PATH="$(npm root -g 2>/dev/null)/bun/bin/bun"
+    [ -f "$BUN_PATH" ] && cp "$BUN_PATH" /usr/local/bin/bun
+    success "Bun reinstalled: $(bun --version)"
+  else
+    success "Bun found: $(bun --version)"
   fi
-  success "Bun installed: $(/usr/local/bin/bun --version)"
-elif ! /usr/local/bin/bun --version > /dev/null 2>&1; then
-  warn "Bun binary appears broken. Reinstalling..."
-  curl -fsSL https://bun.sh/install | bash > /dev/null 2>&1
-  if [ -f /root/.bun/bin/bun ]; then
-    cp /root/.bun/bin/bun /usr/local/bin/bun
-  fi
-  success "Bun reinstalled: $(/usr/local/bin/bun --version)"
-else
-  success "Bun found: $(bun --version)"
 fi
 
 # ---------- Clone or update Phantom ----------
@@ -157,14 +199,9 @@ else
   fi
 
   info "Cloning Phantom to $INSTALL_DIR..."
-  # Clone to a temp location first, then move to install dir
   rm -rf /tmp/phantom-clone
   git clone --depth 1 "$PHANTOM_REPO" /tmp/phantom-clone
-
-  # Ensure install dir exists
   mkdir -p "$INSTALL_DIR"
-
-  # Copy all files from clone into install dir (including dotfiles)
   cd /tmp/phantom-clone
   find . -maxdepth 1 -not -name '.' -not -name '..' | while read f; do
     rm -rf "${INSTALL_DIR}/$f" 2>/dev/null || true
@@ -172,12 +209,10 @@ else
   done
   rm -rf /tmp/phantom-clone
 
-  # Restore .env if it was preserved
   if [ -f /tmp/phantom-env-backup ]; then
     cp /tmp/phantom-env-backup "$INSTALL_DIR/.env"
     rm -f /tmp/phantom-env-backup
   fi
-
   success "Cloned to $INSTALL_DIR"
 fi
 
@@ -186,7 +221,7 @@ cd "$INSTALL_DIR"
 # ---------- Install dependencies ----------
 
 info "Installing dependencies..."
-/usr/local/bin/bun install --production 2>&1 | tail -1
+bun install --production 2>&1 | tail -1
 success "Dependencies installed"
 
 # ---------- Start Docker services ----------
@@ -196,12 +231,10 @@ step "Starting Docker services"
 info "Starting Qdrant and Ollama..."
 docker compose up -d 2>&1 | tail -2 || true
 
-# Wait for Qdrant health
+# Wait for Qdrant
 info "Waiting for Qdrant..."
 for i in $(seq 1 30); do
-  if curl -sf http://localhost:6333/ > /dev/null 2>&1; then
-    break
-  fi
+  curl -sf http://localhost:6333/ > /dev/null 2>&1 && break
   sleep 1
 done
 if curl -sf http://localhost:6333/ > /dev/null 2>&1; then
@@ -210,12 +243,10 @@ else
   warn "Qdrant not responding after 30s. Phantom will retry on startup."
 fi
 
-# Wait for Ollama health
+# Wait for Ollama
 info "Waiting for Ollama..."
 for i in $(seq 1 30); do
-  if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
-    break
-  fi
+  curl -sf http://localhost:11434/api/tags > /dev/null 2>&1 && break
   sleep 1
 done
 if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
@@ -234,7 +265,6 @@ fi
 
 # ---------- Write .env if needed ----------
 
-# If tokens are in the environment but not in a .env file, write them
 if [ -n "${ANTHROPIC_API_KEY:-}" ] && [ ! -f "$INSTALL_DIR/.env" ]; then
   info "Writing environment variables to .env..."
   {
@@ -251,7 +281,6 @@ if [ -n "${ANTHROPIC_API_KEY:-}" ] && [ ! -f "$INSTALL_DIR/.env" ]; then
   success ".env written"
 fi
 
-# Source .env for the init command
 if [ -f "$INSTALL_DIR/.env" ]; then
   set -a
   # shellcheck disable=SC1091
@@ -268,11 +297,11 @@ if [ -f "$INSTALL_DIR/config/phantom.yaml" ]; then
 else
   info "Running phantom init --yes..."
   cd "$INSTALL_DIR"
-  /usr/local/bin/bun run phantom init --yes 2>&1
+  bun run phantom init --yes 2>&1
   success "Phantom initialized"
 fi
 
-# ---------- Create systemd service ----------
+# ---------- Create systemd service (Linux only) ----------
 
 if [ "$SKIP_SYSTEMD" = false ]; then
   step "Setting up systemd service"
@@ -295,7 +324,6 @@ EnvironmentFile=-/opt/phantom/.env
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=phantom
-
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
@@ -309,16 +337,13 @@ TasksMax=256
 WantedBy=multi-user.target
 SVCEOF
 
-  # Update WorkingDirectory and EnvironmentFile if custom path
-  if [ "$INSTALL_DIR" != "/opt/phantom" ]; then
+  [ "$INSTALL_DIR" != "/opt/phantom" ] && \
     sed -i "s|/opt/phantom|${INSTALL_DIR}|g" /etc/systemd/system/${SERVICE_NAME}.service
-  fi
 
   systemctl daemon-reload
   systemctl enable ${SERVICE_NAME}
   success "systemd service created and enabled"
 
-  # Start or restart
   if systemctl is-active --quiet ${SERVICE_NAME}; then
     info "Restarting Phantom..."
     systemctl restart ${SERVICE_NAME}
@@ -327,13 +352,11 @@ SVCEOF
     systemctl start ${SERVICE_NAME}
   fi
 
-  # Wait for health
-  info "Waiting for Phantom to be ready..."
   HEALTHY=false
+  info "Waiting for Phantom to be ready..."
   for i in $(seq 1 60); do
     if curl -sf "http://localhost:${HEALTH_PORT}/health" > /dev/null 2>&1; then
-      HEALTHY=true
-      break
+      HEALTHY=true; break
     fi
     sleep 1
   done
@@ -346,29 +369,39 @@ SVCEOF
   fi
 fi
 
+# ---------- macOS: manual start instructions ----------
+
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  step "macOS: Start Phantom"
+  echo ""
+  info "To start Phantom:"
+  echo "  cd ${INSTALL_DIR} && bun run start"
+  echo ""
+  info "Health check: curl localhost:${HEALTH_PORT}/health"
+fi
+
 # ---------- Summary ----------
 
 step "Installation Complete"
-
 echo ""
 success "Phantom is installed at ${INSTALL_DIR}"
 
-if [ "$SKIP_SYSTEMD" = false ] && [ "$HEALTHY" = true ]; then
+if [ "${HEALTHY:-false}" = true ]; then
   HEALTH_RESPONSE=$(curl -sf "http://localhost:${HEALTH_PORT}/health" 2>/dev/null || echo "{}")
-  echo ""
-  info "Health: ${HEALTH_RESPONSE}"
+  echo ""; info "Health: ${HEALTH_RESPONSE}"
 fi
 
 echo ""
-info "Useful commands:"
-echo "  journalctl -u ${SERVICE_NAME} -f     # Follow logs"
-echo "  systemctl restart ${SERVICE_NAME}     # Restart"
-echo "  systemctl status ${SERVICE_NAME}      # Status"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  echo "  bun run start                         # Start Phantom"
+else
+  echo "  journalctl -u ${SERVICE_NAME} -f     # Follow logs"
+  echo "  systemctl restart ${SERVICE_NAME}     # Restart"
+  echo "  systemctl status ${SERVICE_NAME}      # Status"
+fi
 echo "  curl localhost:${HEALTH_PORT}/health  # Health check"
 
-if [ -n "${SLACK_BOT_TOKEN:-}" ] && [ -n "${SLACK_APP_TOKEN:-}" ]; then
-  echo ""
-  success "Slack is configured. Check your Slack channel for Phantom's intro message."
-fi
+[ -n "${SLACK_BOT_TOKEN:-}" ] && [ -n "${SLACK_APP_TOKEN:-}" ] && \
+  echo "" && success "Slack configured. Check your channel for Phantom's intro message."
 
 echo ""

@@ -84,6 +84,19 @@ describe("SlackChannel", () => {
 		expect(channel.getConnectionState()).toBe("disconnected");
 	});
 
+	test("rejects transport: 'http' with a clear error", () => {
+		// The typed API forbids `transport: "http"` at compile time; the
+		// runtime guard is the safety net for any caller that bypasses TS
+		// (dynamic config, JS-callable, future plumbing).
+		expect(
+			() =>
+				new SlackChannel({
+					...testConfig,
+					transport: "http" as unknown as "socket",
+				}),
+		).toThrow(/Use SlackHttpChannel/);
+	});
+
 	test("connect transitions to connected state", async () => {
 		const channel = new SlackChannel(testConfig);
 		await channel.connect();

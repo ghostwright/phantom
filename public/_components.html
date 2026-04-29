@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="phantom-light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-agent-name-title>{{AGENT_NAME_CAPITALIZED}} components - Living Style Guide</title>
+<link rel="icon" href="data:,">
+<script>(function(){var s=localStorage.getItem('phantom-theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.setAttribute('data-theme',s||(d?'phantom-dark':'phantom-light'));})();</script>
+<script src="/ui/_agent-name.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px; --space-10:40px; --space-12:48px; --space-16:64px;
+  --radius-sm:8px; --radius-md:10px; --radius-lg:14px; --radius-xl:20px; --radius-pill:9999px;
+  --motion-fast:100ms; --motion-base:150ms; --motion-slow:300ms;
+  --ease-out:cubic-bezier(0.25,0.46,0.45,0.94);
+}
+[data-theme="phantom-light"] { --color-base-100:#faf9f5; --color-base-200:#ffffff; --color-base-300:#ece9df; --color-base-content:#1c1917; --color-primary:#4850c4; --color-primary-content:#ffffff; --color-success:#16a34a; --color-error:#dc2626; --color-error-content:#ffffff; --color-warning:#ca8a04; --color-info:#2563eb; color-scheme:light; }
+[data-theme="phantom-dark"] { --color-base-100:#0b0a09; --color-base-200:#161412; --color-base-300:#26211d; --color-base-content:#f7f6f1; --color-primary:#7078e0; --color-primary-content:#0b0a09; --color-success:#4ade80; --color-error:#f87171; --color-error-content:#0b0a09; --color-warning:#fbbf24; --color-info:#60a5fa; color-scheme:dark; }
+
+html { transition: background-color 150ms ease, color 150ms ease; }
+body { background:var(--color-base-100); color:var(--color-base-content); font-family:Inter,system-ui,sans-serif; margin:0; min-height:100vh; font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased; }
+
+.phantom-page { max-width:1100px; margin:0 auto; padding:var(--space-8); }
+.phantom-nav { display:flex; align-items:center; gap:var(--space-4); padding:var(--space-3) var(--space-8); border-bottom:1px solid var(--color-base-300); position:sticky; top:0; background:color-mix(in oklab, var(--color-base-100) 85%, transparent); backdrop-filter:blur(8px); z-index:10; }
+.phantom-nav-brand { display:inline-flex; align-items:center; gap:var(--space-2); font-family:'Instrument Serif',Georgia,serif; font-size:18px; color:var(--color-base-content); text-decoration:none; }
+.phantom-nav-logo { display:inline-flex; width:22px; height:22px; border-radius:6px; background:var(--color-primary); align-items:center; justify-content:center; color:var(--color-primary-content); font-family:'Instrument Serif',serif; font-size:14px; }
+
+.phantom-display { font-family:'Instrument Serif',Georgia,serif; font-size:52px; font-weight:400; line-height:1.05; letter-spacing:-0.01em; margin:0 0 var(--space-4); }
+.phantom-display em { font-style:italic; }
+.phantom-h1 { font-family:'Instrument Serif',Georgia,serif; font-size:32px; font-weight:500; line-height:1.15; letter-spacing:-0.01em; margin:0 0 var(--space-3); }
+.phantom-h2 { font-family:'Instrument Serif',Georgia,serif; font-size:22px; font-weight:500; line-height:1.25; margin:0 0 var(--space-3); }
+.phantom-h3 { font-family:Inter,sans-serif; font-size:14px; font-weight:600; line-height:1.3; margin:0 0 var(--space-2); }
+.phantom-eyebrow { font-family:Inter,sans-serif; font-size:11px; font-weight:600; line-height:1; letter-spacing:0.08em; text-transform:uppercase; color:color-mix(in oklab, var(--color-base-content) 50%, transparent); margin:0 0 var(--space-2); }
+.phantom-lead { font-family:Inter,sans-serif; font-size:16px; line-height:1.6; color:color-mix(in oklab, var(--color-base-content) 72%, transparent); }
+.phantom-body { font-family:Inter,sans-serif; font-size:14px; line-height:1.55; }
+.phantom-muted { color:color-mix(in oklab, var(--color-base-content) 55%, transparent); }
+.phantom-mono { font-family:'JetBrains Mono',monospace; font-size:12px; font-variant-numeric:tabular-nums; }
+
+.phantom-card { background:var(--color-base-200); border:1px solid var(--color-base-300); border-radius:var(--radius-lg); padding:var(--space-5); transition:border-color 150ms; }
+.phantom-card:hover { border-color:color-mix(in oklab, var(--color-primary) 28%, var(--color-base-300)); }
+.phantom-card-compact { padding:var(--space-3) var(--space-4); border-radius:var(--radius-md); }
+
+.phantom-stat { display:flex; flex-direction:column; gap:var(--space-1); }
+.phantom-stat-label { font:600 11px/1 Inter,sans-serif; letter-spacing:0.05em; text-transform:uppercase; color:color-mix(in oklab, var(--color-base-content) 48%, transparent); margin:0; }
+.phantom-stat-value { font-family:Inter,sans-serif; font-size:28px; font-weight:500; line-height:1.1; letter-spacing:-0.02em; font-variant-numeric:tabular-nums; margin:6px 0 4px; }
+.phantom-stat-trend-up { color:var(--color-success); font-size:12px; font-variant-numeric:tabular-nums; }
+.phantom-stat-trend-down { color:var(--color-error); font-size:12px; font-variant-numeric:tabular-nums; }
+.phantom-stat-trend-flat { color:color-mix(in oklab, var(--color-base-content) 50%, transparent); font-size:12px; }
+
+.phantom-table { width:100%; border-collapse:collapse; font-family:Inter,sans-serif; }
+.phantom-table thead th { text-align:left; font-size:11px; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; color:color-mix(in oklab, var(--color-base-content) 45%, transparent); padding:var(--space-3) var(--space-4); border-bottom:1px solid var(--color-base-300); }
+.phantom-table tbody td { padding:var(--space-3) var(--space-4); font-size:13px; border-bottom:1px solid color-mix(in oklab, var(--color-base-300) 50%, transparent); font-variant-numeric:tabular-nums; }
+.phantom-table tbody tr:last-child td { border-bottom:none; }
+.phantom-table tbody tr:hover td { background:color-mix(in oklab, var(--color-primary) 4%, transparent); }
+
+.phantom-badge { display:inline-flex; align-items:center; gap:6px; font:500 11px/1 Inter,sans-serif; padding:4px 9px; border-radius:var(--radius-pill); }
+.phantom-badge-neutral { background:color-mix(in oklab, var(--color-base-content) 8%, transparent); color:color-mix(in oklab, var(--color-base-content) 75%, transparent); }
+.phantom-badge-primary { background:color-mix(in oklab, var(--color-primary) 12%, transparent); color:var(--color-primary); }
+.phantom-badge-success { background:color-mix(in oklab, var(--color-success) 12%, transparent); color:var(--color-success); }
+.phantom-badge-error { background:color-mix(in oklab, var(--color-error) 12%, transparent); color:var(--color-error); }
+.phantom-badge-warning { background:color-mix(in oklab, var(--color-warning) 14%, transparent); color:var(--color-warning); }
+.phantom-badge-info { background:color-mix(in oklab, var(--color-info) 12%, transparent); color:var(--color-info); }
+
+.phantom-chip { display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:4px 10px; border:1px solid var(--color-base-300); border-radius:var(--radius-pill); background:transparent; color:var(--color-base-content); cursor:pointer; transition:border-color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.phantom-chip:hover { border-color:color-mix(in oklab, var(--color-primary) 40%, var(--color-base-300)); background:color-mix(in oklab, var(--color-primary) 4%, transparent); }
+.phantom-chip[aria-pressed="true"] { background:color-mix(in oklab, var(--color-primary) 10%, transparent); border-color:color-mix(in oklab, var(--color-primary) 45%, var(--color-base-300)); color:var(--color-primary); }
+
+.phantom-dot { width:6px; height:6px; border-radius:50%; display:inline-block; }
+.phantom-dot-success { background:var(--color-success); }
+.phantom-dot-error { background:var(--color-error); }
+.phantom-dot-warning { background:var(--color-warning); }
+.phantom-dot-info { background:var(--color-info); }
+@keyframes phantom-pulse { 0%,100% {opacity:1;} 50% {opacity:0.55;} }
+.phantom-dot-live { background:var(--color-success); box-shadow:0 0 0 3px color-mix(in oklab, var(--color-success) 25%, transparent); animation:phantom-pulse 2s cubic-bezier(0.4,0,0.6,1) infinite; }
+
+.phantom-timeline { display:flex; flex-direction:column; gap:var(--space-4); position:relative; padding-left:var(--space-6); }
+.phantom-timeline::before { content:''; position:absolute; top:6px; bottom:6px; left:5px; width:1px; background:var(--color-base-300); }
+.phantom-timeline-item { position:relative; padding-bottom:var(--space-2); }
+.phantom-timeline-item::before { content:''; position:absolute; left:calc(var(--space-6) * -1 + 1px); top:6px; width:9px; height:9px; border-radius:50%; background:var(--color-base-200); border:1.5px solid var(--color-primary); }
+
+.phantom-empty { display:flex; flex-direction:column; align-items:center; padding:var(--space-12) var(--space-4); text-align:center; border:1px dashed var(--color-base-300); border-radius:var(--radius-lg); color:color-mix(in oklab, var(--color-base-content) 60%, transparent); }
+
+.phantom-input { width:100%; box-sizing:border-box; font-family:Inter,sans-serif; font-size:14px; line-height:1.4; background:var(--color-base-100); color:var(--color-base-content); border:1px solid var(--color-base-300); border-radius:var(--radius-md); padding:10px 14px; transition:border-color 150ms, box-shadow 150ms; }
+.phantom-input:focus { outline:none; border-color:var(--color-primary); box-shadow:0 0 0 3px color-mix(in oklab, var(--color-primary) 18%, transparent); }
+
+.phantom-button { display:inline-flex; align-items:center; justify-content:center; gap:var(--space-2); font-family:Inter,sans-serif; font-size:14px; font-weight:500; padding:11px 18px; border-radius:var(--radius-pill); border:1px solid transparent; background:var(--color-base-content); color:var(--color-base-100); cursor:pointer; text-decoration:none; transition:opacity 100ms, transform 100ms; }
+.phantom-button:hover { opacity:0.88; }
+.phantom-button-primary { background:var(--color-primary); color:var(--color-primary-content); }
+.phantom-button-ghost { background:transparent; color:var(--color-base-content); border-color:var(--color-base-300); }
+.phantom-button-ghost:hover { background:color-mix(in oklab, var(--color-base-content) 5%, transparent); opacity:1; }
+.phantom-button-danger { background:var(--color-error); color:var(--color-error-content); }
+.phantom-button-sm { font-size:13px; padding:7px 14px; }
+
+.phantom-alert { display:flex; gap:var(--space-3); align-items:flex-start; padding:var(--space-3) var(--space-4); border:1px solid var(--color-base-300); border-radius:var(--radius-md); background:var(--color-base-200); font-size:13px; line-height:1.5; }
+.phantom-alert-success { border-color:color-mix(in oklab, var(--color-success) 40%, var(--color-base-300)); background:color-mix(in oklab, var(--color-success) 6%, transparent); }
+.phantom-alert-error { border-color:color-mix(in oklab, var(--color-error) 40%, var(--color-base-300)); background:color-mix(in oklab, var(--color-error) 6%, transparent); }
+.phantom-alert-warning { border-color:color-mix(in oklab, var(--color-warning) 45%, var(--color-base-300)); background:color-mix(in oklab, var(--color-warning) 8%, transparent); }
+.phantom-alert-info { border-color:color-mix(in oklab, var(--color-info) 40%, var(--color-base-300)); background:color-mix(in oklab, var(--color-info) 6%, transparent); }
+
+.phantom-tabs { display:inline-flex; gap:2px; padding:3px; background:color-mix(in oklab, var(--color-base-content) 5%, transparent); border-radius:var(--radius-md); }
+.phantom-tab { font-size:13px; font-weight:500; padding:7px 14px; border-radius:var(--radius-sm); color:color-mix(in oklab, var(--color-base-content) 65%, transparent); background:transparent; border:0; cursor:pointer; transition:background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out); }
+.phantom-tab[aria-selected="true"] { background:var(--color-base-200); color:var(--color-base-content); box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+
+.phantom-chat-bubble-user { align-self:flex-end; max-width:72%; padding:var(--space-3) var(--space-4); background:var(--color-primary); color:var(--color-primary-content); border-radius:var(--radius-lg); border-bottom-right-radius:4px; font-size:14px; line-height:1.55; }
+.phantom-chat-bubble-assistant { align-self:flex-start; max-width:80%; padding:var(--space-3) var(--space-4); background:var(--color-base-200); border:1px solid var(--color-base-300); border-radius:var(--radius-lg); border-bottom-left-radius:4px; font-size:14px; line-height:1.6; }
+.phantom-chat-tool-card { display:flex; align-items:center; gap:var(--space-3); padding:var(--space-2) var(--space-3); background:color-mix(in oklab, var(--color-base-content) 4%, transparent); border:1px solid var(--color-base-300); border-radius:var(--radius-md); font-family:'JetBrains Mono',monospace; font-size:12px; margin:var(--space-2) 0; }
+
+.showcase { display:grid; grid-template-columns:260px 1fr; gap:var(--space-6); align-items:start; padding:var(--space-6) 0; border-bottom:1px solid var(--color-base-300); }
+.showcase-header h3 { font-family:Inter,sans-serif; font-size:14px; font-weight:600; margin:0 0 4px; }
+.showcase-header p { font-family:Inter,sans-serif; font-size:12px; color:color-mix(in oklab, var(--color-base-content) 55%, transparent); margin:0; line-height:1.5; }
+.showcase-body { display:flex; flex-direction:column; gap:var(--space-3); }
+.showcase-row { display:flex; flex-wrap:wrap; gap:var(--space-3); align-items:center; }
+</style>
+</head>
+<body>
+
+<nav class="phantom-nav">
+  <a href="/ui/" class="phantom-nav-brand"><span class="phantom-nav-logo" data-agent-name-initial>&nbsp;</span><span data-agent-name>&nbsp;</span></a>
+  <span style="color:color-mix(in oklab,var(--color-base-content) 25%, transparent);">/</span>
+  <span style="font-size:13px; color:color-mix(in oklab,var(--color-base-content) 60%, transparent);">Components</span>
+  <div style="margin-left:auto;">
+    <button id="theme-toggle" class="phantom-button phantom-button-ghost phantom-button-sm">Toggle theme</button>
+  </div>
+</nav>
+
+<main class="phantom-page">
+
+  <header style="margin:var(--space-8) 0 var(--space-16); max-width:720px;">
+    <p class="phantom-eyebrow"><span data-agent-name>&nbsp;</span> design system</p>
+    <h1 class="phantom-display">The <em>living</em> style guide.</h1>
+    <p class="phantom-lead">Every vocabulary pattern the live agent can reach for, rendered in both themes. This is reference material, not rails. The agent reads this to remember how a pattern looks, then freehands HTML that uses the pattern.</p>
+  </header>
+
+  <section>
+    <h2 class="phantom-h1">Typography</h2>
+
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-display</h3><p>Serif display for hero headings. Instrument Serif, weight 400, tight line-height.</p></div>
+      <div class="showcase-body"><p class="phantom-display"><span data-agent-name>&nbsp;</span> works <em>alongside you</em>.</p></div>
+    </div>
+
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-h1</h3><p>Page title inside dashboards. Serif, 32px, weight 500.</p></div>
+      <div class="showcase-body"><h1 class="phantom-h1">Dashboard overview</h1></div>
+    </div>
+
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-h2</h3><p>Section title. Serif, 22px, weight 500.</p></div>
+      <div class="showcase-body"><h2 class="phantom-h2">Recent sessions</h2></div>
+    </div>
+
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-h3</h3><p>Card or subsection label. Inter, 14px, weight 600.</p></div>
+      <div class="showcase-body"><h3 class="phantom-h3">Cost breakdown</h3></div>
+    </div>
+
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-eyebrow</h3><p>Uppercase tracked label above a title.</p></div>
+      <div class="showcase-body"><p class="phantom-eyebrow">Scheduled jobs</p></div>
+    </div>
+
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-lead / phantom-body / phantom-mono</h3><p>Body text variants for paragraph, lead-in, and code.</p></div>
+      <div class="showcase-body">
+        <p class="phantom-lead">This is a lead paragraph for an opening section. It sits between the display heading and the body text, carrying the voice.</p>
+        <p class="phantom-body">Standard body text. Fourteen pixels, 1.55 line-height, subtle negative letter-spacing, tabular numerics inherited from the body default so numbers in prose like 12 or 345 do not jitter next to their siblings in a table.</p>
+        <p class="phantom-mono">phantom_session/0.18.2 - 14h32m - Gen 3</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="margin-top:var(--space-12);">
+    <h2 class="phantom-h1">Cards and stats</h2>
+
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-card</h3><p>Standard surface container. 1px border, 14px radius, no default shadow.</p></div>
+      <div class="showcase-body">
+        <div class="phantom-card">
+          <p class="phantom-eyebrow" style="margin:0 0 6px;">Agent status</p>
+          <p class="phantom-body">Everything nominal. The scheduler has 3 active jobs, evolution is at generation 3, and episodic memory has 142 points.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-grid-stats + phantom-stat</h3><p>Four-column responsive stats grid with labels, values, and trend indicators.</p></div>
+      <div class="showcase-body">
+        <div class="phantom-card">
+          <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:var(--space-4);">
+            <div class="phantom-stat"><p class="phantom-stat-label">Sessions</p><p class="phantom-stat-value">127</p><p class="phantom-stat-trend-up">+22% 7d</p></div>
+            <div class="phantom-stat"><p class="phantom-stat-label">Cost</p><p class="phantom-stat-value">$4.28</p><p class="phantom-stat-trend-down">-8% 7d</p></div>
+            <div class="phantom-stat"><p class="phantom-stat-label">Turns</p><p class="phantom-stat-value">1,439</p><p class="phantom-stat-trend-up">+12%</p></div>
+            <div class="phantom-stat"><p class="phantom-stat-label">Evolution</p><p class="phantom-stat-value">Gen 3</p><p class="phantom-stat-trend-flat">stable</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="margin-top:var(--space-12);">
+    <h2 class="phantom-h1">Badges, chips, dots</h2>
+
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-badge</h3><p>Status chip. Primary, success, warning, error, info, neutral.</p></div>
+      <div class="showcase-body">
+        <div class="showcase-row">
+          <span class="phantom-badge phantom-badge-primary">primary</span>
+          <span class="phantom-badge phantom-badge-success">success</span>
+          <span class="phantom-badge phantom-badge-warning">warning</span>
+          <span class="phantom-badge phantom-badge-error">error</span>
+          <span class="phantom-badge phantom-badge-info">info</span>
+          <span class="phantom-badge phantom-badge-neutral">neutral</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-chip</h3><p>Filter chip, toggleable via aria-pressed.</p></div>
+      <div class="showcase-body">
+        <div class="showcase-row">
+          <button class="phantom-chip">all</button>
+          <button class="phantom-chip" aria-pressed="true">slack</button>
+          <button class="phantom-chip">telegram</button>
+          <button class="phantom-chip">email</button>
+          <button class="phantom-chip">webhook</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-dot</h3><p>Status dot. Live dot pulses.</p></div>
+      <div class="showcase-body">
+        <div class="showcase-row">
+          <span><span class="phantom-dot phantom-dot-live"></span> online</span>
+          <span><span class="phantom-dot phantom-dot-success"></span> healthy</span>
+          <span><span class="phantom-dot phantom-dot-warning"></span> degraded</span>
+          <span><span class="phantom-dot phantom-dot-error"></span> down</span>
+          <span><span class="phantom-dot phantom-dot-info"></span> info</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="margin-top:var(--space-12);">
+    <h2 class="phantom-h1">Tables</h2>
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-table</h3><p>Tabular numerics, uppercase header labels, zero-border row hover.</p></div>
+      <div class="showcase-body">
+        <div class="phantom-card" style="padding:0;">
+          <table class="phantom-table">
+            <thead><tr><th>Channel</th><th>Started</th><th>Turns</th><th>Cost</th><th style="text-align:right;">Status</th></tr></thead>
+            <tbody>
+              <tr><td>slack</td><td>14:32:01</td><td>18</td><td>$0.24</td><td style="text-align:right;"><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+              <tr><td>slack</td><td>12:18:43</td><td>7</td><td>$0.09</td><td style="text-align:right;"><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+              <tr><td>webhook</td><td>11:40:22</td><td>42</td><td>$0.58</td><td style="text-align:right;"><span class="phantom-badge phantom-badge-warning">long</span></td></tr>
+              <tr><td>slack</td><td>09:05:11</td><td>3</td><td>$0.04</td><td style="text-align:right;"><span class="phantom-badge phantom-badge-error">error</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="margin-top:var(--space-12);">
+    <h2 class="phantom-h1">Timeline</h2>
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-timeline</h3><p>Vertical timeline with 1.5px ring markers and muted timestamps.</p></div>
+      <div class="showcase-body">
+        <div class="phantom-card">
+          <div class="phantom-timeline">
+            <div class="phantom-timeline-item"><p style="font-size:11px; color:color-mix(in oklab, var(--color-base-content) 50%, transparent); margin:0 0 4px; font-variant-numeric:tabular-nums;">2026-04-13 15:12</p><p class="phantom-h3" style="margin:0 0 4px;">Gen 3 shipped</p><p class="phantom-body phantom-muted" style="margin:0;">Added `prefer_ripgrep` strategy. 3 files changed.</p></div>
+            <div class="phantom-timeline-item"><p style="font-size:11px; color:color-mix(in oklab, var(--color-base-content) 50%, transparent); margin:0 0 4px; font-variant-numeric:tabular-nums;">2026-04-11 08:44</p><p class="phantom-h3" style="margin:0 0 4px;">Gen 2 shipped</p><p class="phantom-body phantom-muted" style="margin:0;">Learned user preference: warm commits, no emoji.</p></div>
+            <div class="phantom-timeline-item"><p style="font-size:11px; color:color-mix(in oklab, var(--color-base-content) 50%, transparent); margin:0 0 4px; font-variant-numeric:tabular-nums;">2026-04-09 21:03</p><p class="phantom-h3" style="margin:0 0 4px;">Gen 1 shipped</p><p class="phantom-body phantom-muted" style="margin:0;">Initial constitution accepted. 930 tests passing.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="margin-top:var(--space-12);">
+    <h2 class="phantom-h1">Forms and buttons</h2>
+
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-input</h3><p>Rounded 10px field. 3px focus ring uses color-mix.</p></div>
+      <div class="showcase-body">
+        <input type="text" class="phantom-input" placeholder="Type something here..." value="" />
+      </div>
+    </div>
+
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-button</h3><p>Pill shape, 150ms transition, four variants.</p></div>
+      <div class="showcase-body">
+        <div class="showcase-row">
+          <button class="phantom-button">Default</button>
+          <button class="phantom-button phantom-button-primary">Primary</button>
+          <button class="phantom-button phantom-button-ghost">Ghost</button>
+          <button class="phantom-button phantom-button-danger">Danger</button>
+          <button class="phantom-button phantom-button-sm">Small</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="margin-top:var(--space-12);">
+    <h2 class="phantom-h1">Alerts</h2>
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-alert</h3><p>Four variants. Inline icon plus body copy.</p></div>
+      <div class="showcase-body">
+        <div class="phantom-alert phantom-alert-success"><span>Scheduled job <code class="phantom-mono">daily-report</code> ran successfully at 09:00:00.</span></div>
+        <div class="phantom-alert phantom-alert-warning"><span>Qdrant is responding slowly. Embedding writes are queued.</span></div>
+        <div class="phantom-alert phantom-alert-error"><span>Cost tracker is reporting lies. Provider-aware pricing table not loaded.</span></div>
+        <div class="phantom-alert phantom-alert-info"><span>Evolution gate 5 (safety) rejected a change. No action required.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section style="margin-top:var(--space-12);">
+    <h2 class="phantom-h1">Tabs</h2>
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-tabs</h3><p>Segmented control for in-card tabbed views.</p></div>
+      <div class="showcase-body">
+        <div class="phantom-tabs" role="tablist">
+          <button class="phantom-tab" aria-selected="true">Episodic</button>
+          <button class="phantom-tab">Semantic</button>
+          <button class="phantom-tab">Procedural</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="margin-top:var(--space-12);">
+    <h2 class="phantom-h1">Chat vocabulary</h2>
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-chat-bubble-*</h3><p>Project 4 seeds. User bubble on right, assistant on left, tool card inline.</p></div>
+      <div class="showcase-body">
+        <div class="phantom-card">
+          <div style="display:flex; flex-direction:column; gap:var(--space-3);">
+            <div class="phantom-chat-bubble-user">What is the current cost of the anthropic session?</div>
+            <div class="phantom-chat-bubble-assistant">Let me check.
+              <div class="phantom-chat-tool-card"><span>running</span><span>phantom_query_sessions</span></div>
+              Today so far: <strong>$2.18</strong>, across 34 turns. Mostly cached reads.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="margin-top:var(--space-12);">
+    <h2 class="phantom-h1">Empty state</h2>
+    <div class="showcase">
+      <div class="showcase-header"><h3>phantom-empty</h3><p>Dashed border, centered content, muted copy, optional icon.</p></div>
+      <div class="showcase-body">
+        <div class="phantom-empty">
+          <svg style="width:40px;height:40px;opacity:0.35;margin-bottom:12px;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25"/></svg>
+          <p style="font-size:15px; font-weight:500; color:var(--color-base-content); margin:0 0 4px;">No sessions yet</p>
+          <p style="font-size:13px; max-width:360px; line-height:1.55; margin:0;">Send your agent a message in Slack and it will show up here.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer style="border-top:1px solid var(--color-base-300); margin-top:var(--space-16); padding:var(--space-4) var(--space-8); display:flex; align-items:center; justify-content:space-between;">
+  <span class="phantom-mono phantom-muted" style="font-size:11px;"><span data-agent-name>&nbsp;</span> Components</span>
+  <span class="phantom-mono phantom-muted" style="font-size:11px;">Living style guide</span>
+</footer>
+
+<script>
+(function(){
+  var toggle=document.getElementById('theme-toggle');
+  toggle.addEventListener('click',function(){ var c=document.documentElement.getAttribute('data-theme'); var n=c==='phantom-dark'?'phantom-light':'phantom-dark'; document.documentElement.setAttribute('data-theme',n); localStorage.setItem('phantom-theme',n); });
+})();
+</script>
+</body>
+</html>

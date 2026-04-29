@@ -1,43 +1,15 @@
 # Self-Evolution Engine Configuration
+#
+# Phase 3 simplified this file: the 6-judge pipeline is gone, replaced by a
+# single reflection subprocess that the agent itself drives. Cadence tuning
+# lives in phantom-config/meta/evolution.json at runtime.
 
-# How often various evolution operations run
-cadence:
-  # Run reflection after every N sessions (1 = every session)
-  reflection_interval: 1
-  # Run strategy consolidation every N sessions
-  consolidation_interval: 10
-  # Run full config review every N sessions
-  full_review_interval: 50
-  # Run drift check every N sessions
-  drift_check_interval: 20
-
-# Validation gate thresholds
-gates:
-  # Cosine similarity threshold for drift gate (0-1, lower = more permissive)
-  drift_threshold: 0.7
-  # Max lines per config file
-  max_file_lines: 200
-  # Success rate drop that triggers auto-rollback (0-1)
-  auto_rollback_threshold: 0.10
-  # Number of sessions to evaluate after a change
-  auto_rollback_window: 5
-
-# Reflection agent settings
+# Reflection subprocess enable flag
 reflection:
-  model: "claude-sonnet-4-20250514"
-  effort: "high"
-  max_budget_usd: 0.50
-
-# LLM Judge Configuration
-judges:
-  # "auto" enables when ANTHROPIC_API_KEY is available
+  # "auto" enables when an Agent SDK credential path exists
   # "always" enables unconditionally
-  # "never" disables unconditionally
+  # "never" disables unconditionally (e.g. for offline CI)
   enabled: "auto"
-  # Safety net against runaway costs (daily reset)
-  cost_cap_usd_per_day: 50.0
-  # Maximum golden suite entries (prune oldest when exceeded)
-  max_golden_suite_size: 50
 
 # Directory paths (relative to project root)
 paths:
@@ -46,5 +18,4 @@ paths:
   version_file: "phantom-config/meta/version.json"
   metrics_file: "phantom-config/meta/metrics.json"
   evolution_log: "phantom-config/meta/evolution-log.jsonl"
-  golden_suite: "phantom-config/meta/golden-suite.jsonl"
   session_log: "phantom-config/memory/session-log.jsonl"

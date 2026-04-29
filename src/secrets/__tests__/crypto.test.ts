@@ -7,6 +7,14 @@ const TEST_KEY = randomBytes(32).toString("hex");
 const TEST_DATA_DIR = "data";
 const TEST_KEY_FILE = "data/secret-encryption-key";
 
+// Flip the first base64 character to a guaranteed-different character. The
+// old pattern of prepending "X" before slicing failed ~1.5% of runs because
+// base64 strings can legitimately start with "X", producing an unchanged
+// string and a non-tampered decrypt that succeeded.
+function flipFirstBase64Char(s: string): string {
+	return s.charAt(0) === "A" ? "B" : "A";
+}
+
 beforeEach(() => {
 	resetKeyCache();
 	// Clean up any auto-generated key file from previous runs
@@ -108,14 +116,14 @@ describe("encrypt / decrypt round-trip", () => {
 	test("tampered ciphertext fails decryption", () => {
 		process.env.SECRET_ENCRYPTION_KEY = TEST_KEY;
 		const { encrypted, iv, authTag } = encryptSecret("sensitive-data");
-		const tampered = `X${encrypted.slice(1)}`;
+		const tampered = `${flipFirstBase64Char(encrypted)}${encrypted.slice(1)}`;
 		expect(() => decryptSecret(tampered, iv, authTag)).toThrow();
 	});
 
 	test("tampered auth tag fails decryption", () => {
 		process.env.SECRET_ENCRYPTION_KEY = TEST_KEY;
 		const { encrypted, iv, authTag } = encryptSecret("sensitive-data");
-		const tampered = `X${authTag.slice(1)}`;
+		const tampered = `${flipFirstBase64Char(authTag)}${authTag.slice(1)}`;
 		expect(() => decryptSecret(encrypted, iv, tampered)).toThrow();
 	});
 

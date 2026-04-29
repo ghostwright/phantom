@@ -1,23 +1,136 @@
 import type { Database } from "bun:sqlite";
 import { relative, resolve } from "node:path";
+import { checkBootstrapMagicHash } from "../chat/first-run.ts";
 import { createSSEResponse } from "./events.ts";
 import { loginPageHtml } from "./login-page.ts";
 import { consumeMagicLink, createSession, isValidSession } from "./session.ts";
 
+import type { AgentRuntime } from "../agent/runtime.ts";
+import type { EvolutionEngine } from "../evolution/engine.ts";
+import type { EvolutionQueue } from "../evolution/queue.ts";
+import type { MemorySystem } from "../memory/system.ts";
+import type { ParseResult } from "../scheduler/parse-with-sonnet.ts";
+import type { Scheduler } from "../scheduler/service.ts";
 import { secretsExpiredHtml, secretsFormHtml } from "../secrets/form-page.ts";
 import { getSecretRequest, saveSecrets, validateMagicToken } from "../secrets/store.ts";
+import { handleCostApi } from "./api/cost.ts";
+import { handleEvolutionApi } from "./api/evolution.ts";
+import { handleHooksApi } from "./api/hooks.ts";
+import { handleAvatarDelete, handleAvatarGet, handleAvatarPost } from "./api/identity.ts";
+import { handleMemoryFilesApi } from "./api/memory-files.ts";
+import { handleMemoryApi } from "./api/memory.ts";
+import { handlePagesApi } from "./api/pages.ts";
+import { type PhantomConfigPaths, handlePhantomConfigApi } from "./api/phantom-config.ts";
+import { type PluginsApiDeps, handlePluginsApi } from "./api/plugins.ts";
+import { handleSchedulerApi } from "./api/scheduler.ts";
+import { handleSessionsApi } from "./api/sessions.ts";
+import { handleSkillsApi } from "./api/skills.ts";
+import { handleStarterPromptsApi } from "./api/starter-prompts.ts";
+import { handleSubagentsApi } from "./api/subagents.ts";
 
 const COOKIE_NAME = "phantom_session";
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60; // 7 days in seconds
 
 let publicDir = resolve(process.cwd(), "public");
 let secretsDb: Database | null = null;
+let dashboardDb: Database | null = null;
+let bootstrapDb: Database | null = null;
+let schedulerInstance: Scheduler | null = null;
+let schedulerRuntime: AgentRuntime | null = null;
+let schedulerParserOverride: ((description: string) => Promise<ParseResult>) | null = null;
+let pluginsApiOverrides: Pick<PluginsApiDeps, "fetcher" | "settingsPath" | "overlayPath"> = {};
+let evolutionEngine: EvolutionEngine | null = null;
+let evolutionQueue: EvolutionQueue | null = null;
+let memorySystem: MemorySystem | null = null;
+let phantomConfigPaths: Partial<PhantomConfigPaths> = {};
 
 type SecretSavedCallback = (requestId: string, secretNames: string[]) => Promise<void>;
 let onSecretSaved: SecretSavedCallback | null = null;
 
+export function setBootstrapDb(db: Database): void {
+	bootstrapDb = db;
+}
+
 export function setSecretsDb(db: Database): void {
 	secretsDb = db;
+}
+
+export function setDashboardDb(db: Database): void {
+	dashboardDb = db;
+}
+
+export function setSchedulerInstance(scheduler: Scheduler, runtime?: AgentRuntime): void {
+	schedulerInstance = scheduler;
+	if (runtime) schedulerRuntime = runtime;
+}
+
+export function clearSchedulerInstanceForTests(): void {
+	schedulerInstance = null;
+	schedulerRuntime = null;
+	schedulerParserOverride = null;
+}
+
+export function setEvolutionEngine(engine: EvolutionEngine): void {
+	evolutionEngine = engine;
+}
+
+export function setEvolutionQueue(queue: EvolutionQueue): void {
+	evolutionQueue = queue;
+}
+
+export function clearEvolutionForTests(): void {
+	evolutionEngine = null;
+	evolutionQueue = null;
+}
+
+export function setEvolutionEngineForTests(engine: EvolutionEngine, queue?: EvolutionQueue): void {
+	evolutionEngine = engine;
+	evolutionQueue = queue ?? null;
+}
+
+export function setMemorySystem(memory: MemorySystem): void {
+	memorySystem = memory;
+}
+
+export function clearMemorySystemForTests(): void {
+	memorySystem = null;
+}
+
+// Phantom-config paths. Production wiring leaves these unset so the endpoint
+// falls back to `config/phantom.yaml`, `config/channels.yaml`, and
+// `phantom-config/meta/evolution.json`. Tests point every write at a tmp dir
+// so the on-disk state cannot leak between cases.
+export function setPhantomConfigPaths(paths: Partial<PhantomConfigPaths>): void {
+	phantomConfigPaths = paths;
+}
+
+export function clearPhantomConfigPathsForTests(): void {
+	phantomConfigPaths = {};
+}
+
+export function setMemorySystemForTests(memory: MemorySystem): void {
+	memorySystem = memory;
+}
+
+// Test-only seam. Production wiring leaves this null so the handler falls
+// back to the default parseJobDescription, which routes through the Agent
+// SDK subprocess (runJudgeQuery) so subscription auth or API key auth both
+// work without code changes.
+export function setSchedulerParserOverrideForTests(fn: (description: string) => Promise<ParseResult>): void {
+	schedulerParserOverride = fn;
+}
+
+// Test-only seam. Production wiring leaves these undefined and the plugins
+// API uses the default GitHub fetcher and the canonical settings.json /
+// curated overlay paths.
+export function setPluginsApiOverridesForTests(
+	overrides: Pick<PluginsApiDeps, "fetcher" | "settingsPath" | "overlayPath">,
+): void {
+	pluginsApiOverrides = overrides;
+}
+
+export function clearPluginsApiOverridesForTests(): void {
+	pluginsApiOverrides = {};
 }
 
 export function setSecretSavedCallback(fn: SecretSavedCallback): void {
@@ -32,13 +145,13 @@ export function getPublicDir(): string {
 	return publicDir;
 }
 
-function getSessionCookie(req: Request): string | null {
+export function getSessionCookie(req: Request): string | null {
 	const cookies = req.headers.get("Cookie") ?? "";
 	const match = cookies.match(/(?:^|;\s*)phantom_session=([^;]*)/);
 	return match ? decodeURIComponent(match[1]) : null;
 }
 
-function isAuthenticated(req: Request): boolean {
+export function isAuthenticated(req: Request): boolean {
 	const token = getSessionCookie(req);
 	return token !== null && isValidSession(token);
 }
@@ -64,7 +177,20 @@ function isPathSafe(urlPath: string): string | null {
 }
 
 function buildSetCookieHeader(sessionToken: string): string {
-	return `${COOKIE_NAME}=${sessionToken}; Path=/ui; HttpOnly; Secure; SameSite=Strict; Max-Age=${COOKIE_MAX_AGE}`;
+	return `${COOKIE_NAME}=${sessionToken}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${COOKIE_MAX_AGE}`;
+}
+
+// Build a Headers object that sets the new cookie AND expires the old
+// Path=/ui cookie. Browsers that upgraded from the pre-PR1 cookie path
+// have both a Path=/ui and a Path=/ cookie. Per RFC 6265, the more
+// specific path takes precedence in the Cookie header, so the stale
+// token gets matched by getSessionCookie first. Expiring the old one
+// on every successful login clears this.
+function buildCookieHeaders(sessionToken: string): Headers {
+	const headers = new Headers();
+	headers.append("Set-Cookie", buildSetCookieHeader(sessionToken));
+	headers.append("Set-Cookie", `${COOKIE_NAME}=; Path=/ui; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
+	return headers;
 }
 
 export async function handleUiRequest(req: Request): Promise<Response> {
@@ -97,6 +223,26 @@ export async function handleUiRequest(req: Request): Promise<Response> {
 		return handleSecretSave(req, secretSaveMatch[1]);
 	}
 
+	// Public read for avatar: surfaces on the landing + login + agent pages
+	// before the operator has authenticated, so this endpoint is unauth.
+	// The write path (POST/DELETE) falls through to the auth gate below.
+	if (url.pathname === "/ui/avatar" && req.method === "GET") {
+		return handleAvatarGet(req);
+	}
+	if (url.pathname === "/ui/avatar") {
+		return new Response("Method not allowed", { status: 405, headers: { Allow: "GET" } });
+	}
+
+	// Public landing-page data feeds. These render before login so the hero is
+	// not empty on first visit. Content is operator-public (starter-prompt copy,
+	// agent-published page filenames) so no cookie gate.
+	if (url.pathname === "/ui/api/starter-prompts") {
+		return handleStarterPromptsApi(req);
+	}
+	if (url.pathname === "/ui/api/pages") {
+		return handlePagesApi(req);
+	}
+
 	// Public assets (logo, favicon) - no auth needed
 	if (url.pathname === "/ui/phantom-logo.svg") {
 		const filePath = isPathSafe(url.pathname);
@@ -125,28 +271,146 @@ export async function handleUiRequest(req: Request): Promise<Response> {
 		return createSSEResponse();
 	}
 
+	// Avatar write/delete. Cookie-auth required; the public read lives above.
+	if (url.pathname === "/ui/api/identity/avatar") {
+		if (req.method === "POST") return handleAvatarPost(req);
+		if (req.method === "DELETE") return handleAvatarDelete();
+		return new Response("Method not allowed", {
+			status: 405,
+			headers: { Allow: "POST, DELETE" },
+		});
+	}
+
+	// Dashboard API routes (PR1). Return as soon as one matches so the static
+	// file fallthrough below never sees them.
+	if (url.pathname.startsWith("/ui/api/skills")) {
+		if (!dashboardDb) {
+			return Response.json({ error: "Dashboard API not initialized" }, { status: 503 });
+		}
+		const apiResponse = await handleSkillsApi(req, url, { db: dashboardDb });
+		if (apiResponse) return apiResponse;
+	}
+	if (url.pathname.startsWith("/ui/api/memory-files")) {
+		if (!dashboardDb) {
+			return Response.json({ error: "Dashboard API not initialized" }, { status: 503 });
+		}
+		const apiResponse = await handleMemoryFilesApi(req, url, { db: dashboardDb });
+		if (apiResponse) return apiResponse;
+	}
+	if (url.pathname.startsWith("/ui/api/plugins")) {
+		if (!dashboardDb) {
+			return Response.json({ error: "Dashboard API not initialized" }, { status: 503 });
+		}
+		const apiResponse = await handlePluginsApi(req, url, { db: dashboardDb, ...pluginsApiOverrides });
+		if (apiResponse) return apiResponse;
+	}
+	if (url.pathname.startsWith("/ui/api/subagents")) {
+		if (!dashboardDb) {
+			return Response.json({ error: "Dashboard API not initialized" }, { status: 503 });
+		}
+		const apiResponse = await handleSubagentsApi(req, url, { db: dashboardDb });
+		if (apiResponse) return apiResponse;
+	}
+	if (url.pathname.startsWith("/ui/api/hooks")) {
+		if (!dashboardDb) {
+			return Response.json({ error: "Dashboard API not initialized" }, { status: 503 });
+		}
+		const apiResponse = await handleHooksApi(req, url, { db: dashboardDb });
+		if (apiResponse) return apiResponse;
+	}
+	if (url.pathname.startsWith("/ui/api/phantom-config")) {
+		if (!dashboardDb) {
+			return Response.json({ error: "Dashboard API not initialized" }, { status: 503 });
+		}
+		const apiResponse = await handlePhantomConfigApi(req, url, {
+			db: dashboardDb,
+			paths: phantomConfigPaths,
+		});
+		if (apiResponse) return apiResponse;
+	}
+	if (url.pathname.startsWith("/ui/api/sessions")) {
+		if (!dashboardDb) {
+			return Response.json({ error: "Dashboard API not initialized" }, { status: 503 });
+		}
+		const apiResponse = await handleSessionsApi(req, url, { db: dashboardDb });
+		if (apiResponse) return apiResponse;
+	}
+	if (url.pathname.startsWith("/ui/api/cost")) {
+		if (!dashboardDb) {
+			return Response.json({ error: "Dashboard API not initialized" }, { status: 503 });
+		}
+		const apiResponse = await handleCostApi(req, url, { db: dashboardDb });
+		if (apiResponse) return apiResponse;
+	}
+	if (url.pathname.startsWith("/ui/api/scheduler")) {
+		if (!dashboardDb) {
+			return Response.json({ error: "Dashboard API not initialized" }, { status: 503 });
+		}
+		if (!schedulerInstance) {
+			return Response.json({ error: "Scheduler not initialized" }, { status: 503 });
+		}
+		const apiResponse = await handleSchedulerApi(req, url, {
+			db: dashboardDb,
+			scheduler: schedulerInstance,
+			runtime: schedulerRuntime,
+			...(schedulerParserOverride ? { parser: schedulerParserOverride } : {}),
+		});
+		if (apiResponse) return apiResponse;
+	}
+	if (url.pathname.startsWith("/ui/api/evolution")) {
+		if (!evolutionEngine) {
+			return Response.json({ error: "Evolution engine not initialized" }, { status: 503 });
+		}
+		const apiResponse = await handleEvolutionApi(req, url, {
+			engine: evolutionEngine,
+			queue: evolutionQueue,
+		});
+		if (apiResponse) return apiResponse;
+	}
+	if (url.pathname.startsWith("/ui/api/memory/")) {
+		if (!memorySystem) {
+			return Response.json({ error: "Memory system not initialized" }, { status: 503 });
+		}
+		const apiResponse = await handleMemoryApi(req, url, { memory: memorySystem });
+		if (apiResponse) return apiResponse;
+	}
+
 	// Static files
 	const filePath = isPathSafe(url.pathname);
 	if (!filePath) {
 		return new Response("Forbidden", { status: 403 });
 	}
 
+	const headers = buildStaticHeaders(url.pathname);
+
 	const file = Bun.file(filePath);
 	if (await file.exists()) {
-		return new Response(file, {
-			headers: { "Cache-Control": "no-cache" },
-		});
+		return new Response(file, { headers });
 	}
 
 	// Try index.html for directory-like paths
 	const indexFile = Bun.file(resolve(filePath, "index.html"));
 	if (await indexFile.exists()) {
-		return new Response(indexFile, {
-			headers: { "Cache-Control": "no-cache" },
-		});
+		return new Response(indexFile, { headers });
 	}
 
 	return new Response("Not found", { status: 404 });
+}
+
+// Dashboard JS is image-owned and replaced on every deploy. no-store forbids
+// browser caching so a new deploy reaches every session on the next navigation
+// without a hard refresh. Other assets keep the existing revalidate-before-use
+// no-cache policy.
+function buildStaticHeaders(pathname: string): Record<string, string> {
+	const isDashboardJs = pathname.startsWith("/ui/dashboard/") && pathname.endsWith(".js");
+	if (isDashboardJs) {
+		return {
+			"Cache-Control": "no-store, no-cache, must-revalidate",
+			Pragma: "no-cache",
+			Expires: "0",
+		};
+	}
+	return { "Cache-Control": "no-cache" };
 }
 
 function handleSecretFormGet(_req: Request, url: URL, requestId: string): Response {
@@ -179,11 +443,10 @@ function handleSecretFormGet(_req: Request, url: URL, requestId: string): Respon
 	// Authenticate via magic token and set session cookie
 	if (magicToken && validateMagicToken(secretsDb, requestId, magicToken)) {
 		const { sessionToken } = createSession();
+		const cookieHeaders = buildCookieHeaders(sessionToken);
+		cookieHeaders.set("Content-Type", "text/html; charset=utf-8");
 		return new Response(secretsFormHtml(request), {
-			headers: {
-				"Content-Type": "text/html; charset=utf-8",
-				"Set-Cookie": buildSetCookieHeader(sessionToken),
-			},
+			headers: cookieHeaders,
 		});
 	}
 
@@ -250,21 +513,29 @@ async function handleLoginPost(req: Request): Promise<Response> {
 	// Try as magic link token first
 	const sessionToken = consumeMagicLink(body.token);
 	if (sessionToken) {
+		const cookieHeaders = buildCookieHeaders(sessionToken);
+		cookieHeaders.set("Content-Type", "application/json");
 		return new Response(JSON.stringify({ ok: true }), {
-			headers: {
-				"Content-Type": "application/json",
-				"Set-Cookie": buildSetCookieHeader(sessionToken),
-			},
+			headers: cookieHeaders,
 		});
 	}
 
 	// Try as direct session token
 	if (isValidSession(body.token)) {
+		const cookieHeaders = buildCookieHeaders(body.token);
+		cookieHeaders.set("Content-Type", "application/json");
 		return new Response(JSON.stringify({ ok: true }), {
-			headers: {
-				"Content-Type": "application/json",
-				"Set-Cookie": buildSetCookieHeader(body.token),
-			},
+			headers: cookieHeaders,
+		});
+	}
+
+	// Try as bootstrap token (survives process restarts via SQLite hash)
+	if (bootstrapDb && checkBootstrapMagicHash(bootstrapDb, body.token)) {
+		const { sessionToken: newToken } = createSession();
+		const cookieHeaders = buildCookieHeaders(newToken);
+		cookieHeaders.set("Content-Type", "application/json");
+		return new Response(JSON.stringify({ ok: true }), {
+			headers: cookieHeaders,
 		});
 	}
 

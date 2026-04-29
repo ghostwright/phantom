@@ -7,9 +7,11 @@ How to deploy Phantom to Specter-provisioned VMs using the Docker Hub image. Thi
 Specter provisions VMs with Docker, Caddy (TLS), and a placeholder `specter-agent` systemd service. The deploy script replaces the placeholder with the real Phantom running as a Docker container from `ghostwright/phantom` on Docker Hub. No git clone, no `bun install`, no building from source.
 
 Three containers run on each VM:
-- **phantom** - the AI agent (from Docker Hub)
+- **phantom** - the AI agent (from Docker Hub), includes the chat-ui SPA
 - **phantom-qdrant** - vector memory database
 - **phantom-ollama** - local embedding model (nomic-embed-text)
+
+The Docker image includes a pre-built React chat client at `/app/public/chat/`. On every container start, the entrypoint seeds image-bundled public assets (chat SPA, base HTML template, examples) into the `phantom_public` volume. This means Docker Hub deploys get the latest chat-ui automatically on `docker compose pull && docker compose up -d` with no manual overlay step.
 
 Caddy reverse-proxies `https://<name>.ghostwright.dev` to `localhost:3100`. This works unchanged because Docker maps port 3100 from the container to the host.
 
@@ -53,7 +55,7 @@ PHANTOM_NAME=<name>
 
 Optional:
 ```
-PHANTOM_MODEL=claude-sonnet-4-6    # Default. Use claude-opus-4-6 for max capability.
+PHANTOM_MODEL=claude-opus-4-7      # Default. Use claude-sonnet-4-6 for lower cost.
 PHANTOM_DOMAIN=ghostwright.dev     # Enables public URL: https://<name>.ghostwright.dev
 ```
 

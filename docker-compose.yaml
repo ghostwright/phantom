@@ -19,6 +19,15 @@ services:
       # Override memory URLs to use Docker service names
       - QDRANT_URL=http://qdrant:6333
       - OLLAMA_URL=http://ollama:11434
+    # Bias the host OOM killer toward qdrant/ollama under memory pressure so
+    # the main phantom process stays alive and can log the squeeze before it
+    # is killed last.
+    oom_score_adj: -500
+    # Give phantom twice the default CPU share under cgroup contention so
+    # the reflection subprocess and the live agent do not starve when
+    # qdrant/ollama are also busy. No cpu.max quota is set because the
+    # current no-throttle behavior is correct.
+    cpu_shares: 2048
     # Non-root: Claude Code CLI refuses --dangerously-skip-permissions as root.
     # Docker socket access is granted via group_add with the host's docker GID.
     # Override DOCKER_GID in .env if your host's docker group has a different ID
@@ -37,6 +46,9 @@ services:
       - phantom_data:/app/data
       - phantom_public:/app/public
       - phantom_repos:/app/repos
+      # Claude Code credentials (persists `claude login` across restarts so
+      # subscription users do not have to re-authenticate on every upgrade)
+      - phantom_claude:/home/phantom/.claude
       # Docker socket for sibling container creation
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
@@ -48,9 +60,21 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          # 8 GiB sizes for peak Phase 3 reflection concurrency: the main
+          # phantom process plus an active agent query subprocess plus one
+          # reflection subprocess running at Haiku, Sonnet, or Opus tier.
+          # Qdrant and Ollama get their own caps below. The prior 2 GiB cap
+          # cgroup-OOM-killed evolution subprocesses under load.
+          memory: 8G
+          # Cap the total number of processes this service can create. A
+          # runaway evolution subprocess spawn loop is bounded here in
+          # addition to the Phase 0 application-layer mutex and the Phase 2
+          # cadence. Compose v5+ requires pids to live under
+          # deploy.resources.limits alongside memory; using both top-level
+          # pids_limit and this block errors with "distinct values".
+          pids: 256
         reservations:
-          memory: 256M
+          memory: 512M
     networks:
       - phantom-net
 
@@ -105,6 +129,7 @@ volumes:
   phantom_data:
   phantom_public:
   phantom_repos:
+  phantom_claude:
   qdrant_data:
   ollama_data:
 

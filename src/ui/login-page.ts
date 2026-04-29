@@ -1,305 +1,212 @@
-/**
- * Generates the login page HTML. Kept separate from serve.ts to stay under 300 lines.
- * Self-contained with Tailwind + DaisyUI CDN. Light mode default, system preference
- * detection, smooth animations. Designed to match Linear/Vercel login quality.
- */
+// WHY: the login page is the highest-taste surface in the deployed UI after
+// the landing page. It uses the phantom-* design tokens, Instrument Serif
+// for the welcome display, and a quiet warm-cream / warm-deep-dark theme
+// pair that matches public/_base.html. The agent name is threaded in via a
+// module-level setter wired from src/index.ts at startup so this file stays
+// callable from src/ui/serve.ts with no signature change.
+
+import { avatarUrlIfPresent } from "./api/identity.ts";
+import { escapeHtml } from "./html.ts";
+import { agentNameInitial, capitalizeAgentName } from "./name.ts";
+
+let configuredAgentName = "Phantom";
+
+export function setLoginPageAgentName(name: string): void {
+	configuredAgentName = name;
+}
+
 export function loginPageHtml(): string {
+	const displayName = capitalizeAgentName(configuredAgentName);
+	const safeName = escapeHtml(displayName);
+	const safeInitial = escapeHtml(agentNameInitial(displayName));
+	// Server-side avatar probe is a cheap synchronous existsSync in
+	// avatarUrlIfPresent. Don't cache; the page renders once per auth attempt.
+	const avatarUrl = avatarUrlIfPresent();
+	const brandLogo = avatarUrl
+		? `<img src="${avatarUrl}" alt="" class="brand-logo-img" onerror="this.remove();this.nextElementSibling.style.display='inline-flex';"><span class="brand-logo" style="display:none;">${safeInitial}</span>`
+		: `<span class="brand-logo">${safeInitial}</span>`;
+	const faviconHref = avatarUrl ? "/ui/avatar" : "data:,";
+	const faviconType = avatarUrl ? "image/png" : "";
 	return `<!DOCTYPE html>
 <html lang="en" data-theme="phantom-light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in - Phantom</title>
-
-<!-- Flash prevention -->
+<title>Sign in - ${safeName}</title>
+<link rel="icon"${faviconType ? ` type="${faviconType}"` : ""} href="${faviconHref}">
 <script>
-  (function() {
-    var stored = localStorage.getItem('phantom-theme');
-    var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    var theme = stored || (prefersDark ? 'phantom-dark' : 'phantom-light');
-    document.documentElement.setAttribute('data-theme', theme);
-  })();
+(function(){var s=localStorage.getItem('phantom-theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.setAttribute('data-theme',s||(d?'phantom-dark':'phantom-light'));})();
 <\/script>
-
-<!-- Fonts -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-<!-- DaisyUI + Tailwind -->
-<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
-<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"><\/script>
+<style>
+:root {
+  --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px; --space-10:40px;
+  --radius-sm:8px; --radius-md:10px; --radius-lg:14px; --radius-pill:9999px;
+  --motion-fast:100ms; --motion-base:150ms; --ease-out:cubic-bezier(0.25,0.46,0.45,0.94);
+}
+[data-theme="phantom-light"] { --color-base-100:#faf9f5; --color-base-200:#ffffff; --color-base-300:#ece9df; --color-base-content:#1c1917; --color-primary:#4850c4; --color-primary-content:#ffffff; --color-success:#16a34a; --color-error:#dc2626; color-scheme:light; }
+[data-theme="phantom-dark"] { --color-base-100:#0b0a09; --color-base-200:#161412; --color-base-300:#26211d; --color-base-content:#f7f6f1; --color-primary:#7078e0; --color-primary-content:#0b0a09; --color-success:#4ade80; --color-error:#f87171; color-scheme:dark; }
+html { transition: background-color 150ms ease, color 150ms ease; }
+body { background:var(--color-base-100); color:var(--color-base-content); font-family:Inter,system-ui,sans-serif; margin:0; min-height:100vh; display:flex; flex-direction:column; -webkit-font-smoothing:antialiased; font-variant-numeric:tabular-nums; }
+@keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+@keyframes spin { to { transform:rotate(360deg); } }
 
-<style type="text/tailwindcss">
-  @theme {
-    --color-phantom: #0891b2;
-    --color-phantom-bright: #22d3ee;
-    --color-phantom-dim: #0e7490;
-    --font-family-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  }
+.top-bar { display:flex; align-items:center; justify-content:space-between; padding:var(--space-5) var(--space-8); }
+.brand { display:inline-flex; align-items:center; gap:var(--space-2); font-family:'Instrument Serif',Georgia,serif; font-size:20px; font-weight:400; color:var(--color-base-content); text-decoration:none; }
+.brand-logo { width:24px; height:24px; border-radius:6px; background:var(--color-primary); display:inline-flex; align-items:center; justify-content:center; color:var(--color-primary-content); font-family:'Instrument Serif',serif; font-size:14px; }
+.brand-logo-img { width:24px; height:24px; border-radius:6px; object-fit:cover; display:inline-block; }
+.top-action { display:inline-flex; align-items:center; gap:8px; padding:9px 16px; border:1px solid var(--color-base-300); border-radius:var(--radius-pill); font-size:13px; font-weight:500; color:var(--color-base-content); background:transparent; cursor:pointer; transition:background-color 150ms, border-color 150ms; }
+.top-action:hover { background:color-mix(in oklab, var(--color-base-content) 5%, transparent); }
 
-  [data-theme="phantom-light"] {
-    --color-base-100: #fafaf9;
-    --color-base-200: #ffffff;
-    --color-base-300: #e7e5e4;
-    --color-base-content: #1c1917;
-    --color-primary: #0891b2;
-    --color-primary-content: #ffffff;
-    --color-secondary: #57534e;
-    --color-secondary-content: #ffffff;
-    --color-accent: #0891b2;
-    --color-accent-content: #ffffff;
-    --color-neutral: #f5f5f4;
-    --color-neutral-content: #57534e;
-    --color-info: #2563eb;
-    --color-info-content: #ffffff;
-    --color-success: #16a34a;
-    --color-success-content: #ffffff;
-    --color-warning: #ca8a04;
-    --color-warning-content: #ffffff;
-    --color-error: #dc2626;
-    --color-error-content: #ffffff;
-    --radius-box: 0.75rem;
-    --radius-field: 0.625rem;
-    --radius-selector: 0.5rem;
-    --border: 1px;
-    --depth: 1;
-    --noise: 0;
-    color-scheme: light;
-  }
+.login-main { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:var(--space-10) var(--space-6); }
+.login-shell { width:100%; max-width:420px; animation: fadeUp 0.4s var(--ease-out); }
+.login-display { font-family:'Instrument Serif',Georgia,serif; font-size:48px; font-weight:400; line-height:1.08; text-align:center; letter-spacing:-0.01em; color:var(--color-base-content); margin:0 0 12px; }
+.login-display em { font-style:italic; }
+.login-subtitle { text-align:center; font-size:15px; line-height:1.55; color:color-mix(in oklab, var(--color-base-content) 68%, transparent); margin:0 auto var(--space-8); max-width:340px; }
 
-  [data-theme="phantom-dark"] {
-    --color-base-100: #0c0a09;
-    --color-base-200: #1c1917;
-    --color-base-300: #292524;
-    --color-base-content: #fafaf9;
-    --color-primary: #22d3ee;
-    --color-primary-content: #0c0a09;
-    --color-secondary: #a8a29e;
-    --color-secondary-content: #0c0a09;
-    --color-accent: #22d3ee;
-    --color-accent-content: #0c0a09;
-    --color-neutral: #1c1917;
-    --color-neutral-content: #a8a29e;
-    --color-info: #60a5fa;
-    --color-info-content: #0c0a09;
-    --color-success: #4ade80;
-    --color-success-content: #0c0a09;
-    --color-warning: #fbbf24;
-    --color-warning-content: #0c0a09;
-    --color-error: #f87171;
-    --color-error-content: #0c0a09;
-    --radius-box: 0.75rem;
-    --radius-field: 0.625rem;
-    --radius-selector: 0.5rem;
-    --border: 1px;
-    --depth: 1;
-    --noise: 0;
-    color-scheme: dark;
-  }
+.form-row { margin-bottom:18px; }
+.field-label { display:block; font-size:12px; font-weight:500; color:color-mix(in oklab, var(--color-base-content) 72%, transparent); margin-bottom:6px; }
+.field-input { width:100%; box-sizing:border-box; font-family:Inter,sans-serif; font-size:14px; line-height:1.4; background:var(--color-base-200); color:var(--color-base-content); border:1px solid var(--color-base-300); border-radius:var(--radius-md); padding:12px 14px; transition:border-color 150ms, box-shadow 150ms; }
+.field-input::placeholder { color:color-mix(in oklab, var(--color-base-content) 38%, transparent); }
+.field-input:focus { outline:none; border-color:var(--color-primary); box-shadow:0 0 0 3px color-mix(in oklab, var(--color-primary) 18%, transparent); }
 
-  html {
-    transition: background-color 0.2s ease, color 0.2s ease;
-  }
+.primary-button { display:inline-flex; width:100%; align-items:center; justify-content:center; gap:8px; font-family:Inter,sans-serif; font-size:14px; font-weight:500; line-height:1; padding:13px 18px; border-radius:var(--radius-pill); border:1px solid transparent; background:var(--color-base-content); color:var(--color-base-100); cursor:pointer; text-decoration:none; transition:opacity 100ms, transform 100ms; }
+.primary-button:hover { opacity:0.88; }
+.primary-button:active { transform:translateY(1px); }
+.primary-button:disabled { opacity:0.5; cursor:not-allowed; }
+.btn-spinner { display:inline-block; width:14px; height:14px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:spin 0.6s linear infinite; }
 
-  @keyframes fadeUp {
-    from { opacity: 0; transform: translateY(12px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
+.divider { display:flex; align-items:center; gap:12px; margin:24px 0; }
+.divider-line { flex:1; height:1px; background:var(--color-base-300); }
+.divider-text { font-size:11px; font-weight:500; letter-spacing:0.08em; text-transform:uppercase; color:color-mix(in oklab, var(--color-base-content) 45%, transparent); }
 
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
+.helper { text-align:center; font-size:13px; line-height:1.55; color:color-mix(in oklab, var(--color-base-content) 58%, transparent); max-width:340px; margin:0 auto; }
 
-  .login-animate {
-    animation: fadeUp 0.4s ease-out;
-  }
+.alert-error { margin-top:16px; display:none; align-items:flex-start; gap:10px; padding:10px 12px; border:1px solid color-mix(in oklab, var(--color-error) 40%, var(--color-base-300)); border-radius:var(--radius-md); background:color-mix(in oklab, var(--color-error) 6%, transparent); font-size:12px; color:var(--color-error); }
+.alert-error.visible { display:flex; }
 
-  .btn-spinner {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    border: 2px solid currentColor;
-    border-right-color: transparent;
-    border-radius: 50%;
-    animation: spin 0.6s linear infinite;
-    margin-right: 8px;
-    vertical-align: middle;
-    opacity: 0.6;
-  }
+.alert-success { margin-top:16px; display:none; align-items:flex-start; gap:10px; padding:10px 12px; border:1px solid color-mix(in oklab, var(--color-success) 40%, var(--color-base-300)); border-radius:var(--radius-md); background:color-mix(in oklab, var(--color-success) 6%, transparent); font-size:12px; color:var(--color-success); }
+.alert-success.visible { display:flex; }
+
+.footer-strip { padding:var(--space-6) var(--space-8); border-top:1px solid var(--color-base-300); display:flex; align-items:center; justify-content:space-between; font-size:11px; color:color-mix(in oklab, var(--color-base-content) 50%, transparent); font-family:'JetBrains Mono',monospace; }
 </style>
 </head>
-<body class="bg-base-100 text-base-content font-sans min-h-screen flex flex-col items-center justify-center px-6 py-12">
+<body>
 
-  <!-- Theme toggle -->
-  <button
-    id="theme-toggle"
-    class="fixed top-4 right-4 btn btn-ghost btn-sm btn-square z-50"
-    aria-label="Toggle theme"
-  >
-    <svg id="icon-sun" class="w-4 h-4 hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
-    </svg>
-    <svg id="icon-moon" class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
-    </svg>
+<div class="top-bar">
+  <a href="/ui/" class="brand">
+    ${brandLogo}
+    <span>${safeName}</span>
+  </a>
+  <button id="theme-toggle" class="top-action" aria-label="Toggle theme">
+    <svg id="icon-moon" style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z"/></svg>
+    <svg id="icon-sun" style="width:14px;height:14px;display:none;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z"/></svg>
+    <span>Theme</span>
   </button>
+</div>
 
-  <div class="w-full max-w-sm login-animate">
-    <!-- Brand -->
-    <div class="flex flex-col items-center mb-8">
-      <div class="w-28 h-28 mb-4"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none"><defs><linearGradient id="ghostBody" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#6ee7a8"/><stop offset="18%" stop-color="#34d48c"/><stop offset="35%" stop-color="#b87aed"/><stop offset="55%" stop-color="#8b5cf6"/><stop offset="75%" stop-color="#FB923C"/><stop offset="100%" stop-color="#F97316"/></linearGradient><linearGradient id="ghostStroke" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#1fa86e"/><stop offset="40%" stop-color="#6d28d9"/><stop offset="100%" stop-color="#EA580C"/></linearGradient><radialGradient id="glowCenter" cx="0.5" cy="0.4" r="0.5"><stop offset="0%" stop-color="#c4b5fd" stop-opacity="0.25"/><stop offset="60%" stop-color="#a78bfa" stop-opacity="0.1"/><stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/></radialGradient></defs><circle cx="256" cy="250" r="200" fill="url(#glowCenter)"><animate attributeName="r" values="190;210;190" dur="3s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.8;1;0.8" dur="3s" repeatCount="indefinite"/></circle><g><animateTransform attributeName="transform" type="translate" values="0,0; 0,-8; 0,0" dur="2.5s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1; 0.45 0 0.55 1"/><path fill="url(#ghostBody)" stroke="url(#ghostStroke)" stroke-width="3"><animate attributeName="d" dur="2s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1; 0.45 0 0.55 1" values="M 256 52 C 160 52, 100 130, 100 230 L 100 380 C 100 395, 112 405, 122 395 C 135 382, 148 398, 160 405 C 175 414, 185 395, 198 390 C 210 386, 218 404, 232 408 C 244 412, 250 398, 256 394 C 262 398, 268 412, 280 408 C 294 404, 302 386, 314 390 C 327 395, 337 414, 352 405 C 364 398, 377 382, 390 395 C 400 405, 412 395, 412 380 L 412 230 C 412 130, 352 52, 256 52 Z;M 256 52 C 160 52, 100 130, 100 230 L 100 380 C 100 390, 115 410, 128 400 C 140 390, 150 405, 165 412 C 178 418, 190 398, 202 393 C 214 388, 222 410, 236 414 C 248 418, 254 402, 256 398 C 258 402, 264 418, 276 414 C 290 410, 298 388, 310 393 C 322 398, 334 418, 347 412 C 362 405, 372 390, 384 400 C 397 410, 412 390, 412 380 L 412 230 C 412 130, 352 52, 256 52 Z;M 256 52 C 160 52, 100 130, 100 230 L 100 380 C 100 395, 112 405, 122 395 C 135 382, 148 398, 160 405 C 175 414, 185 395, 198 390 C 210 386, 218 404, 232 408 C 244 412, 250 398, 256 394 C 262 398, 268 412, 280 408 C 294 404, 302 386, 314 390 C 327 395, 337 414, 352 405 C 364 398, 377 382, 390 395 C 400 405, 412 395, 412 380 L 412 230 C 412 130, 352 52, 256 52 Z"/></path><ellipse cx="210" cy="225" rx="32" ry="38" fill="#1a1a2e"/><circle cx="220" cy="211" r="14" fill="white" opacity="0.9"/><ellipse cx="302" cy="225" rx="32" ry="38" fill="#1a1a2e"/><circle cx="312" cy="211" r="14" fill="white" opacity="0.9"/><ellipse cx="256" cy="300" rx="28" ry="22" fill="#1a1a2e"/><circle cx="175" cy="265" r="24" fill="#f0abcf" opacity="0.25"/><circle cx="337" cy="265" r="24" fill="#f0abcf" opacity="0.25"/></g></svg></div>
-      <div class="flex items-center gap-2">
-        <span class="text-2xl font-bold tracking-tight">Phantom</span>
-        <span class="badge badge-sm bg-primary/10 text-primary border-primary/20 font-mono text-xs">agent</span>
+<main class="login-main">
+  <div class="login-shell">
+
+    <h1 class="login-display">Welcome <em>back</em>.</h1>
+    <p class="login-subtitle">Sign in with the access token ${safeName} sent you, or paste a magic link.</p>
+
+    <form id="login-form" autocomplete="off">
+
+      <div class="form-row">
+        <label class="field-label" for="token">Access token</label>
+        <input class="field-input" id="token" name="token" type="text" placeholder="Paste your token here" autocomplete="off" spellcheck="false">
       </div>
-      <p class="text-sm text-base-content/50 mt-1">Your autonomous AI co-worker</p>
+
+      <button type="submit" id="submit-btn" class="primary-button">Continue</button>
+
+      <div id="error-msg" class="alert-error">
+        <svg style="width:14px;height:14px;flex-shrink:0;margin-top:1px;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/></svg>
+        <span id="error-text">Invalid token. Please try again.</span>
+      </div>
+
+      <div id="success-msg" class="alert-success">
+        <svg style="width:14px;height:14px;flex-shrink:0;margin-top:1px;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+        <span>Authenticated. Redirecting...</span>
+      </div>
+
+    </form>
+
+    <div class="divider">
+      <div class="divider-line"></div>
+      <span class="divider-text">Or</span>
+      <div class="divider-line"></div>
     </div>
 
-    <!-- Card -->
-    <div class="card bg-base-200 border border-base-300 shadow-sm">
-      <div class="card-body p-8">
-        <h1 class="text-lg font-semibold tracking-tight mb-1">Welcome back</h1>
-        <p class="text-sm text-base-content/50 mb-6 leading-relaxed">
-          Enter the access token from your Slack DM to continue.
-        </p>
-
-        <form id="login-form" autocomplete="off">
-          <div class="mb-5">
-            <label class="text-xs font-medium text-base-content/60 mb-1.5 block" for="token">Access token</label>
-            <input
-              class="input input-bordered w-full bg-base-100 border-base-300 focus:border-primary focus:outline-none text-sm"
-              id="token"
-              name="token"
-              type="text"
-              placeholder="Paste your token here"
-              autocomplete="off"
-              spellcheck="false"
-            />
-          </div>
-          <button
-            class="btn btn-primary w-full text-sm font-medium"
-            type="submit"
-            id="submit-btn"
-          >Sign in</button>
-
-          <!-- Error message -->
-          <div id="error-msg" class="hidden mt-4">
-            <div class="flex items-center gap-2 p-3 rounded-xl bg-error/10 border border-error/20">
-              <svg class="w-4 h-4 text-error flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
-              </svg>
-              <span id="error-text" class="text-xs text-error"></span>
-            </div>
-          </div>
-
-          <!-- Success message -->
-          <div id="success-msg" class="hidden mt-4">
-            <div class="flex items-center gap-2 p-3 rounded-xl bg-success/10 border border-success/20">
-              <svg class="w-4 h-4 text-success flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-              </svg>
-              <span class="text-xs text-success">Authenticated. Redirecting...</span>
-            </div>
-          </div>
-        </form>
-
-        <!-- Divider -->
-        <div class="flex items-center gap-3 my-5">
-          <div class="flex-1 h-px bg-base-300"></div>
-          <span class="text-xs text-base-content/30">or</span>
-          <div class="flex-1 h-px bg-base-300"></div>
-        </div>
-
-        <p class="text-center text-xs text-base-content/40 leading-relaxed">
-          Ask your Phantom agent for a magic link via Slack.
-        </p>
+    <form id="email-form" autocomplete="off">
+      <div class="form-row">
+        <label class="field-label" for="email">Email me a login link</label>
+        <input class="field-input" id="email" name="email" type="email" placeholder="Your email address" autocomplete="email" spellcheck="false">
       </div>
-    </div>
+      <button type="submit" id="email-btn" class="primary-button" style="background:transparent;color:var(--color-base-content);border:1px solid var(--color-base-300);">Send link</button>
+      <div id="email-success" class="alert-success">
+        <svg style="width:14px;height:14px;flex-shrink:0;margin-top:1px;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+        <span>If that email matches, a login link is on its way.</span>
+      </div>
+    </form>
 
-    <p class="text-center text-xs text-base-content/30 mt-6">Phantom - AI that works alongside you</p>
+    <p class="helper" style="margin-top:24px;">Ask ${safeName} in Slack for a magic link, or use the email form above.<br>Links are valid for 10 minutes. Sessions last 7 days.</p>
+
   </div>
+</main>
 
-  <script>
-    // Theme toggle
-    (function() {
-      var toggle = document.getElementById('theme-toggle');
-      var sun = document.getElementById('icon-sun');
-      var moon = document.getElementById('icon-moon');
+<div class="footer-strip">
+  <span>${safeName} - AI that works alongside you</span>
+  <span>cookie auth</span>
+</div>
 
-      function updateIcons() {
-        var theme = document.documentElement.getAttribute('data-theme');
-        var isDark = theme === 'phantom-dark';
-        sun.classList.toggle('hidden', !isDark);
-        moon.classList.toggle('hidden', isDark);
-      }
-
-      updateIcons();
-
-      toggle.addEventListener('click', function() {
-        var current = document.documentElement.getAttribute('data-theme');
-        var next = current === 'phantom-dark' ? 'phantom-light' : 'phantom-dark';
-        document.documentElement.setAttribute('data-theme', next);
-        localStorage.setItem('phantom-theme', next);
-        updateIcons();
-      });
-    })();
-
-    // Auth logic
-    (function() {
-      var params = new URLSearchParams(location.search);
-      var magic = params.get('magic');
-      if (magic) {
-        authenticate(magic);
-        return;
-      }
-
-      document.getElementById('login-form').addEventListener('submit', function(e) {
-        e.preventDefault();
-        var token = document.getElementById('token').value.trim();
-        if (token) authenticate(token);
-      });
-
-      function showError(text) {
-        document.getElementById('error-text').textContent = text;
-        document.getElementById('error-msg').classList.remove('hidden');
-        document.getElementById('success-msg').classList.add('hidden');
-      }
-
-      function showSuccess() {
-        document.getElementById('success-msg').classList.remove('hidden');
-        document.getElementById('error-msg').classList.add('hidden');
-      }
-
-      function authenticate(token) {
-        var btn = document.getElementById('submit-btn');
-        btn.disabled = true;
-        btn.innerHTML = '<span class="btn-spinner"><\\/span>Signing in...';
-
-        fetch('/ui/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: token }),
-          credentials: 'same-origin'
-        }).then(function(res) {
-          if (res.ok) {
-            showSuccess();
-            setTimeout(function() { location.href = '/ui/'; }, 600);
-          } else {
-            return res.json().then(function(data) {
-              showError(data.error || 'Invalid token. Please try again.');
-              btn.disabled = false;
-              btn.innerHTML = 'Sign in';
-            });
-          }
-        }).catch(function() {
-          showError('Unable to connect. Check your network and try again.');
-          btn.disabled = false;
-          btn.innerHTML = 'Sign in';
-        });
-      }
-    })();
-  <\/script>
+<script>
+(function(){
+  var toggle=document.getElementById('theme-toggle');
+  var sun=document.getElementById('icon-sun'); var moon=document.getElementById('icon-moon');
+  function update(){ var d=document.documentElement.getAttribute('data-theme')==='phantom-dark'; sun.style.display=d?'inline':'none'; moon.style.display=d?'none':'inline'; }
+  update();
+  toggle.addEventListener('click',function(){ var c=document.documentElement.getAttribute('data-theme'); var n=c==='phantom-dark'?'phantom-light':'phantom-dark'; document.documentElement.setAttribute('data-theme',n); localStorage.setItem('phantom-theme',n); update(); });
+})();
+(function(){
+  var params=new URLSearchParams(location.search);
+  var magic=params.get('magic');
+  function showError(text){ document.getElementById('error-text').textContent=text; document.getElementById('error-msg').classList.add('visible'); document.getElementById('success-msg').classList.remove('visible'); }
+  function showSuccess(){ document.getElementById('success-msg').classList.add('visible'); document.getElementById('error-msg').classList.remove('visible'); }
+  var redirect=params.get('redirect')||'/ui/';
+  if(redirect&&(!/^\\//.test(redirect)||/^\\/\\//.test(redirect))){redirect='/ui/';}
+  function authenticate(token){
+    var btn=document.getElementById('submit-btn');
+    btn.disabled=true;
+    btn.innerHTML='<span class="btn-spinner"><\\/span> Signing in...';
+    fetch('/ui/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:token}),credentials:'same-origin'}).then(function(res){
+      if(res.ok){ showSuccess(); setTimeout(function(){ location.href=redirect; },600); }
+      else { return res.json().then(function(d){ showError(d.error||'Invalid token. Please try again.'); btn.disabled=false; btn.innerHTML='Continue'; }); }
+    }).catch(function(){ showError('Unable to connect. Check your network and try again.'); btn.disabled=false; btn.innerHTML='Continue'; });
+  }
+  if(magic){ authenticate(magic); return; }
+  document.getElementById('login-form').addEventListener('submit',function(e){ e.preventDefault(); var t=document.getElementById('token').value.trim(); if(!t){ showError('Please enter an access token.'); return; } authenticate(t); });
+  document.getElementById('email-form').addEventListener('submit',function(e){
+    e.preventDefault();
+    var emailInput=document.getElementById('email').value.trim();
+    if(!emailInput){return;}
+    var emailBtn=document.getElementById('email-btn');
+    emailBtn.disabled=true;
+    emailBtn.innerHTML='<span class="btn-spinner"><\\/span> Sending...';
+    fetch('/login/email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:emailInput}),credentials:'same-origin'}).then(function(){
+      document.getElementById('email-success').classList.add('visible');
+      emailBtn.disabled=false;
+      emailBtn.innerHTML='Send link';
+    }).catch(function(){
+      emailBtn.disabled=false;
+      emailBtn.innerHTML='Send link';
+    });
+  });
+})();
+<\/script>
 </body>
 </html>`;
 }

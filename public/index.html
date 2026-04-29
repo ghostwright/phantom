@@ -1,381 +1,527 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="phantom-light">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Phantom</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-agent-name-title>{{AGENT_NAME_CAPITALIZED}}</title>
+<link rel="icon" type="image/png" href="/ui/avatar" data-agent-avatar-url>
+<link rel="icon" href="data:,">
+<script>(function(){var s=localStorage.getItem('phantom-theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.setAttribute('data-theme',s||(d?'phantom-dark':'phantom-light'));})();</script>
+<script src="/ui/_agent-name.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 
-  <!-- Flash prevention -->
-  <script>
-    (function() {
-      var stored = localStorage.getItem('phantom-theme');
-      var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      var theme = stored || (prefersDark ? 'phantom-dark' : 'phantom-light');
-      document.documentElement.setAttribute('data-theme', theme);
-    })();
-  </script>
+<style type="text/tailwindcss">
+@theme { --color-primary: #4850c4; --font-family-sans: 'Inter', system-ui, sans-serif; }
+[data-theme="phantom-light"] { --color-base-100:#faf9f5; --color-base-200:#ffffff; --color-base-300:#ece9df; --color-base-content:#1c1917; --color-primary:#4850c4; --color-primary-content:#ffffff; --color-success:#16a34a; --color-error:#dc2626; --color-warning:#ca8a04; --color-info:#2563eb; color-scheme:light; }
+[data-theme="phantom-dark"] { --color-base-100:#0b0a09; --color-base-200:#161412; --color-base-300:#26211d; --color-base-content:#f7f6f1; --color-primary:#7078e0; --color-primary-content:#0b0a09; --color-success:#4ade80; --color-error:#f87171; --color-warning:#fbbf24; --color-info:#60a5fa; color-scheme:dark; }
+</style>
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px; --space-10:40px; --space-12:48px; --space-16:64px;
+  --radius-sm:8px; --radius-md:10px; --radius-lg:14px; --radius-pill:9999px;
+  --motion-fast:100ms; --motion-base:150ms; --ease-out:cubic-bezier(0.25,0.46,0.45,0.94);
+}
+html { transition: background-color 150ms ease, color 150ms ease; }
+body { font-feature-settings: "ss01","cv11"; font-variant-numeric: tabular-nums; -webkit-font-smoothing:antialiased; }
+@keyframes phantom-fade-in { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+@keyframes phantom-pulse { 0%,100% { opacity:1; } 50% { opacity:0.55; } }
+@keyframes phantom-skeleton { 0% { opacity:0.55; } 50% { opacity:0.9; } 100% { opacity:0.55; } }
+main { animation: phantom-fade-in 300ms var(--ease-out); }
 
-  <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
-  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+.phantom-page { max-width:1100px; margin:0 auto; padding:var(--space-8) var(--space-8); }
+.phantom-nav { display:flex; align-items:center; gap:var(--space-4); padding:var(--space-3) var(--space-8); border-bottom:1px solid var(--color-base-300); position:sticky; top:0; background:color-mix(in oklab, var(--color-base-100) 85%, transparent); backdrop-filter:blur(8px); z-index:10; }
+.phantom-nav-brand { display:inline-flex; align-items:center; gap:var(--space-2); font-family:'Instrument Serif',Georgia,serif; font-size:18px; color:var(--color-base-content); text-decoration:none; }
+.phantom-nav-logo { display:inline-flex; width:22px; height:22px; border-radius:6px; background:var(--color-primary); align-items:center; justify-content:center; color:var(--color-primary-content); font-family:'Instrument Serif',serif; font-size:14px; }
+.phantom-nav-logo-img { width:22px; height:22px; border-radius:6px; object-fit:cover; display:inline-block; }
+.phantom-nav-avatar-slot { display:inline-flex; align-items:center; }
+.phantom-mono { font-family:'JetBrains Mono',ui-monospace,monospace; font-size:12px; font-variant-numeric:tabular-nums; }
 
-  <style type="text/tailwindcss">
-    @theme {
-      --color-phantom: #0891b2;
-      --color-phantom-bright: #22d3ee;
-      --color-phantom-dim: #0e7490;
-      --font-family-sans: 'Inter', system-ui, -apple-system, sans-serif;
-      --font-family-mono: 'JetBrains Mono', ui-monospace, monospace;
-    }
+.phantom-display { font-family:'Instrument Serif',Georgia,serif; font-size:clamp(44px,5vw,60px); font-weight:400; line-height:1.05; letter-spacing:-0.01em; color:var(--color-base-content); margin:0 0 var(--space-4); }
+.phantom-display em { font-style:italic; font-weight:400; }
+.phantom-h1 { font-family:'Instrument Serif',Georgia,serif; font-size:32px; font-weight:500; line-height:1.15; letter-spacing:-0.01em; color:var(--color-base-content); margin:0 0 var(--space-3); }
+.phantom-h2 { font-family:'Instrument Serif',Georgia,serif; font-size:26px; font-weight:500; line-height:1.2; color:var(--color-base-content); margin:0 0 var(--space-2); letter-spacing:-0.01em; }
+.phantom-h3 { font-family:'Inter',sans-serif; font-size:14px; font-weight:600; line-height:1.3; color:var(--color-base-content); margin:0 0 var(--space-2); }
+.phantom-eyebrow { font-family:'Inter',sans-serif; font-size:11px; font-weight:600; line-height:1; letter-spacing:0.08em; text-transform:uppercase; color:color-mix(in oklab, var(--color-base-content) 50%, transparent); margin:0 0 var(--space-3); }
+.phantom-lead { font-family:'Inter',sans-serif; font-size:17px; font-weight:400; line-height:1.6; color:color-mix(in oklab, var(--color-base-content) 72%, transparent); max-width:560px; margin:0 0 var(--space-5); }
+.phantom-body { font-family:'Inter',sans-serif; font-size:14px; line-height:1.55; color:var(--color-base-content); }
+.phantom-muted { color:color-mix(in oklab, var(--color-base-content) 55%, transparent); }
 
-    [data-theme="phantom-light"] {
-      --color-base-100: #fafaf9;
-      --color-base-200: #ffffff;
-      --color-base-300: #e7e5e4;
-      --color-base-content: #1c1917;
-      --color-primary: #0891b2;
-      --color-primary-content: #ffffff;
-      --color-secondary: #57534e;
-      --color-secondary-content: #ffffff;
-      --color-accent: #0891b2;
-      --color-accent-content: #ffffff;
-      --color-neutral: #f5f5f4;
-      --color-neutral-content: #57534e;
-      --color-info: #2563eb;
-      --color-info-content: #ffffff;
-      --color-success: #16a34a;
-      --color-success-content: #ffffff;
-      --color-warning: #ca8a04;
-      --color-warning-content: #ffffff;
-      --color-error: #dc2626;
-      --color-error-content: #ffffff;
-      --radius-box: 0.75rem;
-      --radius-field: 0.625rem;
-      --radius-selector: 0.5rem;
-      --border: 1px;
-      --depth: 1;
-      --noise: 0;
-      color-scheme: light;
-    }
+.phantom-card { background:var(--color-base-200); border:1px solid var(--color-base-300); border-radius:var(--radius-lg); padding:var(--space-5); transition:border-color var(--motion-base) var(--ease-out); }
+.phantom-card:hover { border-color:color-mix(in oklab, var(--color-primary) 28%, var(--color-base-300)); }
 
-    [data-theme="phantom-dark"] {
-      --color-base-100: #0c0a09;
-      --color-base-200: #1c1917;
-      --color-base-300: #292524;
-      --color-base-content: #fafaf9;
-      --color-primary: #22d3ee;
-      --color-primary-content: #0c0a09;
-      --color-secondary: #a8a29e;
-      --color-secondary-content: #0c0a09;
-      --color-accent: #22d3ee;
-      --color-accent-content: #0c0a09;
-      --color-neutral: #1c1917;
-      --color-neutral-content: #a8a29e;
-      --color-info: #60a5fa;
-      --color-info-content: #0c0a09;
-      --color-success: #4ade80;
-      --color-success-content: #0c0a09;
-      --color-warning: #fbbf24;
-      --color-warning-content: #0c0a09;
-      --color-error: #f87171;
-      --color-error-content: #0c0a09;
-      --radius-box: 0.75rem;
-      --radius-field: 0.625rem;
-      --radius-selector: 0.5rem;
-      --border: 1px;
-      --depth: 1;
-      --noise: 0;
-      color-scheme: dark;
-    }
-  </style>
+.phantom-grid-stats { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:var(--space-4); }
+@media (max-width:900px) { .phantom-grid-stats { grid-template-columns:repeat(2,1fr); } }
 
-  <!-- Custom CSS kept outside text/tailwindcss to avoid Tailwind v4 browser CDN parse errors
-       when var() references are used inside linear-gradient and other complex values -->
-  <style>
-    html {
-      transition: background-color 0.2s ease, color 0.2s ease;
-    }
+.phantom-stat { display:flex; flex-direction:column; gap:var(--space-1); }
+.phantom-stat-label { font:600 11px/1 Inter,sans-serif; letter-spacing:0.05em; text-transform:uppercase; color:color-mix(in oklab, var(--color-base-content) 48%, transparent); margin:0; }
+.phantom-stat-value { font-family:Inter,sans-serif; font-size:28px; font-weight:500; line-height:1.1; letter-spacing:-0.02em; font-variant-numeric:tabular-nums; color:var(--color-base-content); margin:6px 0 4px; }
+.phantom-stat-trend-up { color:var(--color-success); font-size:12px; font-variant-numeric:tabular-nums; }
+.phantom-stat-trend-flat { color:color-mix(in oklab, var(--color-base-content) 50%, transparent); font-size:12px; }
 
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(6px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
+.phantom-badge { display:inline-flex; align-items:center; gap:6px; font-family:Inter,sans-serif; font-size:11px; font-weight:500; line-height:1; padding:4px 9px; border-radius:var(--radius-pill); background:color-mix(in oklab, var(--color-base-content) 8%, transparent); color:color-mix(in oklab, var(--color-base-content) 75%, transparent); }
+.phantom-badge-success { background:color-mix(in oklab, var(--color-success) 12%, transparent); color:var(--color-success); }
+.phantom-badge-primary { background:color-mix(in oklab, var(--color-primary) 12%, transparent); color:var(--color-primary); }
 
-    main {
-      animation: fadeIn 0.3s ease-out;
-    }
+.phantom-dot { width:6px; height:6px; border-radius:50%; display:inline-block; }
+.phantom-dot-live { background:var(--color-success); box-shadow:0 0 0 3px color-mix(in oklab, var(--color-success) 25%, transparent); animation:phantom-pulse 2s cubic-bezier(0.4,0,0.6,1) infinite; }
 
-    .card {
-      transition: box-shadow 0.15s ease, border-color 0.15s ease;
-    }
+.phantom-button { display:inline-flex; align-items:center; justify-content:center; gap:var(--space-2); font-family:Inter,sans-serif; font-size:14px; font-weight:500; padding:11px 18px; border-radius:var(--radius-pill); border:1px solid transparent; background:var(--color-base-content); color:var(--color-base-100); cursor:pointer; text-decoration:none; transition:opacity var(--motion-fast), transform var(--motion-fast), box-shadow var(--motion-fast); }
+.phantom-button:hover { opacity:0.88; }
+.phantom-button:focus-visible { outline:none; box-shadow:0 0 0 3px color-mix(in oklab, var(--color-primary) 40%, transparent); }
+.phantom-button-primary { background:var(--color-base-content); color:var(--color-base-100); }
+.phantom-button-ghost { background:transparent; color:var(--color-base-content); border-color:var(--color-base-300); }
+.phantom-button-ghost:hover { background:color-mix(in oklab, var(--color-base-content) 5%, transparent); }
+.phantom-button-sm { padding:7px 12px; font-size:13px; }
 
-    .card-hover:hover {
-      box-shadow: 0 4px 16px rgba(0,0,0,0.06);
-      border-color: var(--color-base-300);
-    }
+.phantom-hero { display:grid; grid-template-columns:120px 1fr; gap:var(--space-8); align-items:center; margin:var(--space-12) 0 var(--space-16); }
+.phantom-hero-avatar-slot { width:120px; height:120px; border-radius:24px; background:color-mix(in oklab, var(--color-primary) 10%, var(--color-base-200)); border:1px solid color-mix(in oklab, var(--color-primary) 20%, var(--color-base-300)); display:flex; align-items:center; justify-content:center; overflow:hidden; }
+.phantom-hero-avatar-slot img[data-agent-avatar-img] { width:120px; height:120px; border-radius:24px; object-fit:cover; display:block; }
+.phantom-hero-letter { font-family:'Instrument Serif',Georgia,serif; font-size:72px; line-height:1; color:var(--color-primary); font-style:italic; }
+.phantom-hero-copy { min-width:0; }
+.phantom-hero-copy .phantom-display { margin-bottom:var(--space-3); }
+.phantom-hero-actions { display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap; margin-top:var(--space-6); }
+@media (max-width:720px) {
+  .phantom-hero { grid-template-columns:1fr; gap:var(--space-5); text-align:left; }
+  .phantom-hero-avatar-slot { margin:0; }
+}
+@media (max-width:500px) {
+  .phantom-hero-actions { flex-direction:column; align-items:stretch; }
+  .phantom-hero-actions .phantom-button { width:100%; }
+}
 
-    [data-theme="phantom-dark"] .card-hover:hover {
-      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
-    }
+.phantom-section-header { margin-bottom:var(--space-5); }
+.phantom-section-title { font-family:'Instrument Serif',Georgia,serif; font-size:28px; font-weight:500; line-height:1.2; letter-spacing:-0.01em; color:var(--color-base-content); margin:0 0 var(--space-2); }
+.phantom-section-sub { font-family:Inter,sans-serif; font-size:14px; line-height:1.55; color:color-mix(in oklab, var(--color-base-content) 62%, transparent); margin:0; max-width:560px; }
 
-    .status-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 9999px;
-      display: inline-block;
-    }
+.phantom-details-link { font-family:Inter,sans-serif; font-size:11px; font-weight:500; color:color-mix(in oklab, var(--color-base-content) 55%, transparent); text-decoration:none; letter-spacing:0.02em; transition:color var(--motion-fast); }
+.phantom-details-link:hover { color:var(--color-primary); }
+.phantom-details-link:focus-visible { outline:none; color:var(--color-primary); text-decoration:underline; }
 
-    .status-dot-pulse {
-      animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-    }
+.phantom-tiles-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:var(--space-4); }
+.phantom-tile { background:var(--color-base-200); border:1px solid var(--color-base-300); border-radius:var(--radius-lg); padding:var(--space-5); display:flex; flex-direction:column; gap:var(--space-3); min-height:170px; transition:border-color var(--motion-base) var(--ease-out), transform var(--motion-base) var(--ease-out); }
+.phantom-tile:hover { border-color:color-mix(in oklab, var(--color-primary) 32%, var(--color-base-300)); transform:translateY(-1px); }
+.phantom-tile-icon { width:28px; height:28px; border-radius:var(--radius-sm); background:color-mix(in oklab, var(--color-primary) 12%, transparent); color:var(--color-primary); display:inline-flex; align-items:center; justify-content:center; }
+.phantom-tile-icon svg { width:16px; height:16px; }
+.phantom-tile-title { font-family:Inter,sans-serif; font-size:15px; font-weight:600; line-height:1.25; color:var(--color-base-content); margin:0; }
+.phantom-tile-desc { font-family:Inter,sans-serif; font-size:13px; line-height:1.5; color:color-mix(in oklab, var(--color-base-content) 62%, transparent); margin:0; flex:1; }
+.phantom-tile-cta { align-self:flex-start; margin-top:auto; }
+.phantom-tile-skeleton { background:var(--color-base-200); border:1px solid var(--color-base-300); border-radius:var(--radius-lg); padding:var(--space-5); min-height:170px; display:flex; flex-direction:column; gap:var(--space-3); animation:phantom-skeleton 1.4s ease-in-out infinite; }
+.phantom-tile-skeleton-bar { background:color-mix(in oklab, var(--color-base-content) 8%, transparent); border-radius:4px; height:12px; }
+.phantom-tile-skeleton-bar.tall { height:18px; width:70%; }
+.phantom-tile-skeleton-bar.full { width:100%; }
+.phantom-tile-skeleton-bar.short { width:45%; }
 
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
+.phantom-pages-list { display:flex; flex-direction:column; gap:var(--space-2); }
+.phantom-page-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:var(--space-4); align-items:center; padding:var(--space-3) var(--space-4); border:1px solid var(--color-base-300); border-radius:var(--radius-md); background:var(--color-base-200); text-decoration:none; color:var(--color-base-content); transition:border-color var(--motion-fast), background-color var(--motion-fast); }
+.phantom-page-row:hover { border-color:color-mix(in oklab, var(--color-primary) 32%, var(--color-base-300)); background:color-mix(in oklab, var(--color-primary) 3%, var(--color-base-200)); }
+.phantom-page-row:focus-visible { outline:none; border-color:var(--color-primary); box-shadow:0 0 0 3px color-mix(in oklab, var(--color-primary) 25%, transparent); }
+.phantom-page-path { font-family:'JetBrains Mono',ui-monospace,monospace; font-size:12px; color:color-mix(in oklab, var(--color-base-content) 58%, transparent); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.phantom-page-title { font-family:Inter,sans-serif; font-size:14px; font-weight:500; color:var(--color-base-content); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.phantom-page-time { font-family:Inter,sans-serif; font-size:12px; color:color-mix(in oklab, var(--color-base-content) 50%, transparent); white-space:nowrap; }
+@media (max-width:640px) {
+  .phantom-page-row { grid-template-columns:1fr; gap:var(--space-1); }
+  .phantom-page-time { justify-self:start; }
+}
+.phantom-empty { padding:var(--space-5); border:1px dashed var(--color-base-300); border-radius:var(--radius-md); background:color-mix(in oklab, var(--color-primary) 3%, var(--color-base-200)); font-family:Inter,sans-serif; font-size:14px; line-height:1.55; color:color-mix(in oklab, var(--color-base-content) 70%, transparent); }
+.phantom-empty a { color:var(--color-primary); text-decoration:underline; text-underline-offset:2px; }
+.phantom-empty a:hover { text-decoration-thickness:2px; }
 
-    .skeleton-line {
-      height: 14px;
-      border-radius: 6px;
-      background: linear-gradient(90deg, var(--color-base-300) 25%, transparent 50%, var(--color-base-300) 75%);
-      background-size: 200% 100%;
-      animation: shimmer 1.5s infinite;
-    }
-
-    @keyframes shimmer {
-      0% { background-position: 200% 0; }
-      100% { background-position: -200% 0; }
-    }
-  </style>
+.quick-link { display:flex; align-items:center; gap:var(--space-3); padding:var(--space-3) var(--space-4); border:1px solid var(--color-base-300); border-radius:var(--radius-md); text-decoration:none; color:var(--color-base-content); transition:border-color var(--motion-fast), background-color var(--motion-fast); }
+.quick-link:hover { border-color:color-mix(in oklab, var(--color-primary) 30%, var(--color-base-300)); background:color-mix(in oklab, var(--color-primary) 3%, transparent); }
+.quick-link:focus-visible { outline:none; border-color:var(--color-primary); box-shadow:0 0 0 3px color-mix(in oklab, var(--color-primary) 25%, transparent); }
+.quick-link-icon { width:32px; height:32px; border-radius:var(--radius-sm); background:color-mix(in oklab, var(--color-primary) 10%, transparent); color:var(--color-primary); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.quick-link-body { flex:1; min-width:0; }
+.quick-link-title { font-size:14px; font-weight:500; color:var(--color-base-content); margin-bottom:2px; }
+.quick-link-desc { font-size:12px; color:color-mix(in oklab, var(--color-base-content) 55%, transparent); font-family:'JetBrains Mono',monospace; }
+.quick-link-arrow { width:14px; height:14px; color:color-mix(in oklab, var(--color-base-content) 30%, transparent); }
+</style>
 </head>
-<body class="bg-base-100 text-base-content font-sans min-h-screen">
+<body style="background:var(--color-base-100); color:var(--color-base-content); font-family:Inter,system-ui,sans-serif; margin:0; min-height:100vh;">
 
-  <!-- Navbar -->
-  <nav class="navbar bg-base-200 border-b border-base-300 px-6 sticky top-0 z-50 backdrop-blur-md bg-base-200/90">
-    <div class="navbar-start gap-3">
-      <a href="/ui/" class="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
-        <img src="/ui/phantom-logo.svg" alt="Phantom" class="w-7 h-7" />
-        <span class="font-semibold text-base tracking-tight">Phantom</span>
+<nav class="phantom-nav" aria-label="Primary">
+  <a href="/ui/" class="phantom-nav-brand">
+    <span class="phantom-nav-avatar-slot" data-agent-avatar>
+      <span class="phantom-nav-logo" data-agent-avatar-fallback data-agent-name-initial>&nbsp;</span>
+    </span>
+    <span data-agent-name>&nbsp;</span>
+  </a>
+  <span style="color:color-mix(in oklab,var(--color-base-content) 25%, transparent);">/</span>
+  <span style="font-size:13px; color:color-mix(in oklab,var(--color-base-content) 60%, transparent);">Welcome</span>
+  <div style="margin-left:auto; display:flex; align-items:center; gap:12px;">
+    <span class="phantom-mono phantom-muted" id="current-date">2026-04-13</span>
+    <button id="theme-toggle" class="phantom-button phantom-button-ghost" style="padding:7px 10px;" aria-label="Toggle theme">
+      <svg id="icon-moon" style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z"/></svg>
+      <svg id="icon-sun" style="width:14px;height:14px;display:none;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z"/></svg>
+    </button>
+  </div>
+</nav>
+
+<main class="phantom-page">
+
+  <section class="phantom-hero">
+    <div class="phantom-hero-avatar-slot" data-agent-avatar>
+      <span class="phantom-hero-letter" data-agent-avatar-fallback data-agent-name-initial>&nbsp;</span>
+    </div>
+    <div class="phantom-hero-copy">
+      <p class="phantom-eyebrow">the agent is awake</p>
+      <h1 class="phantom-display"><span data-agent-name>&nbsp;</span> works <em>alongside you</em>, not for you.</h1>
+      <p class="phantom-lead">An autonomous co-worker that remembers, acts, and evolves in your loop. Chat, schedule jobs, build pages you can bookmark, iterate between messages.</p>
+      <div class="phantom-hero-actions">
+        <a class="phantom-button phantom-button-primary" href="/chat">Talk to <span data-agent-name>&nbsp;</span></a>
+        <a class="phantom-button phantom-button-ghost" href="/ui/dashboard/">Open dashboard</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="phantom-card" style="margin-bottom:var(--space-10);">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--space-5); gap:var(--space-3);">
+      <p class="phantom-eyebrow" style="margin:0;">Agent status</p>
+      <div style="display:flex; align-items:center; gap:var(--space-3);">
+        <span class="phantom-badge phantom-badge-success" id="status-badge">
+          <span class="phantom-dot phantom-dot-live"></span>
+          online
+        </span>
+        <a class="phantom-details-link" href="/health">Details &rarr;</a>
+      </div>
+    </div>
+    <div class="phantom-grid-stats">
+      <div class="phantom-stat">
+        <p class="phantom-stat-label">Agent</p>
+        <p class="phantom-stat-value" id="stat-agent" data-agent-name-lower>&nbsp;</p>
+        <p class="phantom-stat-trend-flat" id="stat-role">-</p>
+      </div>
+      <div class="phantom-stat">
+        <p class="phantom-stat-label">Version</p>
+        <p class="phantom-stat-value phantom-mono" id="stat-version" style="font-size:22px;">-</p>
+        <p class="phantom-stat-trend-flat">stable</p>
+      </div>
+      <div class="phantom-stat">
+        <p class="phantom-stat-label">Uptime</p>
+        <p class="phantom-stat-value" id="stat-uptime">-</p>
+        <p class="phantom-stat-trend-flat">since boot</p>
+      </div>
+      <div class="phantom-stat">
+        <p class="phantom-stat-label">Evolution</p>
+        <p class="phantom-stat-value" id="stat-evolution">Gen -</p>
+        <p class="phantom-stat-trend-flat">current</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="margin-bottom:var(--space-12);">
+    <header class="phantom-section-header">
+      <h2 class="phantom-section-title">What can <span data-agent-name>&nbsp;</span> do?</h2>
+      <p class="phantom-section-sub">Starter prompts, not a menu. <span data-agent-name>&nbsp;</span> decides what to actually do once you hit send.</p>
+    </header>
+    <div class="phantom-tiles-grid" id="phantom-starter-tiles" aria-busy="true">
+      <div class="phantom-tile-skeleton"><div class="phantom-tile-skeleton-bar short" style="width:28px;height:28px;border-radius:var(--radius-sm);"></div><div class="phantom-tile-skeleton-bar tall"></div><div class="phantom-tile-skeleton-bar full"></div><div class="phantom-tile-skeleton-bar short"></div></div>
+      <div class="phantom-tile-skeleton"><div class="phantom-tile-skeleton-bar short" style="width:28px;height:28px;border-radius:var(--radius-sm);"></div><div class="phantom-tile-skeleton-bar tall"></div><div class="phantom-tile-skeleton-bar full"></div><div class="phantom-tile-skeleton-bar short"></div></div>
+      <div class="phantom-tile-skeleton"><div class="phantom-tile-skeleton-bar short" style="width:28px;height:28px;border-radius:var(--radius-sm);"></div><div class="phantom-tile-skeleton-bar tall"></div><div class="phantom-tile-skeleton-bar full"></div><div class="phantom-tile-skeleton-bar short"></div></div>
+    </div>
+  </section>
+
+  <section style="margin-bottom:var(--space-12);">
+    <header class="phantom-section-header">
+      <h2 class="phantom-section-title">Pages <span data-agent-name>&nbsp;</span> has created for you</h2>
+      <p class="phantom-section-sub">HTML your agent has published to this server, newest first.</p>
+    </header>
+    <div class="phantom-pages-list" id="phantom-pages-list" aria-busy="true">
+      <div class="phantom-page-row" aria-hidden="true" style="pointer-events:none; opacity:0.6;">
+        <span class="phantom-page-path">/ui/&hellip;</span>
+        <span class="phantom-page-title">Loading&hellip;</span>
+        <span class="phantom-page-time">&hellip;</span>
+      </div>
+    </div>
+  </section>
+
+  <section style="margin-bottom:var(--space-10);">
+    <h2 class="phantom-h2">Quick links</h2>
+    <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:var(--space-3);">
+
+      <a href="/ui/dashboard/" class="quick-link">
+        <span class="quick-link-icon"><svg style="width:16px;height:16px;" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/></svg></span>
+        <div class="quick-link-body">
+          <p class="quick-link-title">Dashboard</p>
+          <p class="quick-link-desc">/ui/dashboard/</p>
+        </div>
+        <svg class="quick-link-arrow" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
       </a>
-      <span class="text-base-content/20">/</span>
-      <span class="text-sm text-base-content/60 font-medium">Welcome</span>
-    </div>
-    <div class="navbar-end gap-3">
-      <span class="text-xs text-base-content/40 font-mono hidden sm:inline" id="current-date"></span>
-      <button id="theme-toggle" class="btn btn-ghost btn-sm btn-square" aria-label="Toggle theme">
-        <svg id="icon-sun" class="w-4 h-4 hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
-        </svg>
-        <svg id="icon-moon" class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
-        </svg>
-      </button>
-    </div>
-  </nav>
 
-  <main class="max-w-3xl mx-auto px-6 py-16">
-
-    <!-- Header -->
-    <div class="text-center mb-12">
-      <div class="inline-flex items-center gap-3 mb-4">
-        <img src="/ui/phantom-logo.svg" alt="Phantom" class="w-10 h-10" />
-        <h1 class="text-3xl font-semibold tracking-tight">Phantom</h1>
-        <span class="badge badge-sm bg-primary/10 text-primary border-primary/20 font-mono text-xs">agent</span>
-      </div>
-      <p class="text-base text-base-content/50 max-w-lg mx-auto leading-relaxed">
-        Your autonomous AI co-worker. Phantom creates pages here for dashboards,
-        reports, charts, and anything that Slack can't display.
-      </p>
-    </div>
-
-    <!-- Status Card -->
-    <div class="card bg-base-200 border border-base-300 mb-6">
-      <div class="card-body p-6">
-        <div class="flex items-center justify-between mb-5">
-          <h2 class="text-sm font-semibold uppercase tracking-wider text-base-content/50">Agent Status</h2>
-          <span id="status-badge" class="badge badge-sm bg-base-content/10 text-base-content/40 border-base-content/10">
-            checking...
-          </span>
+      <a href="/mcp" class="quick-link">
+        <span class="quick-link-icon"><svg style="width:16px;height:16px;" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 10.5h2.25a2.25 2.25 0 0 0 2.25-2.25V6a2.25 2.25 0 0 0-2.25-2.25H6A2.25 2.25 0 0 0 3.75 6v2.25A2.25 2.25 0 0 0 6 10.5Zm0 9.75h2.25A2.25 2.25 0 0 0 10.5 18v-2.25a2.25 2.25 0 0 0-2.25-2.25H6a2.25 2.25 0 0 0-2.25 2.25V18A2.25 2.25 0 0 0 6 20.25Zm9.75-9.75H18a2.25 2.25 0 0 0 2.25-2.25V6A2.25 2.25 0 0 0 18 3.75h-2.25A2.25 2.25 0 0 0 13.5 6v2.25a2.25 2.25 0 0 0 2.25 2.25Z"/></svg></span>
+        <div class="quick-link-body">
+          <p class="quick-link-title">MCP Endpoint</p>
+          <p class="quick-link-desc">/mcp</p>
         </div>
-
-        <!-- Skeleton (visible while loading) -->
-        <div id="status-skeleton" class="grid grid-cols-2 md:grid-cols-4 gap-6">
-          <div>
-            <p class="text-xs text-base-content/40 uppercase tracking-wider mb-2">Agent</p>
-            <div class="skeleton-line w-20 h-4"></div>
-          </div>
-          <div>
-            <p class="text-xs text-base-content/40 uppercase tracking-wider mb-2">Version</p>
-            <div class="skeleton-line w-16 h-4"></div>
-          </div>
-          <div>
-            <p class="text-xs text-base-content/40 uppercase tracking-wider mb-2">Uptime</p>
-            <div class="skeleton-line w-14 h-4"></div>
-          </div>
-          <div>
-            <p class="text-xs text-base-content/40 uppercase tracking-wider mb-2">Evolution</p>
-            <div class="skeleton-line w-12 h-4"></div>
-          </div>
-        </div>
-
-        <!-- Real data (hidden until loaded) -->
-        <div id="status-grid" class="grid grid-cols-2 md:grid-cols-4 gap-6 hidden">
-          <div>
-            <p class="text-xs text-base-content/40 uppercase tracking-wider">Agent</p>
-            <p class="text-sm font-medium mt-1.5" id="stat-agent">-</p>
-          </div>
-          <div>
-            <p class="text-xs text-base-content/40 uppercase tracking-wider">Version</p>
-            <p class="text-sm font-medium mt-1.5 font-mono" id="stat-version">-</p>
-          </div>
-          <div>
-            <p class="text-xs text-base-content/40 uppercase tracking-wider">Uptime</p>
-            <p class="text-sm font-medium mt-1.5" id="stat-uptime">-</p>
-          </div>
-          <div>
-            <p class="text-xs text-base-content/40 uppercase tracking-wider">Evolution</p>
-            <p class="text-sm font-medium mt-1.5" id="stat-evolution">-</p>
-          </div>
-        </div>
-      </div>
+        <svg class="quick-link-arrow" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+      </a>
     </div>
+  </section>
 
-    <!-- Quick Links -->
-    <div class="card bg-base-200 border border-base-300">
-      <div class="card-body p-6">
-        <h2 class="text-sm font-semibold uppercase tracking-wider text-base-content/50 mb-4">Quick Links</h2>
-        <div class="space-y-2">
-          <a href="/health" target="_blank" class="flex items-center gap-3 p-3 rounded-xl hover:bg-base-100 transition-colors group">
-            <span class="w-8 h-8 rounded-lg bg-success/10 text-success flex items-center justify-center text-sm font-medium">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" /></svg>
-            </span>
-            <div class="flex-1">
-              <p class="text-sm font-medium group-hover:text-primary transition-colors">Health Endpoint</p>
-              <p class="text-xs text-base-content/40">/health - JSON status of all subsystems</p>
-            </div>
-            <svg class="w-4 h-4 text-base-content/20 group-hover:text-base-content/40 transition-colors" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-          </a>
-          <a href="/mcp" target="_blank" class="flex items-center gap-3 p-3 rounded-xl hover:bg-base-100 transition-colors group">
-            <span class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center text-sm font-medium">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 16.875h3.375m0 0h3.375m-3.375 0V13.5m0 3.375v3.375M6 10.5h2.25a2.25 2.25 0 0 0 2.25-2.25V6a2.25 2.25 0 0 0-2.25-2.25H6A2.25 2.25 0 0 0 3.75 6v2.25A2.25 2.25 0 0 0 6 10.5Zm0 9.75h2.25A2.25 2.25 0 0 0 10.5 18v-2.25a2.25 2.25 0 0 0-2.25-2.25H6a2.25 2.25 0 0 0-2.25 2.25V18A2.25 2.25 0 0 0 6 20.25Zm9.75-9.75H18a2.25 2.25 0 0 0 2.25-2.25V6A2.25 2.25 0 0 0 18 3.75h-2.25A2.25 2.25 0 0 0 13.5 6v2.25a2.25 2.25 0 0 0 2.25 2.25Z" /></svg>
-            </span>
-            <div class="flex-1">
-              <p class="text-sm font-medium group-hover:text-primary transition-colors">MCP Endpoint</p>
-              <p class="text-xs text-base-content/40">/mcp - Model Context Protocol for tool access</p>
-            </div>
-            <svg class="w-4 h-4 text-base-content/20 group-hover:text-base-content/40 transition-colors" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-          </a>
-          <a href="/ui/_base.html" class="flex items-center gap-3 p-3 rounded-xl hover:bg-base-100 transition-colors group">
-            <span class="w-8 h-8 rounded-lg bg-info/10 text-info flex items-center justify-center text-sm font-medium">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42" /></svg>
-            </span>
-            <div class="flex-1">
-              <p class="text-sm font-medium group-hover:text-primary transition-colors">Base Template</p>
-              <p class="text-xs text-base-content/40">/_base.html - Design system reference</p>
-            </div>
-            <svg class="w-4 h-4 text-base-content/20 group-hover:text-base-content/40 transition-colors" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-          </a>
-        </div>
-      </div>
-    </div>
+</main>
 
-  </main>
+<footer style="border-top:1px solid var(--color-base-300); margin-top:var(--space-16);">
+  <div class="phantom-page" style="padding:var(--space-4) var(--space-8); display:flex; align-items:center; justify-content:space-between;">
+    <span class="phantom-mono phantom-muted" style="font-size:11px;">Generated by <span data-agent-name>&nbsp;</span></span>
+    <span class="phantom-mono phantom-muted" style="font-size:11px;" id="footer-time">2026-04-13T17:00:00Z</span>
+  </div>
+</footer>
 
-  <!-- Footer -->
-  <footer class="border-t border-base-300 mt-16">
-    <div class="max-w-3xl mx-auto px-6 py-5 flex items-center justify-between text-xs text-base-content/40">
-      <div class="flex items-center gap-2">
-        <img src="/ui/phantom-logo.svg" alt="Phantom" class="w-4 h-4" />
-        <span>Phantom Web UI</span>
-      </div>
-      <span class="font-mono" id="footer-time"></span>
-    </div>
-  </footer>
+<script>
+(function(){
+  var toggle=document.getElementById('theme-toggle');
+  var sun=document.getElementById('icon-sun'); var moon=document.getElementById('icon-moon');
+  function update(){ var d=document.documentElement.getAttribute('data-theme')==='phantom-dark'; sun.style.display=d?'inline':'none'; moon.style.display=d?'none':'inline'; }
+  update();
+  toggle.addEventListener('click',function(){ var c=document.documentElement.getAttribute('data-theme'); var n=c==='phantom-dark'?'phantom-light':'phantom-dark'; document.documentElement.setAttribute('data-theme',n); localStorage.setItem('phantom-theme',n); update(); });
+})();
+document.getElementById('current-date').textContent=new Date().toISOString().split('T')[0];
+document.getElementById('footer-time').textContent=new Date().toISOString();
 
-  <!-- Theme toggle -->
-  <script>
-    (function() {
-      var toggle = document.getElementById('theme-toggle');
-      var sun = document.getElementById('icon-sun');
-      var moon = document.getElementById('icon-moon');
+// Live agent status from /health. Fails silently and leaves placeholders
+// so a broken /health does not mislead viewers with stale numbers.
+(function () {
+  function humanUptime(seconds) {
+    if (typeof seconds !== "number" || seconds < 0) return "-";
+    var d = Math.floor(seconds / 86400);
+    var h = Math.floor((seconds % 86400) / 3600);
+    var m = Math.floor((seconds % 3600) / 60);
+    if (d >= 1) return d + "d " + h + "h";
+    if (h >= 1) return h + "h " + m + "m";
+    return m + "m";
+  }
 
-      function updateIcons() {
-        var theme = document.documentElement.getAttribute('data-theme');
-        var isDark = theme === 'phantom-dark';
-        sun.classList.toggle('hidden', !isDark);
-        moon.classList.toggle('hidden', isDark);
+  function apply(data) {
+    var v = document.getElementById("stat-version");
+    var u = document.getElementById("stat-uptime");
+    var e = document.getElementById("stat-evolution");
+    var roleEl = document.getElementById("stat-role");
+    var badge = document.getElementById("status-badge");
+    if (v) v.textContent = data && data.version ? data.version : "-";
+    if (u) u.textContent = data && typeof data.uptime === "number" ? humanUptime(data.uptime) : "-";
+    if (e) {
+      var gen = data && data.evolution && typeof data.evolution.generation === "number"
+        ? data.evolution.generation : null;
+      e.textContent = gen == null ? "Gen -" : "Gen " + gen;
+    }
+    if (roleEl) {
+      var roleName = data && data.role ? (data.role.name || data.role.id || "") : "";
+      roleEl.textContent = roleName ? roleName + " role" : "-";
+    }
+    if (badge) {
+      while (badge.firstChild) badge.removeChild(badge.firstChild);
+      var dot = document.createElement("span");
+      dot.className = "phantom-dot";
+      var label;
+      if (data && data.status === "ok") {
+        badge.className = "phantom-badge phantom-badge-success";
+        dot.className = "phantom-dot phantom-dot-live";
+        label = "online";
+      } else if (data && data.status === "degraded") {
+        badge.className = "phantom-badge";
+        label = "degraded";
+      } else if (data && data.status) {
+        badge.className = "phantom-badge";
+        label = String(data.status);
+      } else {
+        badge.className = "phantom-badge";
+        label = "unknown";
       }
-
-      updateIcons();
-
-      toggle.addEventListener('click', function() {
-        var current = document.documentElement.getAttribute('data-theme');
-        var next = current === 'phantom-dark' ? 'phantom-light' : 'phantom-dark';
-        document.documentElement.setAttribute('data-theme', next);
-        localStorage.setItem('phantom-theme', next);
-        updateIcons();
-      });
-
-      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
-        if (!localStorage.getItem('phantom-theme')) {
-          var theme = e.matches ? 'phantom-dark' : 'phantom-light';
-          document.documentElement.setAttribute('data-theme', theme);
-          updateIcons();
-        }
-      });
-    })();
-  </script>
-
-  <!-- Data loading -->
-  <script>
-    document.getElementById('current-date').textContent = new Date().toISOString().split('T')[0];
-    document.getElementById('footer-time').textContent = new Date().toISOString();
-
-    function formatUptime(seconds) {
-      if (seconds < 60) return seconds + 's';
-      if (seconds < 3600) return Math.floor(seconds / 60) + 'm ' + (seconds % 60) + 's';
-      if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ' + Math.floor((seconds % 3600) / 60) + 'm';
-      return Math.floor(seconds / 86400) + 'd ' + Math.floor((seconds % 86400) / 3600) + 'h';
+      badge.appendChild(dot);
+      badge.appendChild(document.createTextNode(" " + label));
     }
+  }
 
-    fetch('/health')
-      .then(function(res) { return res.json(); })
-      .then(function(data) {
-        document.getElementById('stat-agent').textContent = data.agent || '-';
-        document.getElementById('stat-version').textContent = data.version || '-';
-        document.getElementById('stat-uptime').textContent = formatUptime(data.uptime || 0);
-        document.getElementById('stat-evolution').textContent = 'Gen ' + (data.evolution?.generation ?? 0);
+  fetch("/health", { credentials: "same-origin" })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(apply)
+    .catch(function () { apply(null); });
+})();
 
-        // Swap skeleton for real data
-        document.getElementById('status-skeleton').classList.add('hidden');
-        document.getElementById('status-grid').classList.remove('hidden');
+// Starter tiles ("What can <name> do?") fetched from /ui/api/starter-prompts.
+// Cardinal Rule: tile titles, descriptions, and prompts flow as bytes from the
+// server response to textContent and encodeURIComponent. No client-side
+// classification, no intent branching. The button just opens /chat with the
+// prompt pre-filled; the agent decides what to do once the user hits send.
+(function () {
+  var ICONS = {
+    chart: '<svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125C16.5 3.504 17.004 3 17.625 3h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></svg>',
+    git: '<svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 6a4.5 4.5 0 0 1 9 0v.75a4.5 4.5 0 0 1-9 0V6ZM7.5 15.75a4.5 4.5 0 0 1 9 0V18a4.5 4.5 0 0 1-9 0v-2.25ZM12 10.5v3"/></svg>',
+    inbox: '<svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 0 1 2.012 1.244l.256.512a2.25 2.25 0 0 0 2.013 1.244h3.218a2.25 2.25 0 0 0 2.013-1.244l.256-.512a2.25 2.25 0 0 1 2.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 0 0-2.15-1.588H6.911a2.25 2.25 0 0 0-2.15 1.588L2.35 13.177a2.25 2.25 0 0 0-.1.661Z"/></svg>',
+    metrics: '<svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h15M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h15M3.75 3h15m-12 3-3 3 3 3m6-3h6m-9 7.5 3-3-3-3"/></svg>',
+    alert: '<svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/></svg>',
+    calendar: '<svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/></svg>',
+    search: '<svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></svg>',
+    globe: '<svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418"/></svg>',
+    generic: '<svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><circle cx="12" cy="12" r="9"/></svg>'
+  };
 
-        var badge = document.getElementById('status-badge');
-        if (data.status === 'ok') {
-          badge.className = 'badge badge-sm bg-success/15 text-success border-success/25';
-          badge.innerHTML = '<span class="status-dot bg-success status-dot-pulse mr-1.5"></span>online';
-        } else {
-          badge.className = 'badge badge-sm bg-warning/15 text-warning border-warning/25';
-          badge.textContent = data.status;
-        }
-      })
-      .catch(function() {
-        document.getElementById('status-skeleton').classList.add('hidden');
-        document.getElementById('status-grid').classList.remove('hidden');
-        document.getElementById('status-badge').className = 'badge badge-sm bg-error/15 text-error border-error/25';
-        document.getElementById('status-badge').textContent = 'unreachable';
-      });
-  </script>
+  function iconSvg(name) {
+    return ICONS[name] || ICONS.generic;
+  }
 
-  <!-- SSE auto-reload -->
-  <script>
-    if (window.EventSource) {
-      var es = new EventSource('/ui/api/events');
-      es.addEventListener('reload', function() { location.reload(); });
+  function renderArrow() {
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("stroke-width", "1.8");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("width", "14");
+    svg.setAttribute("height", "14");
+    svg.setAttribute("aria-hidden", "true");
+    var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("stroke-linejoin", "round");
+    path.setAttribute("d", "m8.25 4.5 7.5 7.5-7.5 7.5");
+    svg.appendChild(path);
+    return svg;
+  }
+
+  function renderTile(tile) {
+    var article = document.createElement("article");
+    article.className = "phantom-tile";
+
+    var iconWrap = document.createElement("div");
+    iconWrap.className = "phantom-tile-icon";
+    iconWrap.setAttribute("aria-hidden", "true");
+    // Icon SVG is our own asset keyed by name, not operator content, so it is
+    // safe to assign via innerHTML. Titles, descriptions, and prompts below
+    // always flow through textContent or encodeURIComponent.
+    iconWrap.innerHTML = iconSvg(String(tile && tile.icon));
+    article.appendChild(iconWrap);
+
+    var h3 = document.createElement("h3");
+    h3.className = "phantom-tile-title";
+    h3.textContent = String(tile && tile.title != null ? tile.title : "");
+    article.appendChild(h3);
+
+    var desc = document.createElement("p");
+    desc.className = "phantom-tile-desc";
+    desc.textContent = String(tile && tile.description != null ? tile.description : "");
+    article.appendChild(desc);
+
+    var cta = document.createElement("a");
+    cta.className = "phantom-button phantom-button-ghost phantom-button-sm phantom-tile-cta";
+    var rawPrompt = tile && tile.prompt != null ? String(tile.prompt) : "";
+    cta.setAttribute("href", "/chat?prefill=" + encodeURIComponent(rawPrompt));
+    cta.appendChild(document.createTextNode("Ask now "));
+    cta.appendChild(renderArrow());
+    article.appendChild(cta);
+
+    return article;
+  }
+
+  function render(tiles) {
+    var grid = document.getElementById("phantom-starter-tiles");
+    if (!grid) return;
+    while (grid.firstChild) grid.removeChild(grid.firstChild);
+    grid.removeAttribute("aria-busy");
+    if (!Array.isArray(tiles) || tiles.length === 0) {
+      var section = grid.parentElement;
+      if (section) section.style.display = "none";
+      return;
     }
-  </script>
+    var frag = document.createDocumentFragment();
+    for (var i = 0; i < tiles.length; i++) {
+      frag.appendChild(renderTile(tiles[i]));
+    }
+    grid.appendChild(frag);
+  }
+
+  fetch("/ui/api/starter-prompts", { credentials: "same-origin" })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) { render(d && d.tiles); })
+    .catch(function () {
+      var grid = document.getElementById("phantom-starter-tiles");
+      if (grid && grid.parentElement) grid.parentElement.style.display = "none";
+    });
+})();
+
+// Pages list ("Pages <name> has created for you") fetched from /ui/api/pages.
+// Empty state deep-links to /chat with a prefilled "build me a dashboard"
+// prompt. All titles flow through textContent so agent-written <title> text
+// cannot inject markup.
+(function () {
+  function relativeTime(iso) {
+    var then = Date.parse(iso);
+    if (Number.isNaN(then)) return "";
+    var diffSec = Math.floor((Date.now() - then) / 1000);
+    if (diffSec < 60) return "just now";
+    if (diffSec < 3600) return Math.floor(diffSec / 60) + "m ago";
+    if (diffSec < 86400) return Math.floor(diffSec / 3600) + "h ago";
+    if (diffSec < 172800) return "yesterday";
+    if (diffSec < 2592000) return Math.floor(diffSec / 86400) + "d ago";
+    return new Date(then).toISOString().split("T")[0];
+  }
+
+  function renderRow(page) {
+    var row = document.createElement("a");
+    row.className = "phantom-page-row";
+    row.setAttribute("href", String(page && page.path ? page.path : "#"));
+
+    var pathSpan = document.createElement("span");
+    pathSpan.className = "phantom-page-path";
+    pathSpan.textContent = String(page && page.path != null ? page.path : "");
+    row.appendChild(pathSpan);
+
+    var titleSpan = document.createElement("span");
+    titleSpan.className = "phantom-page-title";
+    titleSpan.textContent = String(page && page.title != null ? page.title : "");
+    row.appendChild(titleSpan);
+
+    var timeSpan = document.createElement("span");
+    timeSpan.className = "phantom-page-time";
+    timeSpan.textContent = String(page && page.modified_at ? relativeTime(page.modified_at) : "");
+    row.appendChild(timeSpan);
+
+    return row;
+  }
+
+  function renderEmpty(container) {
+    container.removeAttribute("aria-busy");
+    while (container.firstChild) container.removeChild(container.firstChild);
+    var empty = document.createElement("div");
+    empty.className = "phantom-empty";
+    empty.appendChild(document.createTextNode("No pages yet. Ask "));
+    var nameSpan = document.createElement("span");
+    nameSpan.setAttribute("data-agent-name", "");
+    nameSpan.textContent = document.querySelector("[data-agent-name]") && document.querySelector("[data-agent-name]").textContent || "Phantom";
+    empty.appendChild(nameSpan);
+    empty.appendChild(document.createTextNode(" in chat: "));
+    var link = document.createElement("a");
+    var prompt = "Build me a dashboard that shows the three things I care about this week.";
+    link.setAttribute("href", "/chat?prefill=" + encodeURIComponent(prompt));
+    link.textContent = "\u201Cbuild me a dashboard that shows \u2026\u201D";
+    empty.appendChild(link);
+    container.appendChild(empty);
+  }
+
+  function render(pages) {
+    var list = document.getElementById("phantom-pages-list");
+    if (!list) return;
+    list.removeAttribute("aria-busy");
+    while (list.firstChild) list.removeChild(list.firstChild);
+    if (!Array.isArray(pages) || pages.length === 0) {
+      renderEmpty(list);
+      return;
+    }
+    var frag = document.createDocumentFragment();
+    for (var i = 0; i < pages.length; i++) {
+      frag.appendChild(renderRow(pages[i]));
+    }
+    list.appendChild(frag);
+  }
+
+  fetch("/ui/api/pages", { credentials: "same-origin" })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) { render(d && d.pages); })
+    .catch(function () { render([]); });
+})();
+</script>
 </body>
 </html>

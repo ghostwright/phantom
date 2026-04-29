@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="phantom-light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-agent-name-title>{{AGENT_NAME_CAPITALIZED}} sessions</title>
+<link rel="icon" href="data:,">
+<script>(function(){var s=localStorage.getItem('phantom-theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.setAttribute('data-theme',s||(d?'phantom-dark':'phantom-light'));})();</script>
+<script src="/ui/_agent-name.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px; --space-10:40px; --space-12:48px; --space-16:64px;
+  --radius-sm:8px; --radius-md:10px; --radius-lg:14px; --radius-xl:20px; --radius-pill:9999px;
+  --motion-fast:100ms; --motion-base:150ms; --ease-out:cubic-bezier(0.25,0.46,0.45,0.94);
+}
+[data-theme="phantom-light"] { --color-base-100:#faf9f5; --color-base-200:#ffffff; --color-base-300:#ece9df; --color-base-content:#1c1917; --color-primary:#4850c4; --color-primary-content:#ffffff; --color-success:#16a34a; --color-error:#dc2626; --color-warning:#ca8a04; --color-info:#2563eb; color-scheme:light; }
+[data-theme="phantom-dark"] { --color-base-100:#0b0a09; --color-base-200:#161412; --color-base-300:#26211d; --color-base-content:#f7f6f1; --color-primary:#7078e0; --color-primary-content:#0b0a09; --color-success:#4ade80; --color-error:#f87171; --color-warning:#fbbf24; --color-info:#60a5fa; color-scheme:dark; }
+html { transition: background-color 150ms ease, color 150ms ease; }
+body { background:var(--color-base-100); color:var(--color-base-content); font-family:Inter,system-ui,sans-serif; margin:0; min-height:100vh; font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased; }
+
+.phantom-page { max-width:1240px; margin:0 auto; padding:var(--space-8); }
+.phantom-nav { display:flex; align-items:center; gap:var(--space-4); padding:var(--space-3) var(--space-8); border-bottom:1px solid var(--color-base-300); position:sticky; top:0; background:color-mix(in oklab, var(--color-base-100) 85%, transparent); backdrop-filter:blur(8px); z-index:10; }
+.phantom-nav-brand { display:inline-flex; align-items:center; gap:var(--space-2); font-family:'Instrument Serif',Georgia,serif; font-size:18px; color:var(--color-base-content); text-decoration:none; }
+.phantom-nav-logo { display:inline-flex; width:22px; height:22px; border-radius:6px; background:var(--color-primary); align-items:center; justify-content:center; color:var(--color-primary-content); font-family:'Instrument Serif',serif; font-size:14px; }
+.phantom-breadcrumb-sep { color:color-mix(in oklab, var(--color-base-content) 25%, transparent); }
+.phantom-breadcrumb { font-size:13px; color:color-mix(in oklab, var(--color-base-content) 60%, transparent); }
+
+.phantom-h1 { font-family:'Instrument Serif',Georgia,serif; font-size:32px; font-weight:500; line-height:1.15; letter-spacing:-0.01em; margin:0 0 var(--space-3); }
+.phantom-eyebrow { font-family:Inter,sans-serif; font-size:11px; font-weight:600; line-height:1; letter-spacing:0.08em; text-transform:uppercase; color:color-mix(in oklab, var(--color-base-content) 50%, transparent); margin:0 0 var(--space-2); }
+.phantom-body { font-family:Inter,sans-serif; font-size:14px; line-height:1.55; }
+.phantom-muted { color:color-mix(in oklab, var(--color-base-content) 55%, transparent); }
+.phantom-mono { font-family:'JetBrains Mono',monospace; font-size:12px; font-variant-numeric:tabular-nums; }
+
+.phantom-card { background:var(--color-base-200); border:1px solid var(--color-base-300); border-radius:var(--radius-lg); padding:var(--space-5); transition:border-color 150ms; }
+
+.phantom-row { display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap; }
+
+.phantom-chip { display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:5px 12px; border:1px solid var(--color-base-300); border-radius:var(--radius-pill); background:transparent; color:var(--color-base-content); cursor:pointer; transition:border-color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.phantom-chip:hover { border-color:color-mix(in oklab, var(--color-primary) 40%, var(--color-base-300)); background:color-mix(in oklab, var(--color-primary) 4%, transparent); }
+.phantom-chip[aria-pressed="true"] { background:color-mix(in oklab, var(--color-primary) 10%, transparent); border-color:color-mix(in oklab, var(--color-primary) 45%, var(--color-base-300)); color:var(--color-primary); }
+
+.phantom-table { width:100%; border-collapse:collapse; font-family:Inter,sans-serif; }
+.phantom-table thead th { text-align:left; font-size:11px; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; color:color-mix(in oklab, var(--color-base-content) 45%, transparent); padding:var(--space-3) var(--space-4); border-bottom:1px solid var(--color-base-300); }
+.phantom-table tbody td { padding:var(--space-3) var(--space-4); font-size:13px; border-bottom:1px solid color-mix(in oklab, var(--color-base-300) 50%, transparent); font-variant-numeric:tabular-nums; }
+.phantom-table tbody tr:last-child td { border-bottom:none; }
+.phantom-table tbody tr:hover td { background:color-mix(in oklab, var(--color-primary) 4%, transparent); }
+
+.phantom-badge { display:inline-flex; align-items:center; gap:6px; font:500 11px/1 Inter,sans-serif; padding:4px 9px; border-radius:var(--radius-pill); }
+.phantom-badge-success { background:color-mix(in oklab, var(--color-success) 12%, transparent); color:var(--color-success); }
+.phantom-badge-warning { background:color-mix(in oklab, var(--color-warning) 14%, transparent); color:var(--color-warning); }
+.phantom-badge-error { background:color-mix(in oklab, var(--color-error) 12%, transparent); color:var(--color-error); }
+.phantom-badge-info { background:color-mix(in oklab, var(--color-info) 12%, transparent); color:var(--color-info); }
+.phantom-badge-neutral { background:color-mix(in oklab, var(--color-base-content) 8%, transparent); color:color-mix(in oklab, var(--color-base-content) 75%, transparent); }
+
+.phantom-button-ghost { background:transparent; color:var(--color-base-content); border:1px solid var(--color-base-300); border-radius:var(--radius-pill); font-size:12px; padding:6px 14px; cursor:pointer; transition:background-color 100ms; font-family:Inter,sans-serif; }
+.phantom-button-ghost:hover { background:color-mix(in oklab, var(--color-base-content) 5%, transparent); }
+.phantom-button-sm { font-size:12px; padding:6px 12px; }
+</style>
+</head>
+<body>
+
+<nav class="phantom-nav" aria-label="Primary">
+  <a href="/ui/" class="phantom-nav-brand">
+    <span class="phantom-nav-logo" data-agent-name-initial>&nbsp;</span>
+    <span data-agent-name>&nbsp;</span>
+  </a>
+  <span class="phantom-breadcrumb-sep">/</span>
+  <span class="phantom-breadcrumb">Sessions</span>
+  <div style="margin-left:auto;">
+    <button id="theme-toggle" class="phantom-button-ghost">Toggle theme</button>
+  </div>
+</nav>
+
+<main class="phantom-page">
+
+  <section style="margin-bottom:var(--space-8);">
+    <p class="phantom-eyebrow">History</p>
+    <h1 class="phantom-h1">Session history</h1>
+    <p class="phantom-body phantom-muted">Every conversation, scheduled job run, and tool invocation, in chronological order.</p>
+  </section>
+
+  <section class="phantom-row" style="margin-bottom:var(--space-5);">
+    <button class="phantom-chip" aria-pressed="true">All</button>
+    <button class="phantom-chip">Slack</button>
+    <button class="phantom-chip">CLI</button>
+    <button class="phantom-chip">Scheduled</button>
+    <button class="phantom-chip">Active</button>
+    <button class="phantom-chip">Completed</button>
+    <button class="phantom-chip">Errored</button>
+  </section>
+
+  <section class="phantom-card" style="padding:0;">
+    <table class="phantom-table">
+      <thead>
+        <tr>
+          <th>Channel</th><th>Started</th><th>Turns</th><th>Duration</th><th>Cost</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>slack #ops</td><td><span class="phantom-mono">14:22:11</span></td><td>11</td><td>4m 02s</td><td>$0.84</td><td><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+        <tr><td>slack #infra</td><td><span class="phantom-mono">13:48:37</span></td><td>4</td><td>1m 18s</td><td>$0.31</td><td><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+        <tr><td>scheduled nightly-summary</td><td><span class="phantom-mono">09:00:00</span></td><td>1</td><td>22s</td><td>$0.12</td><td><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+        <tr><td>slack DM Cheema</td><td><span class="phantom-mono">08:41:55</span></td><td>23</td><td>11m 47s</td><td>$1.92</td><td><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+        <tr><td>slack #cli-tools</td><td><span class="phantom-mono">07:55:02</span></td><td>6</td><td>2m 11s</td><td>$0.41</td><td><span class="phantom-badge phantom-badge-warning">stuck</span></td></tr>
+        <tr><td>cli local</td><td><span class="phantom-mono">06:30:18</span></td><td>2</td><td>0m 47s</td><td>$0.08</td><td><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+        <tr><td>scheduled hourly-pulse</td><td><span class="phantom-mono">06:00:00</span></td><td>1</td><td>14s</td><td>$0.04</td><td><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+        <tr><td>webhook deploy-hook</td><td><span class="phantom-mono">05:42:33</span></td><td>3</td><td>1m 02s</td><td>$0.18</td><td><span class="phantom-badge phantom-badge-error">failed</span></td></tr>
+        <tr><td>slack #design</td><td><span class="phantom-mono">04:18:09</span></td><td>9</td><td>3m 22s</td><td>$0.66</td><td><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+        <tr><td>scheduled nightly-summary</td><td><span class="phantom-mono">03:00:00</span></td><td>1</td><td>19s</td><td>$0.10</td><td><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+        <tr><td>slack #ops</td><td><span class="phantom-mono">02:14:51</span></td><td>5</td><td>1m 33s</td><td>$0.27</td><td><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+        <tr><td>cli ssh-debug</td><td><span class="phantom-mono">01:55:30</span></td><td>14</td><td>6m 18s</td><td>$1.04</td><td><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+        <tr><td>slack DM Murphy</td><td><span class="phantom-mono">23:42:08</span></td><td>17</td><td>9m 02s</td><td>$1.41</td><td><span class="phantom-badge phantom-badge-info">active</span></td></tr>
+        <tr><td>email inbound</td><td><span class="phantom-mono">22:18:44</span></td><td>2</td><td>0m 41s</td><td>$0.07</td><td><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+        <tr><td>slack #infra</td><td><span class="phantom-mono">21:55:19</span></td><td>8</td><td>2m 47s</td><td>$0.58</td><td><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="phantom-row" style="margin-top:var(--space-5); justify-content:space-between;">
+    <span class="phantom-mono phantom-muted">15 of 1,284 sessions</span>
+    <div class="phantom-row" style="gap:var(--space-2);">
+      <button class="phantom-button-ghost phantom-button-sm">Prev</button>
+      <button class="phantom-button-ghost phantom-button-sm">Next</button>
+    </div>
+  </section>
+
+</main>
+
+<script>
+(function(){
+  var toggle=document.getElementById('theme-toggle');
+  toggle.addEventListener('click',function(){ var c=document.documentElement.getAttribute('data-theme'); var n=c==='phantom-dark'?'phantom-light':'phantom-dark'; document.documentElement.setAttribute('data-theme',n); localStorage.setItem('phantom-theme',n); });
+  document.querySelectorAll('.phantom-chip').forEach(function(chip){
+    chip.addEventListener('click',function(){
+      document.querySelectorAll('.phantom-chip').forEach(function(c){c.setAttribute('aria-pressed','false');});
+      chip.setAttribute('aria-pressed','true');
+    });
+  });
+})();
+</script>
+</body>
+</html>

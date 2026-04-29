@@ -62,7 +62,7 @@ describe("phantom init", () => {
 		expect(config.name).toBe("phantom");
 		expect(config.role).toBe("swe");
 		expect(config.port).toBe(3100);
-		expect(config.model).toBe("claude-sonnet-4-6");
+		expect(config.model).toBe("claude-opus-4-7");
 	});
 
 	test("accepts custom name and role", async () => {
@@ -307,13 +307,13 @@ describe("phantom init --yes (environment-aware)", () => {
 		expect(config.model).toBe("claude-opus-4-6");
 	});
 
-	test("defaults model to claude-sonnet-4-6", async () => {
+	test("defaults model to claude-opus-4-7", async () => {
 		const { runInit } = await import("../init.ts");
 		await runInit(["--yes"]);
 
 		const raw = readFileSync("config/phantom.yaml", "utf-8");
 		const config = YAML.parse(raw);
-		expect(config.model).toBe("claude-sonnet-4-6");
+		expect(config.model).toBe("claude-opus-4-7");
 	});
 
 	test("reads PHANTOM_DOMAIN from environment", async () => {

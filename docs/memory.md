@@ -8,6 +8,8 @@ Phantom has a three-tier vector memory backed by Qdrant and Ollama. Memory persi
 Query -> Embedding (Ollama) -> Hybrid Search (Qdrant) -> Ranked Results -> Context Builder -> Prompt
 ```
 
+All channels share the same memory system. A conversation in the web chat at `/chat` produces the same episodic, semantic, and procedural memories as a Slack conversation. Switching channels does not lose context.
+
 ### Tier 1: Episodic Memory
 
 Session transcripts stored as embeddings. Each episode contains:

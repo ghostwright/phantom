@@ -3,7 +3,10 @@ import { dirname, resolve } from "node:path";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { avatarUrlIfPresent } from "./api/identity.ts";
 import { publish } from "./events.ts";
+import { escapeHtml } from "./html.ts";
+import { agentNameInitial, capitalizeAgentName } from "./name.ts";
 import { getPublicDir } from "./serve.ts";
 import { createSession } from "./session.ts";
 
@@ -15,7 +18,10 @@ function err(message: string): { content: Array<{ type: "text"; text: string }>;
 	return { content: [{ type: "text" as const, text: JSON.stringify({ error: message }) }], isError: true };
 }
 
-export function createWebUiToolServer(publicUrl: string | undefined): McpSdkServerConfigWithInstance {
+export function createWebUiToolServer(
+	publicUrl: string | undefined,
+	agentName: string,
+): McpSdkServerConfigWithInstance {
 	const baseUrl = publicUrl ?? "";
 
 	const createPageTool = tool(
@@ -51,7 +57,8 @@ export function createWebUiToolServer(publicUrl: string | undefined): McpSdkServ
 				if (input.html) {
 					htmlContent = input.html;
 				} else {
-					htmlContent = wrapInBaseTemplate(input.title ?? "Phantom", input.content ?? "");
+					const fallbackTitle = capitalizeAgentName(agentName);
+					htmlContent = wrapInBaseTemplate(input.title ?? fallbackTitle, input.content ?? "", agentName);
 				}
 
 				// Ensure parent directory exists
@@ -109,10 +116,12 @@ export function createWebUiToolServer(publicUrl: string | undefined): McpSdkServ
 	});
 }
 
-function wrapInBaseTemplate(title: string, content: string): string {
+export function wrapInBaseTemplate(title: string, content: string, agentName: string): string {
 	const now = new Date();
 	const date = now.toISOString().split("T")[0];
 	const timestamp = now.toISOString();
+	const displayName = capitalizeAgentName(agentName);
+	const initial = agentNameInitial(displayName);
 
 	// Read base template and substitute placeholders
 	const baseTemplatePath = resolve(getPublicDir(), "_base.html");
@@ -121,23 +130,54 @@ function wrapInBaseTemplate(title: string, content: string): string {
 		template = readFileSync(baseTemplatePath, "utf-8");
 	} catch {
 		// Fallback: generate a minimal template if _base.html is missing
-		return generateFallbackPage(title, content, date, timestamp);
+		return generateFallbackPage(title, content, date, timestamp, displayName);
 	}
 
-	return template
-		.replace(/\{\{TITLE\}\}/g, escapeHtml(title))
-		.replace(/\{\{DATE\}\}/g, date)
-		.replace(/\{\{TIMESTAMP\}\}/g, timestamp)
-		.replace("<!-- Agent writes content here -->", content);
+	// Single-pass substitution avoids re-scanning substituted values (second-order
+	// injection) and the final split/join for the content marker sidesteps the
+	// String.replace dollar-pattern trap ($&, $`, $', $$) that would otherwise
+	// corrupt agent-authored content containing those sequences.
+	//
+	// Avatar substitution is baked in at generation time rather than at render:
+	// the agent creates these pages once, and the file is served static
+	// thereafter. If the operator updates the avatar later, the img src of
+	// /ui/avatar picks up the new bytes (same URL, new ETag).
+	const avatarUrl = avatarUrlIfPresent();
+	const avatarImg = avatarUrl
+		? `<img src="${avatarUrl}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;margin-right:8px;" onerror="this.remove();this.nextElementSibling.style.display='inline-flex';">`
+		: "";
+	const fallbackDisplay = avatarUrl ? "none" : "inline-flex";
+	const substitutions: Record<string, string> = {
+		"{{TITLE}}": escapeHtml(title),
+		"{{DATE}}": date,
+		"{{TIMESTAMP}}": timestamp,
+		"{{AGENT_NAME_CAPITALIZED}}": escapeHtml(displayName),
+		"{{AGENT_NAME_INITIAL}}": escapeHtml(initial),
+		"{{AGENT_AVATAR_IMG}}": avatarImg,
+		"{{AGENT_FALLBACK_DISPLAY}}": fallbackDisplay,
+	};
+	const withPlaceholders = template.replace(
+		/\{\{(TITLE|DATE|TIMESTAMP|AGENT_NAME_CAPITALIZED|AGENT_NAME_INITIAL|AGENT_AVATAR_IMG|AGENT_FALLBACK_DISPLAY)\}\}/g,
+		(match) => substitutions[match] ?? match,
+	);
+	return withPlaceholders.split("<!-- Agent writes content here -->").join(content);
 }
 
-function generateFallbackPage(title: string, content: string, date: string, timestamp: string): string {
+function generateFallbackPage(
+	title: string,
+	content: string,
+	date: string,
+	timestamp: string,
+	displayName: string,
+): string {
+	const safeName = escapeHtml(displayName);
+	const initial = escapeHtml(agentNameInitial(displayName));
 	return `<!DOCTYPE html>
 <html lang="en" data-theme="phantom-light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(title)} - Phantom</title>
+  <title>${escapeHtml(title)} - ${safeName}</title>
   <script>
     (function() {
       var s = localStorage.getItem('phantom-theme');
@@ -175,8 +215,8 @@ function generateFallbackPage(title: string, content: string, date: string, time
 <body class="bg-base-100 text-base-content font-sans min-h-screen">
   <nav class="navbar bg-base-200/90 border-b border-base-300 px-6 sticky top-0 z-50 backdrop-blur-md">
     <div class="navbar-start gap-3">
-      <div class="w-7 h-7 rounded-lg bg-primary flex items-center justify-center text-primary-content text-xs font-bold">P</div>
-      <span class="font-semibold text-base">Phantom</span>
+      <div class="w-7 h-7 rounded-lg bg-primary flex items-center justify-center text-primary-content text-xs font-bold">${initial}</div>
+      <span class="font-semibold text-base">${safeName}</span>
       <span class="text-base-content/20">/</span>
       <span class="text-sm text-base-content/60">${escapeHtml(title)}</span>
     </div>
@@ -185,13 +225,9 @@ function generateFallbackPage(title: string, content: string, date: string, time
   <main class="max-w-7xl mx-auto px-6 py-8">${content}</main>
   <footer class="border-t border-base-300 mt-16">
     <div class="max-w-7xl mx-auto px-6 py-5 flex justify-between text-xs text-base-content/40">
-      <span>Generated by Phantom</span><span>${timestamp}</span>
+      <span>Generated by ${safeName}</span><span>${timestamp}</span>
     </div>
   </footer>
 </body>
 </html>`;
-}
-
-function escapeHtml(text: string): string {
-	return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

@@ -174,6 +174,37 @@ export class SemanticStore {
 		return { must };
 	}
 
+	async scroll(opts: {
+		limit: number;
+		offset?: string | number;
+	}): Promise<{ items: SemanticFact[]; nextOffset: string | number | null }> {
+		const { points, nextOffset } = await this.qdrant.scroll(this.collectionName, {
+			limit: opts.limit,
+			offset: opts.offset,
+			orderBy: { key: "valid_from", direction: "desc" },
+			withPayload: true,
+		});
+		return { items: points.map((p) => this.payloadToFact(p)), nextOffset };
+	}
+
+	async getById(id: string): Promise<SemanticFact | null> {
+		const { points } = await this.qdrant.scroll(this.collectionName, {
+			limit: 1,
+			filter: { must: [{ has_id: [id] }] },
+			withPayload: true,
+		});
+		if (points.length === 0) return null;
+		return this.payloadToFact(points[0]);
+	}
+
+	async deleteById(id: string): Promise<void> {
+		await this.qdrant.deletePoint(this.collectionName, id);
+	}
+
+	async count(): Promise<number> {
+		return this.qdrant.countPoints(this.collectionName);
+	}
+
 	private payloadToFact(result: QdrantSearchResult): SemanticFact {
 		const p = result.payload;
 		return {

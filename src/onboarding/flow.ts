@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { SlackChannel } from "../channels/slack.ts";
+import type { SlackTransport } from "../channels/slack-transport.ts";
 import type { RoleTemplate } from "../roles/types.ts";
 import { type OwnerProfile, type SlackProfileClient, hasPersonalizationData, profileOwner } from "./profiler.ts";
 import { markOnboardingStarted } from "./state.ts";
@@ -44,7 +44,7 @@ function buildPersonalizedIntro(phantomName: string, _role: RoleTemplate, profil
  * Falls back to generic intro if profiling fails or no owner is configured.
  */
 export async function startOnboarding(
-	slack: SlackChannel,
+	slack: SlackTransport,
 	target: OnboardingTarget,
 	phantomName: string,
 	role: RoleTemplate,

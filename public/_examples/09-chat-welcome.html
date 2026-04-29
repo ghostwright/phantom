@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="phantom-light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-agent-name-title>Chat with {{AGENT_NAME_CAPITALIZED}}</title>
+<link rel="icon" href="data:,">
+<script>(function(){var s=localStorage.getItem('phantom-theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.setAttribute('data-theme',s||(d?'phantom-dark':'phantom-light'));})();</script>
+<script src="/ui/_agent-name.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px; --space-10:40px; --space-12:48px; --space-16:64px;
+  --radius-sm:8px; --radius-md:10px; --radius-lg:14px; --radius-pill:9999px;
+  --motion-fast:100ms; --motion-base:150ms; --ease-out:cubic-bezier(0.25,0.46,0.45,0.94);
+}
+[data-theme="phantom-light"] { --color-base-100:#faf9f5; --color-base-200:#ffffff; --color-base-300:#ece9df; --color-base-content:#1c1917; --color-primary:#4850c4; --color-primary-content:#ffffff; --color-success:#16a34a; --color-error:#dc2626; --color-warning:#ca8a04; --color-info:#2563eb; color-scheme:light; }
+[data-theme="phantom-dark"] { --color-base-100:#0b0a09; --color-base-200:#161412; --color-base-300:#26211d; --color-base-content:#f7f6f1; --color-primary:#7078e0; --color-primary-content:#0b0a09; --color-success:#4ade80; --color-error:#f87171; --color-warning:#fbbf24; --color-info:#60a5fa; color-scheme:dark; }
+html { transition: background-color 150ms ease, color 150ms ease; }
+body { background:var(--color-base-100); color:var(--color-base-content); font-family:Inter,system-ui,sans-serif; margin:0; min-height:100vh; font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased; padding-bottom:140px; }
+
+.phantom-page-narrow { max-width:760px; margin:0 auto; padding:var(--space-12) var(--space-6); }
+.phantom-nav { display:flex; align-items:center; gap:var(--space-4); padding:var(--space-3) var(--space-8); border-bottom:1px solid var(--color-base-300); position:sticky; top:0; background:color-mix(in oklab, var(--color-base-100) 85%, transparent); backdrop-filter:blur(8px); z-index:10; }
+.phantom-nav-brand { display:inline-flex; align-items:center; gap:var(--space-2); font-family:'Instrument Serif',Georgia,serif; font-size:18px; color:var(--color-base-content); text-decoration:none; }
+.phantom-nav-logo { display:inline-flex; width:22px; height:22px; border-radius:6px; background:var(--color-primary); align-items:center; justify-content:center; color:var(--color-primary-content); font-family:'Instrument Serif',serif; font-size:14px; }
+
+.phantom-display { font-family:'Instrument Serif',Georgia,serif; font-size:clamp(40px,6vw,56px); font-weight:400; line-height:1.05; letter-spacing:-0.01em; text-align:center; margin:0 0 var(--space-4); }
+.phantom-display em { font-style:italic; }
+.phantom-lead { font-family:Inter,sans-serif; font-size:16px; line-height:1.6; color:color-mix(in oklab, var(--color-base-content) 65%, transparent); text-align:center; max-width:560px; margin:0 auto var(--space-12); }
+.phantom-eyebrow { font-family:Inter,sans-serif; font-size:10px; font-weight:600; line-height:1; letter-spacing:0.08em; text-transform:uppercase; color:color-mix(in oklab, var(--color-base-content) 50%, transparent); margin:0 0 var(--space-2); }
+.phantom-body { font-family:Inter,sans-serif; font-size:14px; line-height:1.55; }
+
+.brand-mark { display:flex; flex-direction:column; align-items:center; margin-bottom:var(--space-6); }
+.brand-square { width:48px; height:48px; border-radius:12px; background:var(--color-primary); display:flex; align-items:center; justify-content:center; color:var(--color-primary-content); font-family:'Instrument Serif',serif; font-size:24px; font-weight:500; }
+
+.phantom-grid-cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:var(--space-3); margin-bottom:var(--space-12); }
+.phantom-card-hover { background:var(--color-base-200); border:1px solid var(--color-base-300); border-radius:var(--radius-md); padding:var(--space-4); cursor:pointer; transition:border-color 150ms, transform 150ms; }
+.phantom-card-hover:hover { border-color:color-mix(in oklab, var(--color-primary) 35%, var(--color-base-300)); transform:translateY(-1px); }
+
+.composer { position:fixed; left:0; right:0; bottom:0; background:color-mix(in oklab, var(--color-base-100) 92%, transparent); backdrop-filter:blur(12px); border-top:1px solid var(--color-base-300); padding:var(--space-4) var(--space-6); }
+.composer-inner { max-width:760px; margin:0 auto; display:flex; align-items:flex-end; gap:var(--space-3); }
+.phantom-textarea { flex:1; box-sizing:border-box; font-family:Inter,sans-serif; font-size:15px; line-height:1.5; background:var(--color-base-200); color:var(--color-base-content); border:1px solid var(--color-base-300); border-radius:var(--radius-lg); padding:14px 16px; resize:none; min-height:52px; max-height:160px; transition:border-color 150ms; }
+.phantom-textarea:focus { outline:none; border-color:var(--color-primary); }
+
+.phantom-button-primary { display:inline-flex; align-items:center; justify-content:center; gap:var(--space-2); font-family:Inter,sans-serif; font-size:14px; font-weight:500; padding:14px 22px; border-radius:var(--radius-pill); border:1px solid transparent; background:var(--color-primary); color:var(--color-primary-content); cursor:pointer; transition:opacity 100ms; }
+.phantom-button-primary:hover { opacity:0.88; }
+</style>
+</head>
+<body>
+
+<nav class="phantom-nav" aria-label="Primary">
+  <a href="/ui/" class="phantom-nav-brand">
+    <span class="phantom-nav-logo" data-agent-name-initial>&nbsp;</span>
+    <span data-agent-name>&nbsp;</span>
+  </a>
+</nav>
+
+<main class="phantom-page-narrow">
+
+  <div class="brand-mark">
+    <div class="brand-square" data-agent-name-initial>&nbsp;</div>
+  </div>
+
+  <h1 class="phantom-display">Hi, I am <em><span data-agent-name>&nbsp;</span></em>.</h1>
+  <p class="phantom-lead">Ask me anything. I can build dashboards, schedule jobs, debug your infra, or just have a conversation. Pick a starting point or write your own.</p>
+
+  <section class="phantom-grid-cards">
+
+    <div class="phantom-card-hover">
+      <p class="phantom-eyebrow">Build</p>
+      <p class="phantom-body">Make me a dashboard for our daily token spend.</p>
+    </div>
+
+    <div class="phantom-card-hover">
+      <p class="phantom-eyebrow">Debug</p>
+      <p class="phantom-body">Why did the deploy script fail this morning?</p>
+    </div>
+
+    <div class="phantom-card-hover">
+      <p class="phantom-eyebrow">Schedule</p>
+      <p class="phantom-body">Every weekday at 9am, summarize open PRs.</p>
+    </div>
+
+    <div class="phantom-card-hover">
+      <p class="phantom-eyebrow">Search</p>
+      <p class="phantom-body">What did we decide about the auth flow last week?</p>
+    </div>
+
+    <div class="phantom-card-hover">
+      <p class="phantom-eyebrow">Plan</p>
+      <p class="phantom-body">Help me think through the v2 evolution validator.</p>
+    </div>
+
+    <div class="phantom-card-hover">
+      <p class="phantom-eyebrow">Compose</p>
+      <p class="phantom-body">Draft an email to the design team about the new vocabulary.</p>
+    </div>
+
+  </section>
+
+</main>
+
+<div class="composer">
+  <div class="composer-inner">
+    <textarea class="phantom-textarea" placeholder="Message..."></textarea>
+    <button class="phantom-button-primary">Send</button>
+  </div>
+</div>
+
+</body>
+</html>

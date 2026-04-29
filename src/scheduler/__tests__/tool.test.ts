@@ -12,6 +12,7 @@ function createMockRuntime() {
 			cost: { totalUsd: 0.01, inputTokens: 100, outputTokens: 50, modelUsage: {} },
 			durationMs: 500,
 		})),
+		isSessionBusy: mock((_channel: string, _conversationId: string) => false),
 		setMemoryContextBuilder: mock(() => {}),
 		setEvolvedConfig: mock(() => {}),
 		setRoleTemplate: mock(() => {}),

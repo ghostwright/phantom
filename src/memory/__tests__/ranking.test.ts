@@ -75,4 +75,20 @@ describe("memory ranking", () => {
 		expect(shouldIncludeEpisodeInContext(staleWeak)).toBe(false);
 		expect(shouldIncludeEpisodeInContext(durableRepeat)).toBe(true);
 	});
+
+	test("invalid timestamps degrade gracefully", () => {
+		const score = calculateEpisodeRecallScore(
+			0.5,
+			{
+				importance: 0.6,
+				accessCount: 2,
+				startedAt: "not-a-date",
+				lastAccessedAt: "still-not-a-date",
+				decayRate: 1,
+			},
+			"metadata",
+		);
+
+		expect(score).toBeFinite();
+	});
 });

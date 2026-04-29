@@ -113,6 +113,66 @@ export class MemorySystem {
 		return { episodesCreated: 0, factsExtracted: 0, proceduresDetected: 0, durationMs: 0 };
 	}
 
+	// Dashboard read/delete surface. Scroll paginates by recency; getById fetches
+	// one item; deleteById is the operator-confirmed write path used by the
+	// Memory explorer tab. Counts power the health strip.
+	async scrollEpisodes(opts: {
+		limit: number;
+		offset?: string | number;
+	}): Promise<{ items: Episode[]; nextOffset: string | number | null }> {
+		return this.episodic.scroll(opts);
+	}
+
+	async scrollFacts(opts: {
+		limit: number;
+		offset?: string | number;
+	}): Promise<{ items: SemanticFact[]; nextOffset: string | number | null }> {
+		return this.semantic.scroll(opts);
+	}
+
+	async scrollProcedures(opts: {
+		limit: number;
+		offset?: string | number;
+	}): Promise<{ items: Procedure[]; nextOffset: string | number | null }> {
+		return this.procedural.scroll(opts);
+	}
+
+	async getEpisodeById(id: string): Promise<Episode | null> {
+		return this.episodic.getById(id);
+	}
+
+	async getFactById(id: string): Promise<SemanticFact | null> {
+		return this.semantic.getById(id);
+	}
+
+	async getProcedureById(id: string): Promise<Procedure | null> {
+		return this.procedural.getById(id);
+	}
+
+	async deleteEpisode(id: string): Promise<void> {
+		return this.episodic.deleteById(id);
+	}
+
+	async deleteFact(id: string): Promise<void> {
+		return this.semantic.deleteById(id);
+	}
+
+	async deleteProcedure(id: string): Promise<void> {
+		return this.procedural.deleteById(id);
+	}
+
+	async countEpisodes(): Promise<number> {
+		return this.episodic.count();
+	}
+
+	async countFacts(): Promise<number> {
+		return this.semantic.count();
+	}
+
+	async countProcedures(): Promise<number> {
+		return this.procedural.count();
+	}
+
 	getEpisodicStore(): EpisodicStore {
 		return this.episodic;
 	}

@@ -30,7 +30,7 @@ What actually happened.
 - **Docker version:** (run `docker --version`)
 - **Phantom version:** (check `http://localhost:3100/health` or `package.json`)
 - **Deployment method:** Docker / bare metal
-- **Model:** (e.g., Opus 4.6)
+- **Model:** (e.g., Opus 4.7)
 
 ## Logs
 

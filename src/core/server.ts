@@ -1,13 +1,21 @@
+import { resolve as pathResolve } from "node:path";
 import type { AgentRuntime } from "../agent/runtime.ts";
-import type { SlackChannel } from "../channels/slack.ts";
+import { tryHandleSlackHttp } from "../channels/slack-http-routes.ts";
+import type { SlackTransport } from "../channels/slack-transport.ts";
+import { handleEmailLogin } from "../chat/email-login.ts";
 import type { PhantomConfig } from "../config/types.ts";
 import { AuthMiddleware } from "../mcp/auth.ts";
 import { loadMcpConfig } from "../mcp/config.ts";
 import type { PhantomMcpServer } from "../mcp/server.ts";
 import type { MemoryHealth } from "../memory/types.ts";
-import { handleUiRequest } from "../ui/serve.ts";
+import type { SchedulerHealthSummary } from "../scheduler/health.ts";
+import { avatarUrlIfPresent, handleAvatarGet } from "../ui/api/identity.ts";
+import { getPublicDir, handleUiRequest } from "../ui/serve.ts";
+import { type HealthPayload, renderHealthHtml } from "./health-page.ts";
 
-const VERSION = "0.18.2";
+const VERSION = "0.20.2";
+
+type ChatHandler = (req: Request) => Promise<Response | null>;
 
 type MemoryHealthProvider = () => Promise<MemoryHealth>;
 type EvolutionVersionProvider = () => number;
@@ -17,9 +25,10 @@ type RoleInfoProvider = () => { id: string; name: string } | null;
 type OnboardingStatusProvider = () => string;
 type WebhookHandler = (req: Request) => Promise<Response>;
 type PeerHealthProvider = () => Record<string, { healthy: boolean; latencyMs: number; error?: string }>;
+type SchedulerHealthProvider = () => SchedulerHealthSummary | null;
 type TriggerDeps = {
 	runtime: AgentRuntime;
-	slackChannel?: SlackChannel;
+	slackChannel?: SlackTransport;
 	ownerUserId?: string;
 };
 
@@ -31,7 +40,9 @@ let roleInfoProvider: RoleInfoProvider | null = null;
 let onboardingStatusProvider: OnboardingStatusProvider | null = null;
 let webhookHandler: WebhookHandler | null = null;
 let peerHealthProvider: PeerHealthProvider | null = null;
+let schedulerHealthProvider: SchedulerHealthProvider | null = null;
 let triggerDeps: TriggerDeps | null = null;
+let chatHandler: ChatHandler | null = null;
 
 export function setMemoryHealthProvider(provider: MemoryHealthProvider): void {
 	memoryHealthProvider = provider;
@@ -65,11 +76,27 @@ export function setPeerHealthProvider(provider: PeerHealthProvider): void {
 	peerHealthProvider = provider;
 }
 
+export function setSchedulerHealthProvider(provider: SchedulerHealthProvider): void {
+	schedulerHealthProvider = provider;
+}
+
 export function setTriggerDeps(deps: TriggerDeps): void {
 	triggerDeps = deps;
 }
 
+export function setChatHandler(handler: ChatHandler): void {
+	chatHandler = handler;
+}
+
 let triggerAuth: AuthMiddleware | null = null;
+
+// Content negotiation: return HTML only when the client accepts text/html.
+// curl defaults to Accept: */* (no match), Docker healthcheck uses curl, MCP
+// clients send application/json. Browsers lead with text/html.
+function wantsHtml(acceptHeader: string | null): boolean {
+	if (!acceptHeader) return false;
+	return acceptHeader.toLowerCase().includes("text/html");
+}
 
 export function startServer(config: PhantomConfig, startedAt: number): ReturnType<typeof Bun.serve> {
 	const mcpConfig = loadMcpConfig();
@@ -97,22 +124,34 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 
 				const onboardingStatus = onboardingStatusProvider ? onboardingStatusProvider() : null;
 				const peers = peerHealthProvider ? peerHealthProvider() : null;
+				const scheduler = schedulerHealthProvider ? schedulerHealthProvider() : null;
 
-				return Response.json({
+				const payload: HealthPayload = {
 					status,
 					uptime: Math.floor((Date.now() - startedAt) / 1000),
 					version: VERSION,
 					agent: config.name,
+					avatar_url: avatarUrlIfPresent(),
 					...(config.public_url ? { public_url: config.public_url } : {}),
 					role: roleInfo ?? { id: config.role, name: config.role },
 					channels,
 					memory,
-					evolution: {
-						generation: evolutionGeneration,
-					},
+					evolution: { generation: evolutionGeneration },
 					...(onboardingStatus ? { onboarding: onboardingStatus } : {}),
 					...(peers && Object.keys(peers).length > 0 ? { peers } : {}),
-				});
+					...(scheduler ? { scheduler } : {}),
+				};
+
+				// ?format=json overrides content negotiation so the HTML page can
+				// re-fetch itself as JSON without juggling Accept headers.
+				const formatOverride = url.searchParams.get("format");
+				if (formatOverride !== "json" && req.method === "GET" && wantsHtml(req.headers.get("Accept"))) {
+					return new Response(renderHealthHtml(payload), {
+						headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+					});
+				}
+
+				return Response.json(payload);
 			}
 
 			if (url.pathname === "/mcp") {
@@ -130,6 +169,14 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 				return handleTrigger(req);
 			}
 
+			// Slack HTTP-mode ingress: phantom-slack-events on the gateway side
+			// forwards verified Slack events here through phantomd. The channel
+			// holds the per-tenant gateway signing secret; the helper returns
+			// `null` when this is not a Slack path, so we fall through to the
+			// remaining routes without overlap.
+			const slackResponse = await tryHandleSlackHttp(req);
+			if (slackResponse) return slackResponse;
+
 			if (url.pathname === "/webhook") {
 				if (!webhookHandler) {
 					return Response.json({ status: "error", message: "Webhook channel not configured" }, { status: 503 });
@@ -137,8 +184,41 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 				return webhookHandler(req);
 			}
 
+			if (url.pathname === "/login/email" && req.method === "POST") {
+				const publicUrl = config.public_url ?? `http://localhost:${config.port}`;
+				return handleEmailLogin(req, publicUrl, config.name, config.domain ?? "ghostwright.dev");
+			}
+
+			// Public PWA/SW-scoped mirror of the operator avatar. Service
+			// workers cannot reliably reach /ui/* across the /chat/ scope, so
+			// we expose the same bytes under /chat/icon. Same headers as
+			// /ui/avatar.
+			if (url.pathname === "/chat/icon" && req.method === "GET") {
+				return handleAvatarGet(req);
+			}
+			if (url.pathname === "/chat/icon") {
+				return new Response("Method not allowed", { status: 405, headers: { Allow: "GET" } });
+			}
+
+			if (url.pathname.startsWith("/chat") && chatHandler) {
+				const response = await chatHandler(req);
+				if (response) return response;
+			}
+
+			// Public publishing surface. Agents drop HTML, XML, or assets
+			// under public/public/*. Served without auth so Googlebot,
+			// OpenGraph scrapers, and the open web can read them.
+			// Traversal-defended via path.resolve + containment check.
+			if (url.pathname === "/public" || url.pathname === "/public/" || url.pathname.startsWith("/public/")) {
+				return handlePublicRequest(url);
+			}
+
 			if (url.pathname.startsWith("/ui")) {
 				return handleUiRequest(req);
+			}
+
+			if (url.pathname === "/" || url.pathname === "") {
+				return Response.redirect("/ui/", 302);
 			}
 
 			return Response.json({ error: "Not found" }, { status: 404 });
@@ -147,6 +227,44 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 
 	console.log(`[phantom] HTTP server listening on port ${config.port}`);
 	return server;
+}
+
+async function handlePublicRequest(url: URL): Promise<Response> {
+	const publicRoot = pathResolve(getPublicDir(), "public");
+	const isRoot = url.pathname === "/public" || url.pathname === "/public/";
+	const rawRel = isRoot ? "index.html" : url.pathname.slice("/public/".length);
+	// Decode percent-escapes so traversal sequences like ..%2F become visible
+	// to the containment check below. A malformed escape is rejected outright.
+	let rel: string;
+	try {
+		rel = decodeURIComponent(rawRel);
+	} catch {
+		return new Response("Forbidden", { status: 403 });
+	}
+	if (rel.includes("\0")) {
+		return new Response("Forbidden", { status: 403 });
+	}
+	const candidate = pathResolve(publicRoot, rel);
+	if (candidate !== publicRoot && !candidate.startsWith(`${publicRoot}/`)) {
+		return new Response("Forbidden", { status: 403 });
+	}
+	const file = Bun.file(candidate);
+	if (await file.exists()) {
+		return new Response(file, {
+			headers: { "Cache-Control": "public, max-age=300" },
+		});
+	}
+	// Directory-style index.html fallback (e.g. /public/blog/ -> public/public/blog/index.html)
+	const indexCandidate = pathResolve(candidate, "index.html");
+	if (indexCandidate !== candidate && indexCandidate.startsWith(`${publicRoot}/`)) {
+		const indexFile = Bun.file(indexCandidate);
+		if (await indexFile.exists()) {
+			return new Response(indexFile, {
+				headers: { "Cache-Control": "public, max-age=300" },
+			});
+		}
+	}
+	return new Response("Not found", { status: 404 });
 }
 
 async function handleTrigger(req: Request): Promise<Response> {
@@ -178,7 +296,7 @@ async function handleTrigger(req: Request): Promise<Response> {
 		return Response.json({ status: "error", message: "Missing required field: task" }, { status: 400 });
 	}
 
-	const conversationId = `trigger:${Date.now()}`;
+	const conversationId = `trigger:${crypto.randomUUID()}`;
 	const source = body.source ?? "http";
 
 	try {

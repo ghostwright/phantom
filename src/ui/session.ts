@@ -15,6 +15,7 @@ type MagicLink = {
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const MAGIC_LINK_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const PREVIEW_SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 const sessions = new Map<string, Session>();
 const magicLinks = new Map<string, MagicLink>();
@@ -38,6 +39,22 @@ export function createSession(): { sessionToken: string; magicToken: string } {
 	});
 
 	return { sessionToken, magicToken };
+}
+
+// Mint a short-lived session for phantom_preview_page. The returned token is
+// injected as a cookie into the Playwright BrowserContext so the preview tool
+// can authenticate against /ui/<path> without minting a magic link. The short
+// TTL bounds blast radius: if the cookie ever leaks out of the container, it
+// self-destructs in ten minutes and cannot be refreshed.
+export function createPreviewSession(): { sessionToken: string } {
+	const sessionToken = randomBytes(32).toString("base64url");
+	const now = Date.now();
+	sessions.set(sessionToken, {
+		token: sessionToken,
+		createdAt: now,
+		expiresAt: now + PREVIEW_SESSION_TTL_MS,
+	});
+	return { sessionToken };
 }
 
 export function isValidSession(token: string): boolean {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{TITLE}} - Phantom</title>
+  <title>{{TITLE}} - {{AGENT_NAME_CAPITALIZED}}</title>
 
   <!-- Flash prevention: set theme before any paint -->
   <script>
@@ -15,12 +15,12 @@
     })();
   </script>
 
-  <!-- Fonts -->
+  <!-- Fonts: Instrument Serif (display), Inter (UI), JetBrains Mono (code) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-  <!-- DaisyUI + Tailwind -->
+  <!-- DaisyUI + Tailwind (unchanged, base layer) -->
   <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 
@@ -28,8 +28,6 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css" id="hljs-light">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css" id="hljs-dark" disabled>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
-
-  <!-- Sync hljs sheets before paint -->
   <script>
     (function() {
       var theme = document.documentElement.getAttribute('data-theme');
@@ -41,323 +39,967 @@
     })();
   </script>
 
-  <!-- Phantom Design System: theme variables for Tailwind v4 browser CDN -->
+  <!-- DaisyUI theme variables (Tailwind v4 parser-safe block) -->
   <style type="text/tailwindcss">
     @theme {
-      --color-phantom: #0891b2;
-      --color-phantom-bright: #22d3ee;
-      --color-phantom-dim: #0e7490;
+      --color-phantom: #5e6ad2;
+      --color-phantom-ink: #141413;
+      --color-phantom-cream: #faf9f5;
       --font-family-sans: 'Inter', system-ui, -apple-system, sans-serif;
+      --font-family-serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;
       --font-family-mono: 'JetBrains Mono', ui-monospace, monospace;
     }
 
-    /* ---- Light Theme (Default) ---- */
+    /* Light theme: warm cream, serif accent, dark-ink primary */
     [data-theme="phantom-light"] {
-      --color-base-100: #fafaf9;
+      --color-base-100: #faf9f5;
       --color-base-200: #ffffff;
-      --color-base-300: #e7e5e4;
+      --color-base-300: #ece9df;
       --color-base-content: #1c1917;
 
-      --color-primary: #0891b2;
+      --color-primary: #4850c4;
       --color-primary-content: #ffffff;
 
       --color-secondary: #57534e;
       --color-secondary-content: #ffffff;
 
-      --color-accent: #0891b2;
+      --color-accent: #4850c4;
       --color-accent-content: #ffffff;
 
-      --color-neutral: #f5f5f4;
+      --color-neutral: #f1efe6;
       --color-neutral-content: #57534e;
 
       --color-info: #2563eb;
       --color-info-content: #ffffff;
-
       --color-success: #16a34a;
       --color-success-content: #ffffff;
-
       --color-warning: #ca8a04;
       --color-warning-content: #ffffff;
-
       --color-error: #dc2626;
       --color-error-content: #ffffff;
 
-      --radius-box: 0.75rem;
-      --radius-field: 0.625rem;
-      --radius-selector: 0.5rem;
+      --radius-box: 14px;
+      --radius-field: 10px;
+      --radius-selector: 8px;
       --border: 1px;
       --depth: 1;
       --noise: 0;
-
       color-scheme: light;
     }
 
-    /* ---- Dark Theme ---- */
+    /* Dark theme: warm deep near-black, same indigo, same serif */
     [data-theme="phantom-dark"] {
-      --color-base-100: #0c0a09;
-      --color-base-200: #1c1917;
-      --color-base-300: #292524;
-      --color-base-content: #fafaf9;
+      --color-base-100: #0b0a09;
+      --color-base-200: #161412;
+      --color-base-300: #26211d;
+      --color-base-content: #f7f6f1;
 
-      --color-primary: #22d3ee;
-      --color-primary-content: #0c0a09;
+      --color-primary: #7078e0;
+      --color-primary-content: #0b0a09;
 
       --color-secondary: #a8a29e;
-      --color-secondary-content: #0c0a09;
+      --color-secondary-content: #0b0a09;
 
-      --color-accent: #22d3ee;
-      --color-accent-content: #0c0a09;
+      --color-accent: #7078e0;
+      --color-accent-content: #0b0a09;
 
-      --color-neutral: #1c1917;
+      --color-neutral: #161412;
       --color-neutral-content: #a8a29e;
 
       --color-info: #60a5fa;
-      --color-info-content: #0c0a09;
-
+      --color-info-content: #0b0a09;
       --color-success: #4ade80;
-      --color-success-content: #0c0a09;
-
+      --color-success-content: #0b0a09;
       --color-warning: #fbbf24;
-      --color-warning-content: #0c0a09;
-
+      --color-warning-content: #0b0a09;
       --color-error: #f87171;
-      --color-error-content: #0c0a09;
+      --color-error-content: #0b0a09;
 
-      --radius-box: 0.75rem;
-      --radius-field: 0.625rem;
-      --radius-selector: 0.5rem;
+      --radius-box: 14px;
+      --radius-field: 10px;
+      --radius-selector: 8px;
       --border: 1px;
       --depth: 1;
       --noise: 0;
-
       color-scheme: dark;
     }
   </style>
 
-  <!-- Custom CSS kept outside text/tailwindcss to avoid Tailwind v4 browser CDN parse errors
-       when var() references are used inside linear-gradient and other complex values -->
+  <!-- Phantom design tokens and vocabulary (plain CSS, var() safe here) -->
   <style>
-    html {
-      transition: background-color 0.2s ease, color 0.2s ease;
+    /* === Root tokens: spacing, motion, z-index === */
+    :root {
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-5: 20px;
+      --space-6: 24px;
+      --space-8: 32px;
+      --space-10: 40px;
+      --space-12: 48px;
+      --space-16: 64px;
+
+      --radius-xs: 6px;
+      --radius-sm: 8px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --radius-xl: 20px;
+      --radius-pill: 9999px;
+
+      --motion-fast: 100ms;
+      --motion-base: 150ms;
+      --motion-slow: 300ms;
+      --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      --ease-reveal: cubic-bezier(0.4, 0, 0.2, 1);
+      --ease-pulse: cubic-bezier(0.4, 0, 0.6, 1);
+
+      --z-raised: 1;
+      --z-nav: 10;
+      --z-dropdown: 100;
+      --z-modal: 1000;
+      --z-toast: 10000;
+
+      --shadow-card-hover: 0 4px 16px rgba(0, 0, 0, 0.06);
+      --shadow-modal: rgba(60, 66, 87, 0.08) 0 7px 14px 0, rgba(0, 0, 0, 0.12) 0 3px 6px 0;
+      --shadow-toast: 0 8px 24px rgba(0, 0, 0, 0.12);
     }
 
-    @keyframes fadeIn {
+    [data-theme="phantom-dark"] {
+      --shadow-card-hover: 0 4px 16px rgba(0, 0, 0, 0.3);
+      --shadow-modal: rgba(0, 0, 0, 0.4) 0 8px 20px 0, rgba(0, 0, 0, 0.3) 0 3px 6px 0;
+      --shadow-toast: 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    /* === Body baseline === */
+    html {
+      transition: background-color var(--motion-base) ease, color var(--motion-base) ease;
+    }
+
+    body {
+      font-feature-settings: "ss01", "cv11";
+      font-variant-numeric: tabular-nums;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    @keyframes phantom-fade-in {
       from { opacity: 0; transform: translateY(6px); }
       to { opacity: 1; transform: translateY(0); }
     }
 
-    main {
-      animation: fadeIn 0.3s ease-out;
-    }
-
-    .card {
-      transition: box-shadow 0.15s ease, border-color 0.15s ease;
-    }
-
-    .card-hover:hover {
-      box-shadow: 0 4px 16px rgba(0,0,0,0.06);
-      border-color: var(--color-base-300);
-    }
-
-    [data-theme="phantom-dark"] .card-hover:hover {
-      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
-    }
-
-    .table th {
-      font-size: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      opacity: 0.6;
-    }
-
-    .status-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 9999px;
-      display: inline-block;
-    }
-
-    .status-dot-pulse {
-      animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-    }
-
-    @keyframes pulse {
+    @keyframes phantom-pulse {
       0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
+      50% { opacity: 0.55; }
     }
 
-    .skeleton-line {
-      height: 14px;
-      border-radius: 6px;
-      background: linear-gradient(90deg, var(--color-base-300) 25%, transparent 50%, var(--color-base-300) 75%);
-      background-size: 200% 100%;
-      animation: shimmer 1.5s infinite;
-    }
-
-    @keyframes shimmer {
+    @keyframes phantom-shimmer {
       0% { background-position: 200% 0; }
       100% { background-position: -200% 0; }
     }
 
-    .trend-up { color: var(--color-success); }
-    .trend-down { color: var(--color-error); }
-    .trend-flat { color: var(--color-secondary); }
-
-    @keyframes slideUp {
-      from { opacity: 0; transform: translateY(12px); }
-      to { opacity: 1; transform: translateY(0); }
+    main {
+      animation: phantom-fade-in var(--motion-slow) var(--ease-reveal);
     }
+
+    /* === Layout primitives === */
+    .phantom-page {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: var(--space-6) var(--space-8);
+    }
+    .phantom-page-narrow {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: var(--space-6) var(--space-8);
+    }
+    .phantom-section { margin-bottom: var(--space-10); }
+    .phantom-section + .phantom-section { margin-top: var(--space-10); }
+
+    .phantom-row { display: flex; gap: var(--space-4); align-items: center; }
+    .phantom-col { display: flex; flex-direction: column; gap: var(--space-4); }
+
+    .phantom-grid-stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: var(--space-4);
+    }
+    .phantom-grid-main-side {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: var(--space-6);
+    }
+    .phantom-grid-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: var(--space-4);
+    }
+    @media (max-width: 900px) {
+      .phantom-grid-stats { grid-template-columns: repeat(2, 1fr); }
+      .phantom-grid-main-side { grid-template-columns: 1fr; }
+    }
+
+    .phantom-divider {
+      height: 1px;
+      background: var(--color-base-300);
+      border: 0;
+      margin: var(--space-6) 0;
+    }
+
+    /* === Typography === */
+    .phantom-display {
+      font-family: var(--font-family-serif);
+      font-size: clamp(40px, 5vw, 60px);
+      font-weight: 400;
+      line-height: 1.05;
+      letter-spacing: -0.01em;
+      color: var(--color-base-content);
+      margin: 0 0 var(--space-4);
+    }
+    .phantom-display em {
+      font-style: italic;
+      font-weight: 400;
+    }
+
+    .phantom-h1 {
+      font-family: var(--font-family-serif);
+      font-size: 32px;
+      font-weight: 500;
+      line-height: 1.15;
+      letter-spacing: -0.01em;
+      color: var(--color-base-content);
+      margin: 0 0 var(--space-3);
+    }
+
+    .phantom-h2 {
+      font-family: var(--font-family-serif);
+      font-size: 22px;
+      font-weight: 500;
+      line-height: 1.25;
+      letter-spacing: -0.005em;
+      color: var(--color-base-content);
+      margin: 0 0 var(--space-3);
+    }
+
+    .phantom-h3 {
+      font-family: var(--font-family-sans);
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.3;
+      letter-spacing: -0.002em;
+      color: var(--color-base-content);
+      margin: 0 0 var(--space-2);
+    }
+
+    .phantom-eyebrow {
+      font-family: var(--font-family-sans);
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
+      margin: 0 0 var(--space-2);
+    }
+
+    .phantom-lead {
+      font-family: var(--font-family-sans);
+      font-size: 16px;
+      font-weight: 400;
+      line-height: 1.6;
+      letter-spacing: -0.005em;
+      color: color-mix(in oklab, var(--color-base-content) 72%, transparent);
+    }
+
+    .phantom-body {
+      font-family: var(--font-family-sans);
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 1.55;
+      letter-spacing: -0.003em;
+      color: var(--color-base-content);
+    }
+
+    .phantom-muted {
+      color: color-mix(in oklab, var(--color-base-content) 55%, transparent);
+    }
+
+    .phantom-mono {
+      font-family: var(--font-family-mono);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0;
+    }
+
+    .phantom-meta {
+      font-family: var(--font-family-sans);
+      font-size: 12px;
+      font-weight: 400;
+      color: color-mix(in oklab, var(--color-base-content) 55%, transparent);
+    }
+
+    /* === Cards === */
+    .phantom-card {
+      background: var(--color-base-200);
+      border: 1px solid var(--color-base-300);
+      border-radius: var(--radius-lg);
+      padding: var(--space-5);
+      transition: border-color var(--motion-base) var(--ease-out),
+                  background-color var(--motion-base) var(--ease-out);
+    }
+    .phantom-card:hover {
+      border-color: color-mix(in oklab, var(--color-primary) 28%, var(--color-base-300));
+    }
+
+    .phantom-card-compact {
+      padding: var(--space-3) var(--space-4);
+      border-radius: var(--radius-md);
+    }
+
+    .phantom-card-hover {
+      cursor: pointer;
+    }
+    .phantom-card-hover:hover {
+      box-shadow: var(--shadow-card-hover);
+      border-color: color-mix(in oklab, var(--color-primary) 35%, var(--color-base-300));
+    }
+
+    /* === Stats === */
+    .phantom-stat {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-1);
+    }
+    .phantom-stat-label {
+      font: 600 11px/1 var(--font-family-sans);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: color-mix(in oklab, var(--color-base-content) 48%, transparent);
+      margin: 0;
+    }
+    .phantom-stat-value {
+      font-family: var(--font-family-sans);
+      font-size: 28px;
+      font-weight: 500;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+      color: var(--color-base-content);
+      margin: 0;
+    }
+    .phantom-stat-value-serif {
+      font-family: var(--font-family-serif);
+      font-weight: 500;
+    }
+    .phantom-stat-trend-up {
+      color: var(--color-success);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .phantom-stat-trend-down {
+      color: var(--color-error);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .phantom-stat-trend-flat {
+      color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
+      font-size: 12px;
+    }
+
+    /* === Tables === */
+    .phantom-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--font-family-sans);
+    }
+    .phantom-table thead th {
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: color-mix(in oklab, var(--color-base-content) 45%, transparent);
+      padding: var(--space-3) var(--space-4);
+      border-bottom: 1px solid var(--color-base-300);
+    }
+    .phantom-table tbody td {
+      padding: var(--space-3) var(--space-4);
+      font-size: 13px;
+      line-height: 1.4;
+      border-bottom: 1px solid color-mix(in oklab, var(--color-base-300) 50%, transparent);
+      font-variant-numeric: tabular-nums;
+    }
+    .phantom-table tbody tr:last-child td { border-bottom: none; }
+    .phantom-table tbody tr:hover td {
+      background: color-mix(in oklab, var(--color-primary) 4%, transparent);
+    }
+    .phantom-table-compact tbody td { padding: var(--space-2) var(--space-3); font-size: 12px; }
+
+    /* === Badges and chips === */
+    .phantom-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-family-sans);
+      font-size: 11px;
+      font-weight: 500;
+      line-height: 1;
+      padding: 4px 9px;
+      border-radius: var(--radius-pill);
+      background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+      color: color-mix(in oklab, var(--color-base-content) 75%, transparent);
+    }
+    .phantom-badge-primary { background: color-mix(in oklab, var(--color-primary) 12%, transparent); color: var(--color-primary); }
+    .phantom-badge-success { background: color-mix(in oklab, var(--color-success) 12%, transparent); color: var(--color-success); }
+    .phantom-badge-error   { background: color-mix(in oklab, var(--color-error) 12%, transparent);   color: var(--color-error); }
+    .phantom-badge-warning { background: color-mix(in oklab, var(--color-warning) 14%, transparent); color: var(--color-warning); }
+    .phantom-badge-info    { background: color-mix(in oklab, var(--color-info) 12%, transparent);    color: var(--color-info); }
+    .phantom-badge-neutral { background: color-mix(in oklab, var(--color-base-content) 6%, transparent); color: color-mix(in oklab, var(--color-base-content) 70%, transparent); }
+
+    .phantom-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      padding: 4px 10px;
+      border: 1px solid var(--color-base-300);
+      border-radius: var(--radius-pill);
+      background: transparent;
+      color: var(--color-base-content);
+      cursor: pointer;
+      transition: border-color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out);
+    }
+    .phantom-chip:hover {
+      border-color: color-mix(in oklab, var(--color-primary) 40%, var(--color-base-300));
+      background: color-mix(in oklab, var(--color-primary) 4%, transparent);
+    }
+    .phantom-chip[aria-pressed="true"] {
+      background: color-mix(in oklab, var(--color-primary) 10%, transparent);
+      border-color: color-mix(in oklab, var(--color-primary) 45%, var(--color-base-300));
+      color: var(--color-primary);
+    }
+
+    /* === Status dot === */
+    .phantom-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+      background: var(--color-base-content);
+    }
+    .phantom-dot-success { background: var(--color-success); }
+    .phantom-dot-warning { background: var(--color-warning); }
+    .phantom-dot-error { background: var(--color-error); }
+    .phantom-dot-info { background: var(--color-info); }
+    .phantom-dot-live {
+      background: var(--color-success);
+      box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-success) 25%, transparent);
+      animation: phantom-pulse 2s var(--ease-pulse) infinite;
+    }
+
+    /* === Timeline === */
+    .phantom-timeline {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+      position: relative;
+      padding-left: var(--space-6);
+    }
+    .phantom-timeline::before {
+      content: '';
+      position: absolute;
+      top: 6px;
+      bottom: 6px;
+      left: 5px;
+      width: 1px;
+      background: var(--color-base-300);
+    }
+    .phantom-timeline-item {
+      position: relative;
+      padding-bottom: var(--space-2);
+    }
+    .phantom-timeline-item::before {
+      content: '';
+      position: absolute;
+      left: calc(var(--space-6) * -1 + 1px);
+      top: 6px;
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--color-base-200);
+      border: 1.5px solid var(--color-primary);
+    }
+    .phantom-timeline-item-time {
+      font-size: 11px;
+      color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
+      font-variant-numeric: tabular-nums;
+      margin-bottom: 4px;
+    }
+    .phantom-timeline-item-title {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--color-base-content);
+      margin-bottom: 4px;
+    }
+    .phantom-timeline-item-body {
+      font-size: 13px;
+      color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
+      line-height: 1.5;
+    }
+
+    /* === Empty state === */
+    .phantom-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: var(--space-12) var(--space-4);
+      text-align: center;
+      border: 1px dashed var(--color-base-300);
+      border-radius: var(--radius-lg);
+      color: color-mix(in oklab, var(--color-base-content) 60%, transparent);
+    }
+    .phantom-empty-icon {
+      width: 40px;
+      height: 40px;
+      margin-bottom: var(--space-3);
+      opacity: 0.35;
+    }
+    .phantom-empty-title {
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--color-base-content);
+      margin-bottom: var(--space-1);
+    }
+    .phantom-empty-body {
+      font-size: 13px;
+      max-width: 360px;
+      line-height: 1.55;
+    }
+
+    /* === Forms === */
+    .phantom-form-row {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      margin-bottom: var(--space-4);
+    }
+    .phantom-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: color-mix(in oklab, var(--color-base-content) 72%, transparent);
+      letter-spacing: -0.003em;
+    }
+    .phantom-input, .phantom-textarea, .phantom-select {
+      width: 100%;
+      font-family: var(--font-family-sans);
+      font-size: 14px;
+      line-height: 1.4;
+      background: var(--color-base-100);
+      color: var(--color-base-content);
+      border: 1px solid var(--color-base-300);
+      border-radius: var(--radius-md);
+      padding: 10px 14px;
+      transition: border-color var(--motion-base) var(--ease-out),
+                  box-shadow var(--motion-base) var(--ease-out);
+    }
+    .phantom-input::placeholder, .phantom-textarea::placeholder {
+      color: color-mix(in oklab, var(--color-base-content) 40%, transparent);
+    }
+    .phantom-input:focus, .phantom-textarea:focus, .phantom-select:focus {
+      outline: none;
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 18%, transparent);
+    }
+    .phantom-textarea {
+      min-height: 120px;
+      resize: vertical;
+      font-family: var(--font-family-mono);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .phantom-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-2);
+      font-family: var(--font-family-sans);
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 1;
+      padding: 11px 18px;
+      border-radius: var(--radius-pill);
+      border: 1px solid transparent;
+      background: var(--color-base-content);
+      color: var(--color-base-100);
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity var(--motion-fast) var(--ease-out),
+                  transform var(--motion-fast) var(--ease-out);
+    }
+    .phantom-button:hover { opacity: 0.88; }
+    .phantom-button:active { transform: translateY(1px); }
+    .phantom-button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .phantom-button-primary {
+      background: var(--color-primary);
+      color: var(--color-primary-content);
+    }
+
+    .phantom-button-ghost {
+      background: transparent;
+      color: var(--color-base-content);
+      border-color: var(--color-base-300);
+    }
+    .phantom-button-ghost:hover {
+      background: color-mix(in oklab, var(--color-base-content) 5%, transparent);
+      opacity: 1;
+    }
+
+    .phantom-button-danger {
+      background: var(--color-error);
+      color: var(--color-error-content);
+    }
+
+    .phantom-button-sm {
+      font-size: 13px;
+      padding: 7px 14px;
+    }
+
+    /* === Alerts === */
+    .phantom-alert {
+      display: flex;
+      gap: var(--space-3);
+      align-items: flex-start;
+      padding: var(--space-3) var(--space-4);
+      border: 1px solid var(--color-base-300);
+      border-radius: var(--radius-md);
+      background: var(--color-base-200);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .phantom-alert-success { border-color: color-mix(in oklab, var(--color-success) 40%, var(--color-base-300)); background: color-mix(in oklab, var(--color-success) 6%, transparent); }
+    .phantom-alert-error { border-color: color-mix(in oklab, var(--color-error) 40%, var(--color-base-300)); background: color-mix(in oklab, var(--color-error) 6%, transparent); }
+    .phantom-alert-warning { border-color: color-mix(in oklab, var(--color-warning) 45%, var(--color-base-300)); background: color-mix(in oklab, var(--color-warning) 8%, transparent); }
+    .phantom-alert-info { border-color: color-mix(in oklab, var(--color-info) 40%, var(--color-base-300)); background: color-mix(in oklab, var(--color-info) 6%, transparent); }
+
+    /* === Toast === */
+    .phantom-toast {
+      position: fixed;
+      bottom: var(--space-6);
+      right: var(--space-6);
+      padding: var(--space-3) var(--space-4);
+      border: 1px solid var(--color-base-300);
+      border-radius: var(--radius-md);
+      background: var(--color-base-200);
+      box-shadow: var(--shadow-toast);
+      font-size: 13px;
+      z-index: var(--z-toast);
+      animation: phantom-fade-in var(--motion-slow) var(--ease-reveal);
+    }
+
+    /* === Modal === */
+    .phantom-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: color-mix(in oklab, var(--color-base-100) 60%, transparent);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      z-index: var(--z-modal);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: var(--space-6);
+    }
+    .phantom-modal {
+      background: var(--color-base-200);
+      border: 1px solid var(--color-base-300);
+      border-radius: var(--radius-xl);
+      padding: var(--space-6);
+      max-width: 480px;
+      width: 100%;
+      box-shadow: var(--shadow-modal);
+      animation: phantom-fade-in var(--motion-slow) var(--ease-reveal);
+    }
+    .phantom-sheet {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: min(420px, 90vw);
+      background: var(--color-base-200);
+      border-left: 1px solid var(--color-base-300);
+      padding: var(--space-6);
+      z-index: var(--z-modal);
+      box-shadow: var(--shadow-modal);
+      overflow-y: auto;
+    }
+
+    /* === Nav === */
+    .phantom-nav {
+      display: flex;
+      align-items: center;
+      gap: var(--space-4);
+      padding: var(--space-3) var(--space-8);
+      border-bottom: 1px solid var(--color-base-300);
+      background: color-mix(in oklab, var(--color-base-100) 85%, transparent);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: var(--z-nav);
+    }
+    .phantom-nav-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-family: var(--font-family-serif);
+      font-size: 18px;
+      font-weight: 400;
+      color: var(--color-base-content);
+      text-decoration: none;
+    }
+    .phantom-nav-item {
+      font-size: 13px;
+      font-weight: 500;
+      color: color-mix(in oklab, var(--color-base-content) 65%, transparent);
+      padding: 6px 10px;
+      border-radius: var(--radius-sm);
+      text-decoration: none;
+      transition: color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out);
+    }
+    .phantom-nav-item:hover {
+      color: var(--color-base-content);
+      background: color-mix(in oklab, var(--color-base-content) 6%, transparent);
+    }
+    .phantom-nav-item[aria-current="page"] {
+      color: var(--color-primary);
+      background: color-mix(in oklab, var(--color-primary) 8%, transparent);
+    }
+    .phantom-nav-date {
+      display: none;
+    }
+    @media (min-width: 640px) {
+      .phantom-nav-date {
+        display: inline;
+      }
+    }
+    .phantom-breadcrumb {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: 13px;
+      color: color-mix(in oklab, var(--color-base-content) 60%, transparent);
+    }
+    .phantom-breadcrumb-sep {
+      color: color-mix(in oklab, var(--color-base-content) 25%, transparent);
+    }
+
+    .phantom-tabs {
+      display: inline-flex;
+      gap: 2px;
+      padding: 3px;
+      background: color-mix(in oklab, var(--color-base-content) 5%, transparent);
+      border-radius: var(--radius-md);
+    }
+    .phantom-tab {
+      font-size: 13px;
+      font-weight: 500;
+      padding: 7px 14px;
+      border-radius: var(--radius-sm);
+      color: color-mix(in oklab, var(--color-base-content) 65%, transparent);
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+      transition: color var(--motion-fast), background-color var(--motion-fast);
+    }
+    .phantom-tab[aria-selected="true"] {
+      background: var(--color-base-200);
+      color: var(--color-base-content);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    /* === Skeleton === */
+    .phantom-skeleton {
+      height: 14px;
+      border-radius: 6px;
+      background: linear-gradient(90deg,
+        var(--color-base-300) 25%,
+        color-mix(in oklab, var(--color-base-300) 50%, transparent) 50%,
+        var(--color-base-300) 75%);
+      background-size: 200% 100%;
+      animation: phantom-shimmer 1.5s infinite;
+    }
+
+    /* === Chat vocabulary (Project 4 seeds) === */
+    .phantom-chat-thread {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+      padding: var(--space-4) 0;
+    }
+    .phantom-chat-bubble-user {
+      align-self: flex-end;
+      max-width: 72%;
+      padding: var(--space-3) var(--space-4);
+      background: var(--color-primary);
+      color: var(--color-primary-content);
+      border-radius: var(--radius-lg);
+      border-bottom-right-radius: 4px;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .phantom-chat-bubble-assistant {
+      align-self: flex-start;
+      max-width: 80%;
+      padding: var(--space-3) var(--space-4);
+      background: var(--color-base-200);
+      border: 1px solid var(--color-base-300);
+      border-radius: var(--radius-lg);
+      border-bottom-left-radius: 4px;
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--color-base-content);
+    }
+    .phantom-chat-tool-card {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      padding: var(--space-2) var(--space-3);
+      background: color-mix(in oklab, var(--color-base-content) 4%, transparent);
+      border: 1px solid var(--color-base-300);
+      border-radius: var(--radius-md);
+      font-family: var(--font-family-mono);
+      font-size: 12px;
+      color: var(--color-base-content);
+      margin: var(--space-2) 0;
+    }
+    .phantom-chat-thinking {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: color-mix(in oklab, var(--color-base-content) 55%, transparent);
+    }
+    .phantom-chat-thinking::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: phantom-pulse 1.2s var(--ease-pulse) infinite;
+    }
+
+    /* === Chart container === */
+    .phantom-chart {
+      width: 100%;
+      height: 320px;
+    }
+    .phantom-chart-sm { height: 160px; }
+    .phantom-chart-lg { height: 480px; }
   </style>
 
-  <!-- Page-specific CDN libraries go here -->
-  <!-- e.g., ECharts: <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script> -->
-  <!-- e.g., Mermaid: <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script> -->
-
-  <!-- ECharts Phantom Theme (register before any chart code) -->
+  <!-- ECharts Phantom theme (refined tokens) -->
   <script>
     window.phantomChartTheme = {
       light: {
-        color: [
-          '#0891b2', '#8b5cf6', '#f97316', '#06b6d4',
-          '#ec4899', '#10b981', '#6366f1', '#f59e0b',
-          '#14b8a6', '#a855f7'
-        ],
+        color: ['#4850c4', '#7c6cda', '#c77aab', '#e69256', '#d8a53e', '#5ea56d', '#3f90c4', '#8c5eb3'],
         backgroundColor: 'transparent',
-        textStyle: {
-          color: '#57534e',
-          fontFamily: 'Inter, system-ui, sans-serif',
-          fontSize: 12
-        },
+        textStyle: { color: '#57534e', fontFamily: 'Inter, system-ui, sans-serif', fontSize: 12 },
         title: {
-          textStyle: { color: '#1c1917', fontWeight: 600, fontSize: 14 },
+          textStyle: { color: '#1c1917', fontFamily: 'Instrument Serif, Georgia, serif', fontWeight: 500, fontSize: 18 },
           subtextStyle: { color: '#78716c', fontSize: 12 }
         },
-        legend: {
-          textStyle: { color: '#57534e', fontSize: 12 },
-          icon: 'roundRect',
-          itemWidth: 12,
-          itemHeight: 8,
-          itemGap: 16
-        },
+        legend: { textStyle: { color: '#57534e', fontSize: 12 }, icon: 'roundRect', itemWidth: 12, itemHeight: 8, itemGap: 16 },
         tooltip: {
           backgroundColor: '#ffffff',
-          borderColor: '#e7e5e4',
+          borderColor: '#ece9df',
           borderWidth: 1,
-          textStyle: { color: '#1c1917', fontSize: 12 },
-          extraCssText: 'border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); padding: 10px 14px;'
+          textStyle: { color: '#1c1917', fontFamily: 'Inter, sans-serif', fontSize: 12 },
+          extraCssText: 'border-radius: 10px; box-shadow: rgba(60,66,87,0.08) 0 7px 14px 0, rgba(0,0,0,0.08) 0 3px 6px 0; padding: 10px 14px;'
         },
-        grid: {
-          left: '3%', right: '3%', bottom: '3%', top: '14%',
-          containLabel: true
-        },
+        grid: { left: '3%', right: '3%', bottom: '3%', top: '14%', containLabel: true },
         xAxis: {
-          axisLine: { lineStyle: { color: '#e7e5e4' } },
-          axisTick: { lineStyle: { color: '#e7e5e4' } },
+          axisLine: { lineStyle: { color: '#ece9df' } },
+          axisTick: { lineStyle: { color: '#ece9df' } },
           axisLabel: { color: '#78716c', fontSize: 11 },
-          splitLine: { lineStyle: { color: '#f5f5f4', type: 'dashed' } }
+          splitLine: { lineStyle: { color: '#f1efe6', type: 'dashed' } }
         },
         yAxis: {
           axisLine: { show: false },
           axisTick: { show: false },
           axisLabel: { color: '#78716c', fontSize: 11 },
-          splitLine: { lineStyle: { color: '#f5f5f4', type: 'dashed' } }
+          splitLine: { lineStyle: { color: '#f1efe6', type: 'dashed' } }
         },
-        line: {
-          smooth: true,
-          symbolSize: 4,
-          lineStyle: { width: 2 }
-        },
-        bar: {
-          barMaxWidth: 32,
-          itemStyle: { borderRadius: [4, 4, 0, 0] }
-        },
-        pie: {
-          radius: ['45%', '70%'],
-          itemStyle: { borderColor: '#ffffff', borderWidth: 2, borderRadius: 4 },
-          label: { color: '#57534e', fontSize: 12 }
-        },
-        radar: {
-          axisLine: { lineStyle: { color: '#e7e5e4' } },
-          splitLine: { lineStyle: { color: '#f5f5f4' } },
-          splitArea: { areaStyle: { color: ['transparent', 'rgba(245,245,244,0.4)'] } }
-        }
+        line: { smooth: true, symbolSize: 4, lineStyle: { width: 2 } },
+        bar: { barMaxWidth: 32, itemStyle: { borderRadius: [6, 6, 0, 0] } },
+        pie: { radius: ['45%', '70%'], itemStyle: { borderColor: '#faf9f5', borderWidth: 2, borderRadius: 4 }, label: { color: '#57534e', fontSize: 12 } }
       },
       dark: {
-        color: [
-          '#22d3ee', '#a78bfa', '#fb923c', '#06b6d4',
-          '#f472b6', '#34d399', '#818cf8', '#fbbf24',
-          '#2dd4bf', '#c084fc'
-        ],
+        color: ['#7078e0', '#9d8ce6', '#e094c3', '#f4b07c', '#eec162', '#78c48b', '#67b3db', '#b083d6'],
         backgroundColor: 'transparent',
-        textStyle: {
-          color: '#a8a29e',
-          fontFamily: 'Inter, system-ui, sans-serif',
-          fontSize: 12
-        },
+        textStyle: { color: '#a8a29e', fontFamily: 'Inter, system-ui, sans-serif', fontSize: 12 },
         title: {
-          textStyle: { color: '#fafaf9', fontWeight: 600, fontSize: 14 },
+          textStyle: { color: '#f7f6f1', fontFamily: 'Instrument Serif, Georgia, serif', fontWeight: 500, fontSize: 18 },
           subtextStyle: { color: '#78716c', fontSize: 12 }
         },
-        legend: {
-          textStyle: { color: '#a8a29e', fontSize: 12 },
-          icon: 'roundRect',
-          itemWidth: 12,
-          itemHeight: 8,
-          itemGap: 16
-        },
+        legend: { textStyle: { color: '#a8a29e', fontSize: 12 }, icon: 'roundRect', itemWidth: 12, itemHeight: 8, itemGap: 16 },
         tooltip: {
-          backgroundColor: '#1c1917',
-          borderColor: '#292524',
+          backgroundColor: '#161412',
+          borderColor: '#26211d',
           borderWidth: 1,
-          textStyle: { color: '#fafaf9', fontSize: 12 },
-          extraCssText: 'border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); padding: 10px 14px;'
+          textStyle: { color: '#f7f6f1', fontFamily: 'Inter, sans-serif', fontSize: 12 },
+          extraCssText: 'border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); padding: 10px 14px;'
         },
-        grid: {
-          left: '3%', right: '3%', bottom: '3%', top: '14%',
-          containLabel: true
-        },
+        grid: { left: '3%', right: '3%', bottom: '3%', top: '14%', containLabel: true },
         xAxis: {
-          axisLine: { lineStyle: { color: '#292524' } },
-          axisTick: { lineStyle: { color: '#292524' } },
+          axisLine: { lineStyle: { color: '#26211d' } },
+          axisTick: { lineStyle: { color: '#26211d' } },
           axisLabel: { color: '#78716c', fontSize: 11 },
-          splitLine: { lineStyle: { color: '#1c1917', type: 'dashed' } }
+          splitLine: { lineStyle: { color: '#161412', type: 'dashed' } }
         },
         yAxis: {
           axisLine: { show: false },
           axisTick: { show: false },
           axisLabel: { color: '#78716c', fontSize: 11 },
-          splitLine: { lineStyle: { color: '#1c1917', type: 'dashed' } }
+          splitLine: { lineStyle: { color: '#161412', type: 'dashed' } }
         },
-        line: {
-          smooth: true,
-          symbolSize: 4,
-          lineStyle: { width: 2 }
-        },
-        bar: {
-          barMaxWidth: 32,
-          itemStyle: { borderRadius: [4, 4, 0, 0] }
-        },
-        pie: {
-          radius: ['45%', '70%'],
-          itemStyle: { borderColor: '#1c1917', borderWidth: 2, borderRadius: 4 },
-          label: { color: '#a8a29e', fontSize: 12 }
-        },
-        radar: {
-          axisLine: { lineStyle: { color: '#292524' } },
-          splitLine: { lineStyle: { color: '#1c1917' } },
-          splitArea: { areaStyle: { color: ['transparent', 'rgba(28,25,23,0.4)'] } }
-        }
+        line: { smooth: true, symbolSize: 4, lineStyle: { width: 2 } },
+        bar: { barMaxWidth: 32, itemStyle: { borderRadius: [6, 6, 0, 0] } },
+        pie: { radius: ['45%', '70%'], itemStyle: { borderColor: '#161412', borderWidth: 2, borderRadius: 4 }, label: { color: '#a8a29e', fontSize: 12 } }
       }
     };
 
-    // Auto-register if ECharts is loaded
     if (typeof echarts !== 'undefined') {
       echarts.registerTheme('phantom-light', window.phantomChartTheme.light);
       echarts.registerTheme('phantom-dark', window.phantomChartTheme.dark);
     }
 
-    // Helper: get current chart theme name
+    // Helper: init an ECharts chart on an element, theme-aware, auto-redraw on theme toggle
+    window.phantomChart = function(el, option) {
+      if (typeof echarts === 'undefined') { console.warn('ECharts not loaded'); return null; }
+      var theme = document.documentElement.getAttribute('data-theme') || 'phantom-light';
+      var chart = echarts.init(el, theme);
+      chart.setOption(option);
+      var resizeHandler = function() { chart.resize(); };
+      window.addEventListener('resize', resizeHandler);
+      var observer = new MutationObserver(function() {
+        var current = document.documentElement.getAttribute('data-theme') || 'phantom-light';
+        chart.dispose();
+        chart = echarts.init(el, current);
+        chart.setOption(option);
+      });
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+      return chart;
+    };
+
     window.getPhantomChartTheme = function() {
       return document.documentElement.getAttribute('data-theme') || 'phantom-light';
     };
@@ -366,52 +1008,33 @@
 <body class="bg-base-100 text-base-content font-sans min-h-screen">
 
   <!-- Navbar -->
-  <nav class="navbar bg-base-200 border-b border-base-300 px-6 sticky top-0 z-50 backdrop-blur-md bg-base-200/90">
-    <div class="navbar-start gap-3">
-      <!-- Brand -->
-      <a href="/ui/" class="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
-        <img src="/ui/phantom-logo.svg" alt="Phantom" class="w-7 h-7" />
-        <span class="font-semibold text-base tracking-tight">Phantom</span>
-      </a>
-      <!-- Breadcrumb separator + page title -->
-      <span class="text-base-content/20">/</span>
-      <span class="text-sm text-base-content/60 font-medium">{{TITLE}}</span>
-    </div>
+  <nav class="phantom-nav" aria-label="Primary">
+    <a href="/ui/" class="phantom-nav-brand">
+      <span style="display:inline-flex;align-items:center;">{{AGENT_AVATAR_IMG}}<span style="display:{{AGENT_FALLBACK_DISPLAY}};width:22px;height:22px;border-radius:6px;background:var(--color-primary);align-items:center;justify-content:center;color:var(--color-primary-content);font-family:var(--font-family-serif);font-size:14px;font-weight:500;">{{AGENT_NAME_INITIAL}}</span></span>
+      <span>{{AGENT_NAME_CAPITALIZED}}</span>
+    </a>
+    <span class="phantom-breadcrumb-sep">/</span>
+    <span class="phantom-breadcrumb">{{TITLE}}</span>
 
-    <div class="navbar-end gap-3">
-      <!-- Date -->
-      <span class="text-xs text-base-content/40 font-mono hidden sm:inline">{{DATE}}</span>
-      <!-- Theme toggle -->
-      <button
-        id="theme-toggle"
-        class="btn btn-ghost btn-sm btn-square"
-        aria-label="Toggle theme"
-      >
-        <!-- Sun icon (shown in dark mode) -->
-        <svg id="icon-sun" class="w-4 h-4 hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
-        </svg>
-        <!-- Moon icon (shown in light mode) -->
-        <svg id="icon-moon" class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
-        </svg>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:12px;">
+      <span class="phantom-mono phantom-muted phantom-nav-date">{{DATE}}</span>
+      <button id="theme-toggle" class="phantom-chip" aria-label="Toggle theme" style="padding:6px 10px;">
+        <svg id="icon-sun" style="width:14px;height:14px;display:none;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z"/></svg>
+        <svg id="icon-moon" style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z"/></svg>
       </button>
     </div>
   </nav>
 
-  <!-- Main content area -->
-  <main class="max-w-7xl mx-auto px-6 py-8">
+  <!-- Main content area: agent writes freehand here -->
+  <main class="phantom-page">
     <!-- Agent writes content here -->
   </main>
 
   <!-- Footer -->
-  <footer class="border-t border-base-300 mt-16">
-    <div class="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between text-xs text-base-content/40">
-      <div class="flex items-center gap-2">
-        <img src="/ui/phantom-logo.svg" alt="Phantom" class="w-4 h-4" />
-        <span>Generated by Phantom</span>
-      </div>
-      <span class="font-mono">{{TIMESTAMP}}</span>
+  <footer style="border-top:1px solid var(--color-base-300); margin-top:var(--space-16);">
+    <div class="phantom-page" style="padding-top:var(--space-4);padding-bottom:var(--space-4);display:flex;align-items:center;justify-content:space-between;">
+      <span class="phantom-meta">Generated by {{AGENT_NAME_CAPITALIZED}}</span>
+      <span class="phantom-mono phantom-muted">{{TIMESTAMP}}</span>
     </div>
   </footer>
 
@@ -422,19 +1045,19 @@
   <script>
     (function() {
       var toggle = document.getElementById('theme-toggle');
+      if (!toggle) return;
       var sun = document.getElementById('icon-sun');
       var moon = document.getElementById('icon-moon');
 
       function updateIcons() {
         var theme = document.documentElement.getAttribute('data-theme');
         var isDark = theme === 'phantom-dark';
-        sun.classList.toggle('hidden', !isDark);
-        moon.classList.toggle('hidden', isDark);
-
-        var lightSheet = document.getElementById('hljs-light');
-        var darkSheet = document.getElementById('hljs-dark');
-        if (lightSheet) lightSheet.disabled = isDark;
-        if (darkSheet) darkSheet.disabled = !isDark;
+        if (sun) sun.style.display = isDark ? 'inline' : 'none';
+        if (moon) moon.style.display = isDark ? 'none' : 'inline';
+        var ls = document.getElementById('hljs-light');
+        var ds = document.getElementById('hljs-dark');
+        if (ls) ls.disabled = isDark;
+        if (ds) ds.disabled = !isDark;
       }
 
       updateIcons();
@@ -449,20 +1072,23 @@
 
       window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
         if (!localStorage.getItem('phantom-theme')) {
-          var theme = e.matches ? 'phantom-dark' : 'phantom-light';
-          document.documentElement.setAttribute('data-theme', theme);
+          document.documentElement.setAttribute('data-theme', e.matches ? 'phantom-dark' : 'phantom-light');
           updateIcons();
         }
       });
     })();
   </script>
 
-  <!-- SSE auto-reload -->
+  <!-- SSE auto-reload (unchanged from v1) -->
   <script>
     if (window.EventSource) {
-      var es = new EventSource('/ui/api/events');
-      es.addEventListener('reload', function() { location.reload(); });
+      try {
+        var es = new EventSource('/ui/api/events');
+        es.addEventListener('reload', function() { location.reload(); });
+      } catch (e) { /* ignore in local preview */ }
     }
   </script>
+
+  <!-- Reference: the living style guide lives at /ui/_components.html -->
 </body>
 </html>

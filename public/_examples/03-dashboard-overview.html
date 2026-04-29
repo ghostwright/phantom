@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="phantom-light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-agent-name-title>{{AGENT_NAME_CAPITALIZED}} overview</title>
+<link rel="icon" href="data:,">
+<script>(function(){var s=localStorage.getItem('phantom-theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.setAttribute('data-theme',s||(d?'phantom-dark':'phantom-light'));})();</script>
+<script src="/ui/_agent-name.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+
+<style>
+:root {
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px; --space-10:40px; --space-12:48px; --space-16:64px;
+  --radius-sm:8px; --radius-md:10px; --radius-lg:14px; --radius-xl:20px; --radius-pill:9999px;
+  --motion-fast:100ms; --motion-base:150ms; --motion-slow:300ms;
+  --ease-out:cubic-bezier(0.25,0.46,0.45,0.94);
+}
+[data-theme="phantom-light"] { --color-base-100:#faf9f5; --color-base-200:#ffffff; --color-base-300:#ece9df; --color-base-content:#1c1917; --color-primary:#4850c4; --color-primary-content:#ffffff; --color-success:#16a34a; --color-error:#dc2626; --color-warning:#ca8a04; --color-info:#2563eb; color-scheme:light; }
+[data-theme="phantom-dark"] { --color-base-100:#0b0a09; --color-base-200:#161412; --color-base-300:#26211d; --color-base-content:#f7f6f1; --color-primary:#7078e0; --color-primary-content:#0b0a09; --color-success:#4ade80; --color-error:#f87171; --color-warning:#fbbf24; --color-info:#60a5fa; color-scheme:dark; }
+html { transition: background-color 150ms ease, color 150ms ease; }
+body { background:var(--color-base-100); color:var(--color-base-content); font-family:Inter,system-ui,sans-serif; margin:0; min-height:100vh; font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased; }
+
+.phantom-page { max-width:1240px; margin:0 auto; padding:var(--space-8); }
+.phantom-nav { display:flex; align-items:center; gap:var(--space-4); padding:var(--space-3) var(--space-8); border-bottom:1px solid var(--color-base-300); position:sticky; top:0; background:color-mix(in oklab, var(--color-base-100) 85%, transparent); backdrop-filter:blur(8px); z-index:10; }
+.phantom-nav-brand { display:inline-flex; align-items:center; gap:var(--space-2); font-family:'Instrument Serif',Georgia,serif; font-size:18px; color:var(--color-base-content); text-decoration:none; }
+.phantom-nav-logo { display:inline-flex; width:22px; height:22px; border-radius:6px; background:var(--color-primary); align-items:center; justify-content:center; color:var(--color-primary-content); font-family:'Instrument Serif',serif; font-size:14px; }
+.phantom-breadcrumb-sep { color:color-mix(in oklab, var(--color-base-content) 25%, transparent); }
+.phantom-breadcrumb { font-size:13px; color:color-mix(in oklab, var(--color-base-content) 60%, transparent); }
+
+.phantom-h1 { font-family:'Instrument Serif',Georgia,serif; font-size:32px; font-weight:500; line-height:1.15; letter-spacing:-0.01em; margin:0 0 var(--space-3); }
+.phantom-h2 { font-family:'Instrument Serif',Georgia,serif; font-size:22px; font-weight:500; line-height:1.25; margin:0 0 var(--space-3); }
+.phantom-h3 { font-family:Inter,sans-serif; font-size:14px; font-weight:600; line-height:1.3; margin:0 0 var(--space-2); }
+.phantom-eyebrow { font-family:Inter,sans-serif; font-size:11px; font-weight:600; line-height:1; letter-spacing:0.08em; text-transform:uppercase; color:color-mix(in oklab, var(--color-base-content) 50%, transparent); margin:0 0 var(--space-2); }
+.phantom-body { font-family:Inter,sans-serif; font-size:14px; line-height:1.55; }
+.phantom-muted { color:color-mix(in oklab, var(--color-base-content) 55%, transparent); }
+.phantom-mono { font-family:'JetBrains Mono',monospace; font-size:12px; font-variant-numeric:tabular-nums; }
+.phantom-meta { font-family:'JetBrains Mono',monospace; font-size:11px; color:color-mix(in oklab, var(--color-base-content) 50%, transparent); }
+
+.phantom-card { background:var(--color-base-200); border:1px solid var(--color-base-300); border-radius:var(--radius-lg); padding:var(--space-5); transition:border-color 150ms; }
+.phantom-card:hover { border-color:color-mix(in oklab, var(--color-primary) 28%, var(--color-base-300)); }
+
+.phantom-grid-stats { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:var(--space-4); margin-bottom:var(--space-8); }
+.phantom-grid-main-side { display:grid; grid-template-columns:2fr 1fr; gap:var(--space-5); align-items:start; }
+@media (max-width:900px) { .phantom-grid-stats { grid-template-columns:repeat(2,1fr); } .phantom-grid-main-side { grid-template-columns:1fr; } }
+
+.phantom-stat { display:flex; flex-direction:column; gap:var(--space-1); }
+.phantom-stat-label { font:600 11px/1 Inter,sans-serif; letter-spacing:0.05em; text-transform:uppercase; color:color-mix(in oklab, var(--color-base-content) 48%, transparent); margin:0; }
+.phantom-stat-value { font-family:Inter,sans-serif; font-size:28px; font-weight:500; line-height:1.1; letter-spacing:-0.02em; font-variant-numeric:tabular-nums; margin:6px 0 4px; }
+.phantom-stat-trend-up { color:var(--color-success); font-size:12px; font-variant-numeric:tabular-nums; }
+.phantom-stat-trend-down { color:var(--color-error); font-size:12px; font-variant-numeric:tabular-nums; }
+.phantom-stat-trend-flat { color:color-mix(in oklab, var(--color-base-content) 50%, transparent); font-size:12px; }
+
+.phantom-table { width:100%; border-collapse:collapse; font-family:Inter,sans-serif; }
+.phantom-table thead th { text-align:left; font-size:11px; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; color:color-mix(in oklab, var(--color-base-content) 45%, transparent); padding:var(--space-3) var(--space-4); border-bottom:1px solid var(--color-base-300); }
+.phantom-table tbody td { padding:var(--space-3) var(--space-4); font-size:13px; border-bottom:1px solid color-mix(in oklab, var(--color-base-300) 50%, transparent); font-variant-numeric:tabular-nums; }
+.phantom-table tbody tr:last-child td { border-bottom:none; }
+.phantom-table tbody tr:hover td { background:color-mix(in oklab, var(--color-primary) 4%, transparent); }
+
+.phantom-badge { display:inline-flex; align-items:center; gap:6px; font:500 11px/1 Inter,sans-serif; padding:4px 9px; border-radius:var(--radius-pill); }
+.phantom-badge-success { background:color-mix(in oklab, var(--color-success) 12%, transparent); color:var(--color-success); }
+.phantom-badge-warning { background:color-mix(in oklab, var(--color-warning) 14%, transparent); color:var(--color-warning); }
+.phantom-badge-info { background:color-mix(in oklab, var(--color-info) 12%, transparent); color:var(--color-info); }
+.phantom-badge-primary { background:color-mix(in oklab, var(--color-primary) 12%, transparent); color:var(--color-primary); }
+
+.phantom-dot { width:6px; height:6px; border-radius:50%; display:inline-block; }
+@keyframes phantom-pulse { 0%,100% {opacity:1;} 50% {opacity:0.55;} }
+.phantom-dot-live { background:var(--color-success); box-shadow:0 0 0 3px color-mix(in oklab, var(--color-success) 25%, transparent); animation:phantom-pulse 2s cubic-bezier(0.4,0,0.6,1) infinite; }
+
+.phantom-button-ghost { background:transparent; color:var(--color-base-content); border:1px solid var(--color-base-300); border-radius:var(--radius-pill); font-size:12px; padding:6px 12px; cursor:pointer; transition:background-color 100ms; }
+.phantom-button-ghost:hover { background:color-mix(in oklab, var(--color-base-content) 5%, transparent); }
+
+.phantom-chart { height:280px; }
+
+.health-row { display:flex; align-items:center; justify-content:space-between; padding:var(--space-2) 0; border-bottom:1px solid color-mix(in oklab, var(--color-base-300) 50%, transparent); font-size:13px; }
+.health-row:last-child { border-bottom:none; }
+.health-label { color:color-mix(in oklab, var(--color-base-content) 70%, transparent); }
+</style>
+</head>
+<body>
+
+<nav class="phantom-nav" aria-label="Primary">
+  <a href="/ui/" class="phantom-nav-brand">
+    <span class="phantom-nav-logo" data-agent-name-initial>&nbsp;</span>
+    <span data-agent-name>&nbsp;</span>
+  </a>
+  <span class="phantom-breadcrumb-sep">/</span>
+  <span class="phantom-breadcrumb">Dashboard</span>
+  <div style="margin-left:auto;">
+    <button id="theme-toggle" class="phantom-button-ghost">Toggle theme</button>
+  </div>
+</nav>
+
+<main class="phantom-page">
+
+  <section style="margin-bottom:var(--space-8);">
+    <p class="phantom-eyebrow">Dashboard</p>
+    <h1 class="phantom-h1"><span data-agent-name>&nbsp;</span> overview</h1>
+    <p class="phantom-body phantom-muted">Live status, daily cost, evolution generation, and the most recent agent sessions.</p>
+  </section>
+
+  <section class="phantom-grid-stats">
+    <div class="phantom-card">
+      <div class="phantom-stat">
+        <p class="phantom-stat-label">Active sessions</p>
+        <p class="phantom-stat-value">7</p>
+        <p class="phantom-stat-trend-up">+2 vs yesterday</p>
+      </div>
+    </div>
+    <div class="phantom-card">
+      <div class="phantom-stat">
+        <p class="phantom-stat-label">Daily cost</p>
+        <p class="phantom-stat-value">$12.84</p>
+        <p class="phantom-stat-trend-down">-18% vs 7d avg</p>
+      </div>
+    </div>
+    <div class="phantom-card">
+      <div class="phantom-stat">
+        <p class="phantom-stat-label">Evolution gen</p>
+        <p class="phantom-stat-value">Gen 14</p>
+        <p class="phantom-stat-trend-up">+1 this week</p>
+      </div>
+    </div>
+    <div class="phantom-card">
+      <div class="phantom-stat">
+        <p class="phantom-stat-label">Uptime</p>
+        <p class="phantom-stat-value">22h 41m</p>
+        <p class="phantom-stat-trend-flat">stable since restart</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="phantom-card" style="margin-bottom:var(--space-8);">
+    <div style="display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:var(--space-4);">
+      <div>
+        <p class="phantom-eyebrow" style="margin-bottom:6px;">Spend</p>
+        <h2 class="phantom-h2" style="margin:0;">Daily cost, last 30 days</h2>
+      </div>
+      <span class="phantom-badge phantom-badge-info">USD</span>
+    </div>
+    <div id="cost-chart" class="phantom-chart"></div>
+  </section>
+
+  <section class="phantom-grid-main-side">
+    <div class="phantom-card">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--space-4);">
+        <h2 class="phantom-h2" style="margin:0;">Recent sessions</h2>
+        <button class="phantom-button-ghost">View all</button>
+      </div>
+      <table class="phantom-table">
+        <thead>
+          <tr>
+            <th>Channel</th><th>Started</th><th>Turns</th><th>Cost</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>slack #ops</td><td>14:22</td><td>11</td><td>$0.84</td><td><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+          <tr><td>slack #infra</td><td>13:48</td><td>4</td><td>$0.31</td><td><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+          <tr><td>scheduler nightly-summary</td><td>09:00</td><td>1</td><td>$0.12</td><td><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+          <tr><td>slack DM Cheema</td><td>08:41</td><td>23</td><td>$1.92</td><td><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+          <tr><td>slack #cli-tools</td><td>07:55</td><td>6</td><td>$0.41</td><td><span class="phantom-badge phantom-badge-warning">stuck</span></td></tr>
+          <tr><td>cli local</td><td>06:30</td><td>2</td><td>$0.08</td><td><span class="phantom-badge phantom-badge-success">done</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="phantom-card">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--space-4);">
+        <h2 class="phantom-h2" style="margin:0;">System health</h2>
+        <span class="phantom-badge phantom-badge-success"><span class="phantom-dot phantom-dot-live"></span>healthy</span>
+      </div>
+      <div class="health-row"><span class="health-label">Qdrant</span><span class="phantom-mono">200 / 12ms</span></div>
+      <div class="health-row"><span class="health-label">Ollama</span><span class="phantom-mono">200 / 47ms</span></div>
+      <div class="health-row"><span class="health-label">Slack</span><span class="phantom-mono">connected</span></div>
+      <div class="health-row"><span class="health-label">Scheduler</span><span class="phantom-mono">3 active jobs</span></div>
+      <div class="health-row"><span class="health-label">MCP /mcp</span><span class="phantom-mono">17 tools</span></div>
+      <div class="health-row"><span class="health-label">Memory turns</span><span class="phantom-mono">1,284</span></div>
+      <div style="margin-top:var(--space-4); padding-top:var(--space-3); border-top:1px solid var(--color-base-300);">
+        <p class="phantom-meta">Last evolution: 2 hours ago, +3 facts, +1 strategy</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+(function(){
+  var toggle=document.getElementById('theme-toggle');
+  toggle.addEventListener('click',function(){ var c=document.documentElement.getAttribute('data-theme'); var n=c==='phantom-dark'?'phantom-light':'phantom-dark'; document.documentElement.setAttribute('data-theme',n); localStorage.setItem('phantom-theme',n); if(window.__redraw){window.__redraw();} });
+})();
+</script>
+<script>
+/* Chart example: self-contained. On wrapped pages, use window.phantomChart instead. */
+(function(){
+  function cssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  function colors(){
+    return {
+      line: cssVar('--color-primary'),
+      text: cssVar('--color-base-content'),
+      grid: cssVar('--color-base-300'),
+      tooltipText: cssVar('--color-base-100'),
+      tooltipBg: cssVar('--color-base-content'),
+    };
+  }
+  var chart;
+  function init(){
+    var el=document.getElementById('cost-chart');
+    if(chart){chart.dispose();}
+    chart=echarts.init(el,null,{renderer:'svg'});
+    var c=colors();
+    var data=[8.21,9.40,7.83,10.50,11.22,9.95,12.41,13.05,8.92,11.87,10.61,9.70,12.30,14.12,15.06,13.40,11.88,10.92,9.55,8.73,11.02,12.95,13.81,12.42,10.50,9.81,11.65,12.21,12.84,12.84];
+    var dates=data.map(function(_,i){var d=new Date();d.setDate(d.getDate()-(29-i));return d.toISOString().slice(5,10);});
+    chart.setOption({
+      backgroundColor:'transparent',
+      grid:{left:40,right:16,top:16,bottom:24},
+      tooltip:{trigger:'axis',backgroundColor:c.tooltipBg,borderWidth:0,textStyle:{color:c.tooltipText,fontFamily:'Inter,sans-serif',fontSize:12}},
+      xAxis:{type:'category',data:dates,axisLine:{lineStyle:{color:c.grid}},axisLabel:{color:c.text,fontFamily:'JetBrains Mono,monospace',fontSize:10}},
+      yAxis:{type:'value',axisLine:{show:false},splitLine:{lineStyle:{color:c.grid}},axisLabel:{color:c.text,fontFamily:'JetBrains Mono,monospace',fontSize:10,formatter:'${value}'}},
+      series:[{type:'line',data:data,smooth:true,symbol:'circle',symbolSize:5,lineStyle:{color:c.line,width:2},itemStyle:{color:c.line},areaStyle:{color:c.line,opacity:0.12}}]
+    });
+  }
+  window.__redraw=init;
+  if(window.echarts){init();window.addEventListener('resize',function(){if(chart)chart.resize();});}else{document.addEventListener('DOMContentLoaded',init);}
+})();
+</script>
+</body>
+</html>

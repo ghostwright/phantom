@@ -238,4 +238,175 @@ describe("QdrantClient", () => {
 		expect(deleteBody).not.toBeNull();
 		expect(deleteBody.points).toEqual(["point-123"]);
 	});
+
+	test("scroll sends POST to points/scroll with limit and with_payload defaults", async () => {
+		let capturedUrl = "";
+		let capturedBody: Record<string, unknown> | null = null;
+		globalThis.fetch = mock((url: string | Request, init?: RequestInit) => {
+			capturedUrl = typeof url === "string" ? url : url.url;
+			if (init?.body) capturedBody = JSON.parse(init.body as string);
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({
+						result: {
+							points: [{ id: "p1", payload: { a: 1 } }],
+							next_page_offset: "cursor-1",
+						},
+						status: "ok",
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+			);
+		}) as unknown as typeof fetch;
+
+		const client = new QdrantClient(TEST_CONFIG);
+		const res = await client.scroll("episodes", { limit: 20 });
+
+		expect(capturedUrl).toContain("/collections/episodes/points/scroll");
+		const body = capturedBody as unknown as Record<string, unknown>;
+		expect(body.limit).toBe(20);
+		expect(body.with_payload).toBe(true);
+		expect(body.offset).toBeUndefined();
+		expect(body.filter).toBeUndefined();
+		expect(body.order_by).toBeUndefined();
+		expect(res.points.length).toBe(1);
+		expect(res.points[0].id).toBe("p1");
+		expect(res.points[0].score).toBe(0);
+		expect(res.points[0].payload.a).toBe(1);
+		expect(res.nextOffset).toBe("cursor-1");
+	});
+
+	test("scroll passes offset, filter, and order_by through", async () => {
+		let capturedBody: Record<string, unknown> | null = null;
+		globalThis.fetch = mock((_url: string | Request, init?: RequestInit) => {
+			if (init?.body) capturedBody = JSON.parse(init.body as string);
+			return Promise.resolve(
+				new Response(JSON.stringify({ result: { points: [], next_page_offset: null } }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				}),
+			);
+		}) as unknown as typeof fetch;
+
+		const client = new QdrantClient(TEST_CONFIG);
+		await client.scroll("facts", {
+			limit: 10,
+			offset: "cursor-abc",
+			filter: { must: [{ key: "category", match: { value: "domain_knowledge" } }] },
+			orderBy: { key: "valid_from", direction: "desc" },
+			withPayload: true,
+		});
+
+		const body = capturedBody as unknown as Record<string, unknown>;
+		expect(body.limit).toBe(10);
+		expect(body.offset).toBe("cursor-abc");
+		expect((body.order_by as Record<string, string>).key).toBe("valid_from");
+		expect((body.order_by as Record<string, string>).direction).toBe("desc");
+		const filter = body.filter as { must: Array<Record<string, unknown>> };
+		expect(filter.must[0].key).toBe("category");
+	});
+
+	test("scroll returns nextOffset null when response lacks cursor", async () => {
+		globalThis.fetch = mock(() =>
+			Promise.resolve(
+				new Response(JSON.stringify({ result: { points: [{ id: 42, payload: {} }] } }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				}),
+			),
+		) as unknown as typeof fetch;
+
+		const client = new QdrantClient(TEST_CONFIG);
+		const res = await client.scroll("episodes", { limit: 5 });
+		expect(res.nextOffset).toBeNull();
+		expect(res.points[0].id).toBe("42");
+	});
+
+	test("scroll paginates through pages", async () => {
+		const pages = [
+			{ result: { points: [{ id: "a", payload: {} }], next_page_offset: "cursor-2" } },
+			{ result: { points: [{ id: "b", payload: {} }], next_page_offset: null } },
+		];
+		let call = 0;
+		globalThis.fetch = mock(() => {
+			const body = pages[call];
+			call += 1;
+			return Promise.resolve(
+				new Response(JSON.stringify(body), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				}),
+			);
+		}) as unknown as typeof fetch;
+
+		const client = new QdrantClient(TEST_CONFIG);
+		const page1 = await client.scroll("episodes", { limit: 1 });
+		expect(page1.nextOffset).toBe("cursor-2");
+		const page2 = await client.scroll("episodes", { limit: 1, offset: page1.nextOffset as string });
+		expect(page2.nextOffset).toBeNull();
+		expect(page2.points[0].id).toBe("b");
+	});
+
+	test("scroll throws on Qdrant error", async () => {
+		globalThis.fetch = mock(() => Promise.resolve(new Response("boom", { status: 500 }))) as unknown as typeof fetch;
+
+		const client = new QdrantClient(TEST_CONFIG);
+		await expect(client.scroll("episodes", { limit: 5 })).rejects.toThrow(/scroll/);
+	});
+
+	test("scroll with_payload=false sends the override", async () => {
+		let capturedBody: Record<string, unknown> | null = null;
+		globalThis.fetch = mock((_url: string | Request, init?: RequestInit) => {
+			if (init?.body) capturedBody = JSON.parse(init.body as string);
+			return Promise.resolve(
+				new Response(JSON.stringify({ result: { points: [], next_page_offset: null } }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				}),
+			);
+		}) as unknown as typeof fetch;
+
+		const client = new QdrantClient(TEST_CONFIG);
+		await client.scroll("episodes", { limit: 5, withPayload: false });
+		expect(capturedBody).not.toBeNull();
+		const body = capturedBody as unknown as Record<string, unknown>;
+		expect(body.with_payload).toBe(false);
+	});
+
+	test("countPoints returns the count from the exact response", async () => {
+		let capturedUrl = "";
+		let capturedBody: Record<string, unknown> | null = null;
+		globalThis.fetch = mock((url: string | Request, init?: RequestInit) => {
+			capturedUrl = typeof url === "string" ? url : url.url;
+			if (init?.body) capturedBody = JSON.parse(init.body as string);
+			return Promise.resolve(
+				new Response(JSON.stringify({ result: { count: 412 } }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				}),
+			);
+		}) as unknown as typeof fetch;
+
+		const client = new QdrantClient(TEST_CONFIG);
+		const n = await client.countPoints("episodes");
+		expect(n).toBe(412);
+		expect(capturedUrl).toContain("/collections/episodes/points/count");
+		expect(capturedBody).not.toBeNull();
+		const countBody = capturedBody as unknown as Record<string, unknown>;
+		expect(countBody.exact).toBe(true);
+	});
+
+	test("countPoints returns 0 when result is missing", async () => {
+		globalThis.fetch = mock(() =>
+			Promise.resolve(
+				new Response(JSON.stringify({ status: "ok" }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				}),
+			),
+		) as unknown as typeof fetch;
+
+		const client = new QdrantClient(TEST_CONFIG);
+		expect(await client.countPoints("episodes")).toBe(0);
+	});
 });

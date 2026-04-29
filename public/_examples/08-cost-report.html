@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="phantom-light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-agent-name-title>{{AGENT_NAME_CAPITALIZED}} cost report</title>
+<link rel="icon" href="data:,">
+<script>(function(){var s=localStorage.getItem('phantom-theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.setAttribute('data-theme',s||(d?'phantom-dark':'phantom-light'));})();</script>
+<script src="/ui/_agent-name.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+
+<style>
+:root {
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px; --space-10:40px; --space-12:48px; --space-16:64px;
+  --radius-sm:8px; --radius-md:10px; --radius-lg:14px; --radius-pill:9999px;
+  --motion-fast:100ms; --motion-base:150ms; --ease-out:cubic-bezier(0.25,0.46,0.45,0.94);
+}
+[data-theme="phantom-light"] { --color-base-100:#faf9f5; --color-base-200:#ffffff; --color-base-300:#ece9df; --color-base-content:#1c1917; --color-primary:#4850c4; --color-primary-content:#ffffff; --color-success:#16a34a; --color-error:#dc2626; --color-warning:#ca8a04; --color-info:#2563eb; color-scheme:light; }
+[data-theme="phantom-dark"] { --color-base-100:#0b0a09; --color-base-200:#161412; --color-base-300:#26211d; --color-base-content:#f7f6f1; --color-primary:#7078e0; --color-primary-content:#0b0a09; --color-success:#4ade80; --color-error:#f87171; --color-warning:#fbbf24; --color-info:#60a5fa; color-scheme:dark; }
+html { transition: background-color 150ms ease, color 150ms ease; }
+body { background:var(--color-base-100); color:var(--color-base-content); font-family:Inter,system-ui,sans-serif; margin:0; min-height:100vh; font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased; }
+
+.phantom-page { max-width:1240px; margin:0 auto; padding:var(--space-8); }
+.phantom-nav { display:flex; align-items:center; gap:var(--space-4); padding:var(--space-3) var(--space-8); border-bottom:1px solid var(--color-base-300); position:sticky; top:0; background:color-mix(in oklab, var(--color-base-100) 85%, transparent); backdrop-filter:blur(8px); z-index:10; }
+.phantom-nav-brand { display:inline-flex; align-items:center; gap:var(--space-2); font-family:'Instrument Serif',Georgia,serif; font-size:18px; color:var(--color-base-content); text-decoration:none; }
+.phantom-nav-logo { display:inline-flex; width:22px; height:22px; border-radius:6px; background:var(--color-primary); align-items:center; justify-content:center; color:var(--color-primary-content); font-family:'Instrument Serif',serif; font-size:14px; }
+.phantom-breadcrumb-sep { color:color-mix(in oklab, var(--color-base-content) 25%, transparent); }
+.phantom-breadcrumb { font-size:13px; color:color-mix(in oklab, var(--color-base-content) 60%, transparent); }
+
+.phantom-h1 { font-family:'Instrument Serif',Georgia,serif; font-size:32px; font-weight:500; line-height:1.15; letter-spacing:-0.01em; margin:0 0 var(--space-3); }
+.phantom-h2 { font-family:'Instrument Serif',Georgia,serif; font-size:22px; font-weight:500; line-height:1.25; margin:0 0 var(--space-3); }
+.phantom-eyebrow { font-family:Inter,sans-serif; font-size:11px; font-weight:600; line-height:1; letter-spacing:0.08em; text-transform:uppercase; color:color-mix(in oklab, var(--color-base-content) 50%, transparent); margin:0 0 var(--space-2); }
+.phantom-body { font-family:Inter,sans-serif; font-size:14px; line-height:1.55; }
+.phantom-muted { color:color-mix(in oklab, var(--color-base-content) 55%, transparent); }
+.phantom-mono { font-family:'JetBrains Mono',monospace; font-size:12px; font-variant-numeric:tabular-nums; }
+
+.phantom-card { background:var(--color-base-200); border:1px solid var(--color-base-300); border-radius:var(--radius-lg); padding:var(--space-5); }
+
+.phantom-grid-stats { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:var(--space-4); margin-bottom:var(--space-8); }
+@media (max-width:900px) { .phantom-grid-stats { grid-template-columns:repeat(2,1fr); } }
+
+.phantom-stat { display:flex; flex-direction:column; gap:var(--space-1); }
+.phantom-stat-label { font:600 11px/1 Inter,sans-serif; letter-spacing:0.05em; text-transform:uppercase; color:color-mix(in oklab, var(--color-base-content) 48%, transparent); margin:0; }
+.phantom-stat-value { font-family:Inter,sans-serif; font-size:28px; font-weight:500; line-height:1.1; letter-spacing:-0.02em; font-variant-numeric:tabular-nums; margin:6px 0 4px; }
+.phantom-stat-trend-up { color:var(--color-success); font-size:12px; font-variant-numeric:tabular-nums; }
+.phantom-stat-trend-down { color:var(--color-error); font-size:12px; font-variant-numeric:tabular-nums; }
+.phantom-stat-trend-flat { color:color-mix(in oklab, var(--color-base-content) 50%, transparent); font-size:12px; }
+
+.phantom-chart { height:280px; }
+.phantom-chart-sm { height:200px; }
+
+.phantom-table-compact { width:100%; border-collapse:collapse; font-family:Inter,sans-serif; font-size:12px; }
+.phantom-table-compact thead th { text-align:left; font-size:10px; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; color:color-mix(in oklab, var(--color-base-content) 45%, transparent); padding:var(--space-2) var(--space-3); border-bottom:1px solid var(--color-base-300); }
+.phantom-table-compact tbody td { padding:var(--space-2) var(--space-3); border-bottom:1px solid color-mix(in oklab, var(--color-base-300) 50%, transparent); font-variant-numeric:tabular-nums; }
+.phantom-table-compact tbody tr:last-child td { border-bottom:none; }
+.phantom-table-compact tbody tr:hover td { background:color-mix(in oklab, var(--color-primary) 4%, transparent); }
+.phantom-table-compact .num { text-align:right; }
+
+.phantom-button-ghost { background:transparent; color:var(--color-base-content); border:1px solid var(--color-base-300); border-radius:var(--radius-pill); font-size:12px; padding:6px 12px; cursor:pointer; transition:background-color 100ms; font-family:Inter,sans-serif; }
+.phantom-button-ghost:hover { background:color-mix(in oklab, var(--color-base-content) 5%, transparent); }
+</style>
+</head>
+<body>
+
+<nav class="phantom-nav" aria-label="Primary">
+  <a href="/ui/" class="phantom-nav-brand">
+    <span class="phantom-nav-logo" data-agent-name-initial>&nbsp;</span>
+    <span data-agent-name>&nbsp;</span>
+  </a>
+  <span class="phantom-breadcrumb-sep">/</span>
+  <span class="phantom-breadcrumb">Cost</span>
+  <div style="margin-left:auto;">
+    <button id="theme-toggle" class="phantom-button-ghost">Toggle theme</button>
+  </div>
+</nav>
+
+<main class="phantom-page">
+
+  <section style="margin-bottom:var(--space-8);">
+    <p class="phantom-eyebrow">Spend</p>
+    <h1 class="phantom-h1">Cost report, last 30 days</h1>
+    <p class="phantom-body phantom-muted">Per-provider breakdown, daily trend, and the most expensive sessions of the period.</p>
+  </section>
+
+  <section class="phantom-grid-stats">
+    <div class="phantom-card">
+      <div class="phantom-stat">
+        <p class="phantom-stat-label">Total</p>
+        <p class="phantom-stat-value">$324.18</p>
+        <p class="phantom-stat-trend-down">-12% vs prior 30d</p>
+      </div>
+    </div>
+    <div class="phantom-card">
+      <div class="phantom-stat">
+        <p class="phantom-stat-label">Average per day</p>
+        <p class="phantom-stat-value">$10.81</p>
+        <p class="phantom-stat-trend-flat">close to budget</p>
+      </div>
+    </div>
+    <div class="phantom-card">
+      <div class="phantom-stat">
+        <p class="phantom-stat-label">Top provider</p>
+        <p class="phantom-stat-value">Anthropic</p>
+        <p class="phantom-stat-trend-flat">82% of total</p>
+      </div>
+    </div>
+    <div class="phantom-card">
+      <div class="phantom-stat">
+        <p class="phantom-stat-label">Top model</p>
+        <p class="phantom-stat-value">opus-4.6</p>
+        <p class="phantom-stat-trend-up">+8% week over week</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="phantom-card" style="margin-bottom:var(--space-6);">
+    <div style="display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:var(--space-4);">
+      <h2 class="phantom-h2" style="margin:0;">Daily spend</h2>
+      <span class="phantom-mono phantom-muted">USD, last 30 days</span>
+    </div>
+    <div id="line-chart" class="phantom-chart"></div>
+  </section>
+
+  <section class="phantom-card" style="margin-bottom:var(--space-8);">
+    <div style="display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:var(--space-4);">
+      <h2 class="phantom-h2" style="margin:0;">Stacked by provider</h2>
+      <span class="phantom-mono phantom-muted">last 14 days</span>
+    </div>
+    <div id="bar-chart" class="phantom-chart-sm"></div>
+  </section>
+
+  <section class="phantom-card">
+    <h2 class="phantom-h2" style="margin:0 0 var(--space-4);">Top 10 most expensive sessions</h2>
+    <table class="phantom-table-compact">
+      <thead>
+        <tr><th>Date</th><th>Channel</th><th>Model</th><th class="num">Tokens</th><th class="num">Cost</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>2026-04-12</td><td>slack DM Cheema</td><td>opus-4.6</td><td class="num">812,304</td><td class="num">$8.42</td></tr>
+        <tr><td>2026-04-11</td><td>scheduled deep-research</td><td>opus-4.6</td><td class="num">694,221</td><td class="num">$7.18</td></tr>
+        <tr><td>2026-04-10</td><td>slack #infra</td><td>opus-4.6</td><td class="num">521,889</td><td class="num">$5.41</td></tr>
+        <tr><td>2026-04-09</td><td>slack DM Murphy</td><td>sonnet-4.6</td><td class="num">1,204,503</td><td class="num">$4.84</td></tr>
+        <tr><td>2026-04-08</td><td>cli ssh-debug</td><td>opus-4.6</td><td class="num">432,118</td><td class="num">$4.48</td></tr>
+        <tr><td>2026-04-07</td><td>slack #ops</td><td>opus-4.6</td><td class="num">388,764</td><td class="num">$4.02</td></tr>
+        <tr><td>2026-04-06</td><td>scheduled weekly-cost</td><td>sonnet-4.6</td><td class="num">927,108</td><td class="num">$3.71</td></tr>
+        <tr><td>2026-04-05</td><td>slack #design</td><td>opus-4.6</td><td class="num">348,990</td><td class="num">$3.62</td></tr>
+        <tr><td>2026-04-04</td><td>webhook deploy-hook</td><td>opus-4.6</td><td class="num">298,447</td><td class="num">$3.09</td></tr>
+        <tr><td>2026-04-03</td><td>slack DM Cheema</td><td>opus-4.6</td><td class="num">277,332</td><td class="num">$2.87</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+</main>
+
+<script>
+(function(){
+  var toggle=document.getElementById('theme-toggle');
+  toggle.addEventListener('click',function(){ var c=document.documentElement.getAttribute('data-theme'); var n=c==='phantom-dark'?'phantom-light':'phantom-dark'; document.documentElement.setAttribute('data-theme',n); localStorage.setItem('phantom-theme',n); if(window.__redraw){window.__redraw();} });
+})();
+</script>
+<script>
+/* Chart example: self-contained. On wrapped pages, use window.phantomChart instead. */
+(function(){
+  function cssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  function colors(){
+    return {
+      line: cssVar('--color-primary'),
+      text: cssVar('--color-base-content'),
+      grid: cssVar('--color-base-300'),
+      tooltipBg: cssVar('--color-base-content'),
+      tooltipText: cssVar('--color-base-100'),
+      info: cssVar('--color-info'),
+      warning: cssVar('--color-warning'),
+      success: cssVar('--color-success'),
+    };
+  }
+  var lineChart, barChart;
+  function init(){
+    var el=document.getElementById('line-chart');
+    if(lineChart){lineChart.dispose();}
+    lineChart=echarts.init(el,null,{renderer:'svg'});
+    var c=colors();
+    var data=[8.21,9.40,7.83,10.50,11.22,9.95,12.41,13.05,8.92,11.87,10.61,9.70,12.30,14.12,15.06,13.40,11.88,10.92,9.55,8.73,11.02,12.95,13.81,12.42,10.50,9.81,11.65,12.21,12.84,12.84];
+    var dates=data.map(function(_,i){var d=new Date();d.setDate(d.getDate()-(29-i));return d.toISOString().slice(5,10);});
+    lineChart.setOption({
+      backgroundColor:'transparent',
+      grid:{left:42,right:16,top:16,bottom:24},
+      tooltip:{trigger:'axis',backgroundColor:c.tooltipBg,borderWidth:0,textStyle:{color:c.tooltipText,fontSize:12}},
+      xAxis:{type:'category',data:dates,axisLine:{lineStyle:{color:c.grid}},axisLabel:{color:c.text,fontFamily:'JetBrains Mono,monospace',fontSize:10}},
+      yAxis:{type:'value',axisLine:{show:false},splitLine:{lineStyle:{color:c.grid}},axisLabel:{color:c.text,fontFamily:'JetBrains Mono,monospace',fontSize:10,formatter:'${value}'}},
+      series:[{type:'line',data:data,smooth:true,symbol:'circle',symbolSize:5,lineStyle:{color:c.line,width:2},itemStyle:{color:c.line},areaStyle:{color:c.line,opacity:0.12}}]
+    });
+
+    var el2=document.getElementById('bar-chart');
+    if(barChart){barChart.dispose();}
+    barChart=echarts.init(el2,null,{renderer:'svg'});
+    var days=[];for(var i=13;i>=0;i--){var d=new Date();d.setDate(d.getDate()-i);days.push(d.toISOString().slice(5,10));}
+    barChart.setOption({
+      backgroundColor:'transparent',
+      grid:{left:42,right:16,top:30,bottom:24},
+      legend:{textStyle:{color:c.text,fontSize:11},itemWidth:10,itemHeight:10,top:0,right:0},
+      tooltip:{trigger:'axis',backgroundColor:c.tooltipBg,borderWidth:0,textStyle:{color:c.tooltipText,fontSize:12}},
+      xAxis:{type:'category',data:days,axisLine:{lineStyle:{color:c.grid}},axisLabel:{color:c.text,fontFamily:'JetBrains Mono,monospace',fontSize:10}},
+      yAxis:{type:'value',axisLine:{show:false},splitLine:{lineStyle:{color:c.grid}},axisLabel:{color:c.text,fontFamily:'JetBrains Mono,monospace',fontSize:10,formatter:'${value}'}},
+      series:[
+        {name:'anthropic',type:'bar',stack:'p',data:[7.2,8.1,6.4,9.3,9.9,8.5,10.6,11.2,7.4,9.8,8.7,8.0,10.1,11.4],itemStyle:{color:c.line}},
+        {name:'openrouter',type:'bar',stack:'p',data:[0.8,1.1,1.2,0.9,1.0,1.2,1.5,1.4,1.3,1.7,1.6,1.4,1.7,1.9],itemStyle:{color:c.info}},
+        {name:'ollama',type:'bar',stack:'p',data:[0.21,0.20,0.23,0.30,0.32,0.25,0.31,0.45,0.22,0.37,0.31,0.30,0.50,0.82],itemStyle:{color:c.success}}
+      ]
+    });
+  }
+  window.__redraw=init;
+  if(window.echarts){init();window.addEventListener('resize',function(){if(lineChart)lineChart.resize();if(barChart)barChart.resize();});}else{document.addEventListener('DOMContentLoaded',init);}
+})();
+</script>
+</body>
+</html>

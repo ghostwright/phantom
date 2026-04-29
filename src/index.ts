@@ -1,5 +1,6 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { createReflectiveToolServer } from "./agent/in-process-reflective-tools.ts";
 import { createInProcessToolServer } from "./agent/in-process-tools.ts";
 import { AgentRuntime } from "./agent/runtime.ts";
 import type { RuntimeEvent } from "./agent/runtime.ts";
@@ -10,20 +11,26 @@ import { formatToolActivity } from "./channels/progress-stream.ts";
 import { createProgressStream } from "./channels/progress-stream.ts";
 import { ChannelRouter } from "./channels/router.ts";
 import { setActionFollowUpHandler } from "./channels/slack-actions.ts";
-import { SlackChannel } from "./channels/slack.ts";
+import { createSlackChannel, readSlackTransportFromEnv } from "./channels/slack-channel-factory.ts";
+import { SlackHttpChannel } from "./channels/slack-http-receiver.ts";
+import { setSlackHttpChannelProvider } from "./channels/slack-http-routes.ts";
+import type { SlackTransport } from "./channels/slack-transport.ts";
 import { createStatusReactionController } from "./channels/status-reactions.ts";
 import { TelegramChannel } from "./channels/telegram.ts";
 import { WebhookChannel } from "./channels/webhook.ts";
+import { DEFAULT_METADATA_BASE_URL } from "./config/identity-fetcher.ts";
 import { loadChannelsConfig, loadConfig } from "./config/loader.ts";
 import { installShutdownHandlers, onShutdown } from "./core/graceful.ts";
 import {
 	setChannelHealthProvider,
+	setChatHandler,
 	setEvolutionVersionProvider,
 	setMcpServerProvider,
 	setMemoryHealthProvider,
 	setOnboardingStatusProvider,
 	setPeerHealthProvider,
 	setRoleInfoProvider,
+	setSchedulerHealthProvider,
 	setTriggerDeps,
 	setWebhookHandler,
 	startServer,
@@ -31,13 +38,15 @@ import {
 import { closeDatabase, getDatabase } from "./db/connection.ts";
 import { runMigrations } from "./db/migrate.ts";
 import { createEmailToolServer } from "./email/tool.ts";
+import { EvolutionCadence, loadCadenceConfig } from "./evolution/cadence.ts";
 import { EvolutionEngine } from "./evolution/engine.ts";
+import { EvolutionQueue } from "./evolution/queue.ts";
 import type { SessionSummary } from "./evolution/types.ts";
 import { PeerHealthMonitor } from "./mcp/peer-health.ts";
 import { PeerManager } from "./mcp/peers.ts";
 import { PhantomMcpServer } from "./mcp/server.ts";
 import { loadMemoryConfig } from "./memory/config.ts";
-import { type SessionData, consolidateSession, consolidateSessionWithLLM } from "./memory/consolidation.ts";
+import { type SessionData, consolidateSession } from "./memory/consolidation.ts";
 import { MemoryContextBuilder } from "./memory/context-builder.ts";
 import { MemorySystem } from "./memory/system.ts";
 import { isFirstRun, isOnboardingInProgress } from "./onboarding/detection.ts";
@@ -50,7 +59,21 @@ import { Scheduler } from "./scheduler/service.ts";
 import { createSchedulerToolServer } from "./scheduler/tool.ts";
 import { getSecretRequest } from "./secrets/store.ts";
 import { createSecretToolServer } from "./secrets/tools.ts";
-import { setPublicDir, setSecretSavedCallback, setSecretsDb } from "./ui/serve.ts";
+import { reportAgentReady } from "./tenancy/heartbeat.ts";
+import { createBrowserToolServer } from "./ui/browser-mcp.ts";
+import { setLoginPageAgentName } from "./ui/login-page.ts";
+import { closePreviewResources, createPreviewToolServer, getOrCreatePreviewContext } from "./ui/preview.ts";
+import {
+	setBootstrapDb,
+	setDashboardDb,
+	setEvolutionEngine,
+	setEvolutionQueue,
+	setMemorySystem,
+	setPublicDir,
+	setSchedulerInstance,
+	setSecretSavedCallback,
+	setSecretsDb,
+} from "./ui/serve.ts";
 import { createWebUiToolServer } from "./ui/tools.ts";
 
 async function main(): Promise<void> {
@@ -58,11 +81,12 @@ async function main(): Promise<void> {
 
 	console.log("[phantom] Starting...");
 
-	const config = loadConfig();
+	const config = await loadConfig();
 	console.log(`[phantom] Config loaded: ${config.name} (${config.model}, effort: ${config.effort})`);
 
 	// Set web UI public directory
 	setPublicDir(resolve(process.cwd(), "public"));
+	setLoginPageAgentName(config.name);
 
 	// Load role system
 	const roleRegistry = createRoleRegistry();
@@ -80,6 +104,8 @@ async function main(): Promise<void> {
 	const db = getDatabase();
 	runMigrations(db);
 	setSecretsDb(db);
+	setDashboardDb(db);
+	setBootstrapDb(db);
 	console.log("[phantom] Database ready");
 
 	// Seed working memory file if it does not exist yet
@@ -94,20 +120,49 @@ async function main(): Promise<void> {
 	await memory.initialize();
 
 	setMemoryHealthProvider(() => memory.healthCheck());
+	setMemorySystem(memory);
+
+	// Runtime is created before evolution so we can wire it into the engine.
+	// Evolution judges run through the same Agent SDK subprocess as the main
+	// agent, which means a single auth path and a single provider switch.
+	const runtime = new AgentRuntime(config, db);
 
 	let evolution: EvolutionEngine | null = null;
+	let evolutionCadence: EvolutionCadence | null = null;
 	try {
-		evolution = new EvolutionEngine();
-		const currentVersion = evolution.getCurrentVersion();
-		const judgeMode = evolution.usesLLMJudges() ? "LLM judges" : "heuristic";
+		const engine = new EvolutionEngine(undefined, runtime);
+		evolution = engine;
+		const currentVersion = engine.getCurrentVersion();
+		const judgeMode = engine.usesLLMJudges() ? "LLM judges" : "heuristic";
 		console.log(`[evolution] Engine initialized (v${currentVersion}, ${judgeMode})`);
 		setEvolutionVersionProvider(() => evolution?.getCurrentVersion() ?? 0);
+
+		// Phase 2: persistent queue + cadence scheduler. The cadence starts
+		// here so cron ticks begin immediately after boot. Demand triggers
+		// route through `onEnqueue` which fires a drain whenever the queue
+		// depth crosses `demandTriggerDepth`.
+		const queue = new EvolutionQueue(db);
+		const cadenceConfig = loadCadenceConfig(engine.getEvolutionConfig());
+		evolutionCadence = new EvolutionCadence(engine, queue, engine.getEvolutionConfig(), cadenceConfig);
+		engine.setQueueWiring(queue, () => evolutionCadence?.onEnqueue());
+		setEvolutionEngine(engine);
+		setEvolutionQueue(queue);
+		// The cadence drains the queue out-of-band, so the runtime's in-memory
+		// evolved config snapshot must be refreshed from disk after each
+		// applied change. Without this callback the queued path would rewrite
+		// `phantom-config/` files but the live agent would keep prompting with
+		// the boot-time snapshot until the process restarts.
+		engine.setOnConfigApplied(() => {
+			runtime.setEvolvedConfig(engine.getConfig());
+		});
+		evolutionCadence.start();
+		console.log(
+			`[evolution] Cadence started (cadence=${cadenceConfig.cadenceMinutes}min, demand_trigger=${cadenceConfig.demandTriggerDepth})`,
+		);
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
 		console.warn(`[evolution] Failed to initialize: ${msg}. Running without self-evolution.`);
 	}
-
-	const runtime = new AgentRuntime(config, db);
 
 	if (activeRole) {
 		runtime.setRoleTemplate(activeRole);
@@ -141,9 +196,15 @@ async function main(): Promise<void> {
 				ended_at: new Date(signal.timestamp).toISOString(),
 			};
 			evolution
-				.afterSession(sessionSummary)
-				.then((result) => {
-					if (result.changes_applied.length > 0) {
+				.enqueueIfWorthy(sessionSummary)
+				.then((enqResult) => {
+					// Phase 1 fallback path: when no queue is wired, enqueueIfWorthy
+					// runs the pipeline inline and exposes the result so the
+					// evolved config can be re-loaded. In production the cadence
+					// drains the queue out-of-band and the config reload happens
+					// after processBatch completes, not here.
+					const applied = enqResult.inlineResult?.changes_applied.length ?? 0;
+					if (applied > 0) {
 						const updatedConfig = evolution?.getConfig();
 						if (updatedConfig) runtime.setEvolvedConfig(updatedConfig);
 					}
@@ -174,6 +235,8 @@ async function main(): Promise<void> {
 
 		// Wire scheduler into the agent (Slack channel set later after channel init)
 		scheduler = new Scheduler({ db, runtime });
+		setSchedulerHealthProvider(() => scheduler?.getHealthSummary() ?? null);
+		setSchedulerInstance(scheduler, runtime);
 
 		// Pass factories (not singletons) so each query() gets fresh MCP server instances.
 		// The underlying registries (DynamicToolRegistry, Scheduler) are singletons.
@@ -184,8 +247,11 @@ async function main(): Promise<void> {
 		runtime.setMcpServerFactories({
 			"phantom-dynamic-tools": () => createInProcessToolServer(registry),
 			"phantom-scheduler": () => createSchedulerToolServer(scheduler as Scheduler),
-			"phantom-web-ui": () => createWebUiToolServer(config.public_url),
+			"phantom-reflective": () => createReflectiveToolServer(memory.isReady() ? memory : null, db),
+			"phantom-web-ui": () => createWebUiToolServer(config.public_url, config.name),
 			"phantom-secrets": () => createSecretToolServer({ db, baseUrl: secretsBaseUrl }),
+			"phantom-preview": () => createPreviewToolServer(config.port),
+			"phantom-browser": () => createBrowserToolServer(() => getOrCreatePreviewContext()),
 			...(process.env.RESEND_API_KEY
 				? {
 						"phantom-email": () =>
@@ -199,7 +265,7 @@ async function main(): Promise<void> {
 		});
 		const emailStatus = process.env.RESEND_API_KEY ? " + email" : "";
 		console.log(
-			`[mcp] MCP server initialized (dynamic tools + scheduler + web UI + secrets${emailStatus} wired to agent)`,
+			`[mcp] MCP server initialized (dynamic tools + scheduler + reflective + web UI + secrets + preview + browser${emailStatus} wired to agent)`,
 		);
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
@@ -234,17 +300,38 @@ async function main(): Promise<void> {
 
 	const router = new ChannelRouter();
 
-	// Register Slack channel
-	let slackChannel: SlackChannel | null = null;
+	// Register Slack channel.
+	//
+	// SLACK_TRANSPORT controls which receiver runs:
+	//   - "socket" (default): the OSS Socket Mode flow. Reads bot_token and
+	//     app_token from channels.yaml.
+	//   - "http": the Phantom Cloud distributed-app flow. Fetches identity
+	//     and bot token from the in-tenant metadata gateway at boot. The
+	//     gateway pushes /v1/identity.slack after the OAuth handshake; this
+	//     code path requires that subfield to be populated, otherwise the
+	//     factory throws so a mis-provisioned tenant fails loudly.
 	const channelsConfig = loadChannelsConfig();
-	if (channelsConfig?.slack?.enabled && channelsConfig.slack.bot_token && channelsConfig.slack.app_token) {
-		slackChannel = new SlackChannel({
-			botToken: channelsConfig.slack.bot_token,
-			appToken: channelsConfig.slack.app_token,
-			defaultChannelId: channelsConfig.slack.default_channel_id,
-			ownerUserId: channelsConfig.slack.owner_user_id,
-		});
+	const slackTransport = readSlackTransportFromEnv();
+	const slackChannel: SlackTransport | null = await createSlackChannel({
+		transport: slackTransport,
+		channelsConfig,
+		metadataBaseUrl: process.env.METADATA_BASE_URL,
+	});
+
+	if (slackChannel) {
 		slackChannel.setPhantomName(config.name);
+
+		// HTTP-mode tenants mount /slack/{events,interactivity,commands} on
+		// the existing Bun.serve listener. The provider lookup is lazy so
+		// `core/server.ts` can resolve the live channel reference per
+		// request, which keeps the route table compatible with a future
+		// hot-swap of the Slack identity without restarting the process.
+		// `instanceof` discriminates the SlackTransport union without an
+		// `as` cast even though slackTransport === "http" already implies
+		// the http variant by construction.
+		if (slackChannel instanceof SlackHttpChannel) {
+			setSlackHttpChannelProvider(() => slackChannel);
+		}
 
 		// Wire Slack reaction feedback to evolution
 		slackChannel.onReaction((event) => {
@@ -259,7 +346,25 @@ async function main(): Promise<void> {
 		});
 
 		router.register(slackChannel);
-		console.log("[phantom] Slack channel registered");
+		console.log(`[phantom] Slack channel registered (transport=${slackTransport})`);
+
+		// In an operator-managed deployment the agent posts a best-effort
+		// "ready" signal to the host metadata gateway so the operator's
+		// readiness RPC can unblock and the user-facing wizard advances
+		// out of its waiting state. The factory and the gate share the
+		// SAME normalized transport value (via readSlackTransportFromEnv)
+		// so a whitespace-padded SLACK_TRANSPORT does not boot the HTTP
+		// receiver while skipping the heartbeat. Self-hosters using
+		// Socket Mode never have a listener for this signal and we skip
+		// silently. The metadata URL falls back to the same default the
+		// channel factory uses so unset METADATA_BASE_URL is not a
+		// gating failure.
+		if (slackTransport === "http") {
+			await reportAgentReady({
+				metadataBaseUrl: process.env.METADATA_BASE_URL ?? DEFAULT_METADATA_BASE_URL,
+				transport: slackTransport,
+			});
+		}
 	}
 
 	// Register Telegram channel
@@ -314,6 +419,77 @@ async function main(): Promise<void> {
 		const cli = new CliChannel();
 		router.register(cli);
 	}
+
+	// Register Web Chat channel (health/discovery only, hot path bypasses router)
+	const { WebChatChannel } = await import("./channels/web.ts");
+	const webChannel = new WebChatChannel();
+	router.register(webChannel);
+
+	// Wire chat HTTP handler
+	const { ChatSessionStore } = await import("./chat/session-store.ts");
+	const { ChatMessageStore } = await import("./chat/message-store.ts");
+	const { ChatEventLog } = await import("./chat/event-log.ts");
+	const { ChatAttachmentStore } = await import("./chat/attachment-store.ts");
+	const { StreamBus } = await import("./chat/stream-bus.ts");
+	const { createChatHandler } = await import("./chat/http.ts");
+	const { startSweepInterval } = await import("./chat/sweep.ts");
+	const { SessionFocusMap } = await import("./chat/notifications/focus.ts");
+	const { getOrCreateVapidKeys } = await import("./chat/notifications/vapid.ts");
+	const { NotificationTriggerService } = await import("./chat/notifications/triggers.ts");
+
+	const chatSessionStore = new ChatSessionStore(db);
+	const chatMessageStore = new ChatMessageStore(db);
+	const chatEventLog = new ChatEventLog(db);
+	const chatAttachmentStore = new ChatAttachmentStore(db);
+	const chatStreamBus = new StreamBus();
+
+	// Initialize push notification subsystem
+	const focusMap = new SessionFocusMap();
+	let vapidKeys: Awaited<ReturnType<typeof getOrCreateVapidKeys>> | null = null;
+	let notificationTriggers: InstanceType<typeof NotificationTriggerService> | null = null;
+	try {
+		vapidKeys = await getOrCreateVapidKeys(db);
+		notificationTriggers = new NotificationTriggerService({
+			db,
+			vapidKeys,
+			focusMap,
+			ownerEmail: process.env.OWNER_EMAIL,
+		});
+		console.log("[push] Web Push notifications initialized");
+	} catch (err: unknown) {
+		const pushMsg = err instanceof Error ? err.message : String(err);
+		console.warn(`[push] Failed to initialize: ${pushMsg}. Running without push notifications.`);
+	}
+
+	const chatHandlerFn = createChatHandler({
+		runtime,
+		sessionStore: chatSessionStore,
+		messageStore: chatMessageStore,
+		eventLog: chatEventLog,
+		attachmentStore: chatAttachmentStore,
+		streamBus: chatStreamBus,
+		db,
+		vapidKeys: vapidKeys ?? undefined,
+		focusMap,
+		ownerEmail: process.env.OWNER_EMAIL,
+		agentName: config.name,
+		notificationTriggers: notificationTriggers ?? undefined,
+		getBootstrapData: () => ({
+			agent_name: config.name,
+			evolution_gen: evolution?.getCurrentVersion() ?? 0,
+			memory_count: 0,
+			slack_status: slackChannel?.isConnected() ?? false,
+		}),
+	});
+	setChatHandler(chatHandlerFn);
+	console.log("[phantom] Web Chat channel registered");
+
+	// Chat sweep interval (hourly cleanup)
+	const sweepTimer = startSweepInterval({
+		sessionStore: chatSessionStore,
+		eventLog: chatEventLog,
+		attachmentStore: chatAttachmentStore,
+	});
 
 	// Wire channel health into HTTP server
 	setChannelHealthProvider(() => {
@@ -494,41 +670,25 @@ async function main(): Promise<void> {
 				outcome: response.text.startsWith("Error:") ? "failure" : "success",
 			};
 
-			const useLLMConsolidation = evolution?.usesLLMJudges() && evolution.isWithinCostCap();
-			if (useLLMConsolidation) {
-				const evolvedConfig = evolution?.getConfig();
-				const existingFacts = evolvedConfig ? `${evolvedConfig.userProfile}\n${evolvedConfig.domainKnowledge}` : "";
-				consolidateSessionWithLLM(memory, sessionData, existingFacts)
-					.then(({ result, judgeCost }) => {
-						if (judgeCost) {
-							evolution?.trackExternalJudgeCost(judgeCost);
-						}
-						if (result.episodesCreated > 0 || result.factsExtracted > 0) {
-							console.log(
-								`[memory] Consolidated (LLM): ${result.episodesCreated} episodes, ` +
-									`${result.factsExtracted} facts (${result.durationMs}ms)`,
-							);
-						}
-					})
-					.catch((err: unknown) => {
-						const errMsg = err instanceof Error ? err.message : String(err);
-						console.warn(`[memory] LLM consolidation failed: ${errMsg}`);
-					});
-			} else {
-				consolidateSession(memory, sessionData)
-					.then((result) => {
-						if (result.episodesCreated > 0 || result.factsExtracted > 0) {
-							console.log(
-								`[memory] Consolidated: ${result.episodesCreated} episodes, ` +
-									`${result.factsExtracted} facts (${result.durationMs}ms)`,
-							);
-						}
-					})
-					.catch((err: unknown) => {
-						const errMsg = err instanceof Error ? err.message : String(err);
-						console.warn(`[memory] Consolidation failed: ${errMsg}`);
-					});
-			}
+			// Phase 3 simplified memory consolidation: the Phase 1+2 LLM judge
+			// path is gone with the rest of the judges directory. Heuristic
+			// extraction ships every session regardless. The reflection
+			// subprocess manages `phantom-config/` memory files on the
+			// cadence, which is the new learning loop; memory/consolidation
+			// here is only the vector-memory episode/fact extractor.
+			consolidateSession(memory, sessionData)
+				.then((result) => {
+					if (result.episodesCreated > 0 || result.factsExtracted > 0) {
+						console.log(
+							`[memory] Consolidated: ${result.episodesCreated} episodes, ` +
+								`${result.factsExtracted} facts (${result.durationMs}ms)`,
+						);
+					}
+				})
+				.catch((err: unknown) => {
+					const errMsg = err instanceof Error ? err.message : String(err);
+					console.warn(`[memory] Consolidation failed: ${errMsg}`);
+				});
 		}
 
 		// Evolution pipeline (non-blocking)
@@ -548,9 +708,10 @@ async function main(): Promise<void> {
 			};
 
 			evolution
-				.afterSession(sessionSummary)
-				.then((result) => {
-					if (result.changes_applied.length > 0) {
+				.enqueueIfWorthy(sessionSummary)
+				.then((enqResult) => {
+					const applied = enqResult.inlineResult?.changes_applied.length ?? 0;
+					if (applied > 0) {
 						const updatedConfig = evolution?.getConfig();
 						if (updatedConfig) {
 							runtime.setEvolvedConfig(updatedConfig);
@@ -579,6 +740,12 @@ async function main(): Promise<void> {
 	onShutdown("Scheduler", async () => {
 		if (scheduler) scheduler.stop();
 	});
+	onShutdown("Evolution cadence", async () => {
+		evolutionCadence?.stop();
+	});
+	onShutdown("Preview browser", async () => {
+		await closePreviewResources();
+	});
 	onShutdown("Peer health monitor", async () => {
 		if (peerHealthMonitor) peerHealthMonitor.stop();
 	});
@@ -588,17 +755,42 @@ async function main(): Promise<void> {
 	onShutdown("Channels", async () => {
 		await router.disconnectAll();
 	});
+	onShutdown("Chat sweep", async () => {
+		clearInterval(sweepTimer);
+	});
 	onShutdown("Database", async () => {
 		closeDatabase();
 	});
 
 	await router.connectAll();
 
-	// Wire Slack into scheduler and /trigger now that channels are connected
-	if (scheduler && slackChannel && channelsConfig?.slack?.owner_user_id) {
-		scheduler.setSlackChannel(slackChannel, channelsConfig.slack.owner_user_id);
+	// First-run email trigger when Slack is not configured
+	if (!slackChannel) {
+		const { handleFirstRun } = await import("./chat/first-run.ts");
+		handleFirstRun(db, config).catch((err: unknown) => {
+			const firstRunMsg = err instanceof Error ? err.message : String(err);
+			console.warn(`[first-run] Failed: ${firstRunMsg}`);
+		});
+	}
+
+	// Wire Slack into scheduler and /trigger now that channels are connected.
+	// The owner_user_id gate was removed in Phase 2.5 (C3): channel-id and
+	// user-id delivery targets do not need the owner; only target="owner"
+	// does, and the scheduler's delivery path records a loud "dropped" status
+	// in that specific case instead of silently no-oping every job.
+	if (scheduler && slackChannel) {
+		scheduler.setSlackChannel(slackChannel, channelsConfig?.slack?.owner_user_id ?? null);
 	}
 	if (scheduler) {
+		if (notificationTriggers) {
+			const nt = notificationTriggers;
+			scheduler.onJobComplete((jobName, status) => {
+				nt.onScheduledJobResult(jobName, status).catch((err: unknown) => {
+					const msg = err instanceof Error ? err.message : String(err);
+					console.warn(`[push] Scheduler trigger failed: ${msg}`);
+				});
+			});
+		}
 		await scheduler.start();
 	}
 

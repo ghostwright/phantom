@@ -188,6 +188,37 @@ export class EpisodicStore {
 			.sort((a, b) => b.score - a.score);
 	}
 
+	async scroll(opts: {
+		limit: number;
+		offset?: string | number;
+	}): Promise<{ items: Episode[]; nextOffset: string | number | null }> {
+		const { points, nextOffset } = await this.qdrant.scroll(this.collectionName, {
+			limit: opts.limit,
+			offset: opts.offset,
+			orderBy: { key: "started_at", direction: "desc" },
+			withPayload: true,
+		});
+		return { items: points.map((p) => this.payloadToEpisode(p)), nextOffset };
+	}
+
+	async getById(id: string): Promise<Episode | null> {
+		const { points } = await this.qdrant.scroll(this.collectionName, {
+			limit: 1,
+			filter: { must: [{ has_id: [id] }] },
+			withPayload: true,
+		});
+		if (points.length === 0) return null;
+		return this.payloadToEpisode(points[0]);
+	}
+
+	async deleteById(id: string): Promise<void> {
+		await this.qdrant.deletePoint(this.collectionName, id);
+	}
+
+	async count(): Promise<number> {
+		return this.qdrant.countPoints(this.collectionName);
+	}
+
 	private payloadToEpisode(result: QdrantSearchResult): Episode {
 		const p = result.payload;
 		return {

@@ -36,22 +36,18 @@ function createMockEvolution() {
 				toolPreferences: "Use grep before writing new code.",
 				errorRecovery: "Check CI logs first.",
 			},
-			meta: { version: 2, metricsSnapshot: { session_count: 10, success_rate_7d: 0.9, correction_rate_7d: 0.1 } },
+			meta: { version: 2, metricsSnapshot: { session_count: 10, success_rate_7d: 0.9 } },
 		}),
 		getMetrics: () => ({
 			session_count: 10,
 			success_count: 9,
 			failure_count: 1,
-			correction_count: 1,
 			evolution_count: 2,
-			rollback_count: 0,
 			last_session_at: new Date().toISOString(),
 			last_evolution_at: new Date().toISOString(),
 			success_rate_7d: 0.9,
-			correction_rate_7d: 0.1,
-			sessions_since_consolidation: 2,
 		}),
-		getVersionHistory: () => [],
+		getEvolutionLog: () => [],
 	};
 }
 
@@ -134,9 +130,13 @@ describe("SWE MCP Tools", () => {
 					port: 3100,
 					role: "swe",
 					model: "claude-opus-4-6",
+					provider: { type: "anthropic" as const, secret_name: "provider_token" },
+					secret_source: "env" as const,
 					effort: "max" as const,
 					max_budget_usd: 0,
 					timeout_minutes: 240,
+					permissions: { default_mode: "bypassPermissions", allow: [], deny: [] },
+					evolution: { reflection_enabled: "auto", cadence_minutes: 180, demand_trigger_depth: 5 },
 				},
 				db,
 				startedAt: Date.now(),
@@ -183,14 +183,19 @@ describe("SWE MCP Tools", () => {
 		expect(toolNames).toContain("phantom_repo_info");
 	});
 
-	test("total tool count is 17 (8 universal + 6 SWE + 3 dynamic management)", async () => {
+	test("total tool count is 19 (10 universal + 6 SWE + 3 dynamic management)", async () => {
+		// PR3 adds phantom_list_sessions and phantom_memory_search as new tool
+		// aliases on the universal server, alongside the original phantom_history
+		// and phantom_memory_query registrations. The alias pair keeps existing
+		// external clients working while exposing richer parameter sets to new
+		// ones; count therefore grows from 17 to 19.
 		const sessionId = await initSession(mcpServer, adminToken);
 		const res = await mcpServer.handleRequest(
 			mcpRequest(adminToken, { jsonrpc: "2.0", id: 11, method: "tools/list" }, sessionId),
 		);
 		const body = (await res.json()) as Record<string, unknown>;
 		const result = body.result as { tools: Array<{ name: string }> };
-		expect(result.tools).toHaveLength(17);
+		expect(result.tools).toHaveLength(19);
 	});
 
 	test("phantom_codebase_query returns domain knowledge", async () => {
