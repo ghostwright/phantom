@@ -11,6 +11,8 @@ export type TranslationContext = {
 	startedToolIds: Set<string>;
 	completedToolInputIds: Set<string>;
 	assistantStartEmitted: boolean;
+	assistantEndEmitted: boolean;
+	awaitingStreamFinalAssistant: boolean;
 	blockTypes: Map<number, "text" | "thinking" | "tool_use">;
 	blockToolIds: Map<number, string>;
 	blockToolInputJson: Map<number, string>;
@@ -27,6 +29,18 @@ function parsedJsonInput(json: string): { ok: true; input: unknown } | { ok: fal
 	}
 }
 
+function advanceAssistantLifecycle(ctx: TranslationContext, options?: { preserveAssistantEnd?: boolean }): void {
+	ctx.turnIndex += 1;
+	ctx.seenBlockLengths.clear();
+	ctx.blockTypes.clear();
+	ctx.blockToolIds.clear();
+	ctx.blockToolInputJson.clear();
+	ctx.awaitingStreamFinalAssistant = false;
+	if (!options?.preserveAssistantEnd) {
+		ctx.assistantEndEmitted = false;
+	}
+}
+
 export function handleAssistant(msg: Record<string, unknown>, ctx: TranslationContext): ChatWireFrame[] {
 	const frames: ChatWireFrame[] = [];
 	const message = msg.message as {
@@ -34,6 +48,7 @@ export function handleAssistant(msg: Record<string, unknown>, ctx: TranslationCo
 		usage?: { input_tokens?: number; output_tokens?: number };
 	};
 	if (!message?.content) return frames;
+	const reconcilesStoppedStream = ctx.awaitingStreamFinalAssistant;
 
 	const parentToolUseId = (msg.parent_tool_use_id as string | null) ?? null;
 
@@ -140,6 +155,10 @@ export function handleAssistant(msg: Record<string, unknown>, ctx: TranslationCo
 		}
 	}
 
+	if (reconcilesStoppedStream) {
+		advanceAssistantLifecycle(ctx, { preserveAssistantEnd: true });
+	}
+
 	return frames;
 }
 
@@ -162,6 +181,11 @@ export function handleStreamEvent(msg: Record<string, unknown>, ctx: Translation
 
 	switch (eventType) {
 		case "content_block_start": {
+			if (ctx.awaitingStreamFinalAssistant) {
+				advanceAssistantLifecycle(ctx);
+			} else if (ctx.assistantEndEmitted) {
+				ctx.assistantEndEmitted = false;
+			}
 			const block = event.content_block as Record<string, unknown>;
 			const index = event.index as number;
 			const blockType = block?.type as string;
@@ -188,6 +212,7 @@ export function handleStreamEvent(msg: Record<string, unknown>, ctx: Translation
 				const toolId = (block.id as string) ?? `tool_${index}`;
 				ctx.startedToolIds.add(toolId);
 				ctx.blockToolIds.set(index, toolId);
+				ctx.blockToolInputJson.set(index, "");
 				const toolName = (block.name as string) ?? "unknown";
 				const isMcp = toolName.includes(":") || toolName.startsWith("mcp_");
 				frames.push({
@@ -254,13 +279,15 @@ export function handleStreamEvent(msg: Record<string, unknown>, ctx: Translation
 			break;
 		}
 		case "message_stop": {
-			if (ctx.assistantStartEmitted) {
+			if (ctx.assistantStartEmitted && !ctx.assistantEndEmitted) {
 				frames.push({
 					event: "message.assistant_end",
 					message_id: ctx.messageId,
 					interrupted: false,
 				});
+				ctx.assistantEndEmitted = true;
 			}
+			ctx.awaitingStreamFinalAssistant = true;
 			break;
 		}
 	}

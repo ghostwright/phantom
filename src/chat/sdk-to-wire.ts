@@ -17,6 +17,8 @@ export function createTranslationContext(sessionId: string, messageId: string): 
 		startedToolIds: new Set(),
 		completedToolInputIds: new Set(),
 		assistantStartEmitted: false,
+		assistantEndEmitted: false,
+		awaitingStreamFinalAssistant: false,
 		blockTypes: new Map(),
 		blockToolIds: new Map(),
 		blockToolInputJson: new Map(),
@@ -141,7 +143,7 @@ function handleResult(msg: Record<string, unknown>, ctx: TranslationContext): Ch
 	const durationMs = (msg.duration_ms as number) ?? 0;
 	const numTurns = (msg.num_turns as number) ?? 1;
 
-	if (ctx.assistantStartEmitted) {
+	if (ctx.assistantStartEmitted && !ctx.assistantEndEmitted) {
 		frames.push({
 			event: "message.assistant_end",
 			message_id: ctx.messageId,
@@ -150,8 +152,10 @@ function handleResult(msg: Record<string, unknown>, ctx: TranslationContext): Ch
 				? { input_tokens: usage.input_tokens ?? 0, output_tokens: usage.output_tokens ?? 0 }
 				: undefined,
 		});
-		ctx.assistantStartEmitted = false;
 	}
+	ctx.assistantStartEmitted = false;
+	ctx.assistantEndEmitted = false;
+	ctx.awaitingStreamFinalAssistant = false;
 
 	if (subtype === "success") {
 		const stopReason = ((msg.stop_reason as string) ?? "end_turn") as StopReason;
