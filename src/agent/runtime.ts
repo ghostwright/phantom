@@ -282,6 +282,22 @@ export class AgentRuntime {
 						resultText = `Error: ${retryMsg}`;
 						onEvent?.({ type: "error", message: retryMsg });
 					}
+				} else if (isResume) {
+					// Any other error during a resume attempt — the SDK session is
+					// likely unusable.  Discard it and retry fresh.  See #25.
+					console.log(`[runtime] Resume failed (${errorMsg}), retrying without resume: ${sessionKey}`);
+					this.sessionStore.clearSdkSessionId(sessionKey);
+					sdkSessionId = "";
+					resultText = "";
+					cost = emptyCost();
+					emittedThinking = false;
+					try {
+						await runSdkQuery(false);
+					} catch (retryErr: unknown) {
+						const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+						resultText = `Error: ${retryMsg}`;
+						onEvent?.({ type: "error", message: retryMsg });
+					}
 				} else {
 					resultText = `Error: ${errorMsg}`;
 					onEvent?.({ type: "error", message: errorMsg });

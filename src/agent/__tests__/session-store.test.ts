@@ -73,6 +73,29 @@ describe("SessionStore", () => {
 		expect(session?.status).toBe("active");
 	});
 
+	test("clearAllSdkSessionIds clears every stale SDK ID", () => {
+		store.create("cli", "conv-1");
+		store.create("slack", "conv-2");
+		store.create("web", "conv-3");
+
+		store.updateSdkSessionId("cli:conv-1", "sdk-aaa");
+		store.updateSdkSessionId("slack:conv-2", "sdk-bbb");
+		// web:conv-3 has no SDK session ID
+
+		const cleared = store.clearAllSdkSessionIds();
+		expect(cleared).toBe(2);
+
+		expect(store.getByKey("cli:conv-1")?.sdk_session_id).toBeNull();
+		expect(store.getByKey("slack:conv-2")?.sdk_session_id).toBeNull();
+		expect(store.getByKey("web:conv-3")?.sdk_session_id).toBeNull();
+	});
+
+	test("clearAllSdkSessionIds returns 0 when no sessions have SDK IDs", () => {
+		store.create("cli", "conv-1");
+		const cleared = store.clearAllSdkSessionIds();
+		expect(cleared).toBe(0);
+	});
+
 	test("create reactivates an expired session with the same key", () => {
 		store.create("cli", "conv-1");
 		store.updateSdkSessionId("cli:conv-1", "old-sdk-id");

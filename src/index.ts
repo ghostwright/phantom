@@ -127,6 +127,14 @@ async function main(): Promise<void> {
 	// agent, which means a single auth path and a single provider switch.
 	const runtime = new AgentRuntime(config, db);
 
+	// SDK session IDs are process-local and never survive restarts.
+	// Clear them so the runtime does not attempt impossible resumes
+	// that deadlock CLI or other persistent channels.  See #25.
+	{
+		const result = db.run("UPDATE sessions SET sdk_session_id = NULL WHERE sdk_session_id IS NOT NULL");
+		if (result.changes > 0) console.log(`[phantom] Cleared ${result.changes} stale SDK session ID(s)`);
+	}
+
 	let evolution: EvolutionEngine | null = null;
 	let evolutionCadence: EvolutionCadence | null = null;
 	try {

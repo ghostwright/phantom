@@ -77,6 +77,21 @@ export class SessionStore {
 		);
 	}
 
+	/**
+	 * Clear all SDK session IDs on startup.
+	 *
+	 * SDK session IDs are process-local and do not survive restarts.
+	 * Without this, container recreates leave stale IDs in SQLite
+	 * (persisted volume), causing the runtime to attempt impossible
+	 * resumes that deadlock the CLI channel.  See #25.
+	 */
+	clearAllSdkSessionIds(): number {
+		const result = this.db.run(
+			"UPDATE sessions SET sdk_session_id = NULL WHERE sdk_session_id IS NOT NULL",
+		);
+		return result.changes;
+	}
+
 	touch(sessionKey: string): void {
 		this.db.run("UPDATE sessions SET last_active_at = datetime('now') WHERE session_key = ?", [sessionKey]);
 	}
