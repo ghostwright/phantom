@@ -1,4 +1,4 @@
-import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKUserMessage } from "../agent/agent-sdk.ts";
 
 type MessageParam = SDKUserMessage["message"];
 import type { AgentRuntime } from "../agent/runtime.ts";

@@ -15,8 +15,8 @@
 // we read `source` and fall back to `name` only if `source` is missing
 // (for forward compat with future SDK shapes).
 
-import type { SDKSystemMessage } from "@anthropic-ai/claude-agent-sdk";
 import { publish as publishDashboardEvent } from "../ui/events.ts";
+import type { SDKSystemMessage } from "./agent-sdk.ts";
 
 // The SDK's public `SDKSystemMessage` type declares `plugins` as
 // `{name, path}[]` even though the runtime adds `source`. We widen the

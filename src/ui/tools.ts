@@ -1,8 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
-import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { type McpSdkServerConfigWithInstance, createSdkMcpServer, tool } from "../agent/agent-sdk.ts";
 import { avatarUrlIfPresent } from "./api/identity.ts";
 import { publish } from "./events.ts";
 import { escapeHtml } from "./html.ts";

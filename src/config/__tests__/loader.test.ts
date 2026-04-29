@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { AGENT_RUNTIME_ENV } from "../../agent/agent-runtime-selection.ts";
 import { loadConfig, loadConfigSync } from "../loader.ts";
 
 const TEST_DIR = "/tmp/phantom-test-config";
@@ -53,6 +54,7 @@ name: minimal
 			expect(config.name).toBe("minimal");
 			expect(config.port).toBe(3100);
 			expect(config.role).toBe("swe");
+			expect(config.agent_runtime).toBe("anthropic");
 			expect(config.effort).toBe("max");
 			expect(config.max_budget_usd).toBe(0);
 		} finally {
@@ -89,6 +91,83 @@ effort: turbo
 		try {
 			await expect(loadConfig(path)).rejects.toThrow("Invalid config");
 		} finally {
+			cleanup();
+		}
+	});
+
+	test("loads agent_runtime: murph", async () => {
+		const path = writeYaml(
+			"murph-runtime.yaml",
+			`
+name: test
+agent_runtime: murph
+`,
+		);
+		try {
+			const config = await loadConfig(path);
+			expect(config.agent_runtime).toBe("murph");
+		} finally {
+			cleanup();
+		}
+	});
+
+	test("rejects unknown YAML agent_runtime", async () => {
+		const path = writeYaml(
+			"bad-runtime.yaml",
+			`
+name: test
+agent_runtime: murp
+`,
+		);
+		try {
+			await expect(loadConfig(path)).rejects.toThrow("Invalid config");
+			await expect(loadConfig(path)).rejects.toThrow("agent_runtime");
+		} finally {
+			cleanup();
+		}
+	});
+
+	test("PHANTOM_AGENT_RUNTIME overrides YAML agent_runtime", async () => {
+		const path = writeYaml(
+			"env-runtime.yaml",
+			`
+name: test
+agent_runtime: anthropic
+`,
+		);
+		const saved = process.env[AGENT_RUNTIME_ENV];
+		try {
+			process.env[AGENT_RUNTIME_ENV] = "murph";
+			const config = await loadConfig(path);
+			expect(config.agent_runtime).toBe("murph");
+		} finally {
+			if (saved !== undefined) {
+				process.env[AGENT_RUNTIME_ENV] = saved;
+			} else {
+				delete process.env[AGENT_RUNTIME_ENV];
+			}
+			cleanup();
+		}
+	});
+
+	test("invalid PHANTOM_AGENT_RUNTIME rejects", async () => {
+		const path = writeYaml(
+			"env-runtime-bad.yaml",
+			`
+name: test
+agent_runtime: anthropic
+`,
+		);
+		const saved = process.env[AGENT_RUNTIME_ENV];
+		try {
+			process.env[AGENT_RUNTIME_ENV] = "murp";
+			await expect(loadConfig(path)).rejects.toThrow("PHANTOM_AGENT_RUNTIME must be one of: anthropic, murph.");
+		} finally {
+			if (saved !== undefined) {
+				process.env[AGENT_RUNTIME_ENV] = saved;
+			} else {
+				delete process.env[AGENT_RUNTIME_ENV];
+			}
 			cleanup();
 		}
 	});
@@ -377,6 +456,66 @@ provider:
 			expect(config.provider.api_key_env).toBe("ZAI_API_KEY");
 			expect(config.provider.model_mappings?.opus).toBe("glm-5.1");
 		} finally {
+			cleanup();
+		}
+	});
+
+	test("loads provider.type: openai when Murph runtime is selected", async () => {
+		const path = writeYaml(
+			"openai-provider-murph.yaml",
+			`
+name: test
+agent_runtime: murph
+provider:
+  type: openai
+`,
+		);
+		try {
+			const config = await loadConfig(path);
+			expect(config.agent_runtime).toBe("murph");
+			expect(config.provider.type).toBe("openai");
+		} finally {
+			cleanup();
+		}
+	});
+
+	test("rejects provider.type: openai unless Murph runtime is selected", async () => {
+		const path = writeYaml(
+			"openai-provider-anthropic.yaml",
+			`
+name: test
+provider:
+  type: openai
+`,
+		);
+		try {
+			await expect(loadConfig(path)).rejects.toThrow('provider.type "openai" requires agent_runtime: murph.');
+		} finally {
+			cleanup();
+		}
+	});
+
+	test("PHANTOM_AGENT_RUNTIME=murph can unlock YAML provider.type: openai", async () => {
+		const path = writeYaml(
+			"openai-provider-env-runtime.yaml",
+			`
+name: test
+provider:
+  type: openai
+`,
+		);
+		const saved = process.env[AGENT_RUNTIME_ENV];
+		try {
+			process.env[AGENT_RUNTIME_ENV] = "murph";
+			const config = await loadConfig(path);
+			expect(config.agent_runtime).toBe("murph");
+			expect(config.provider.type).toBe("openai");
+		} finally {
+			if (saved !== undefined) {
+				process.env[AGENT_RUNTIME_ENV] = saved;
+			} else {
+				delete process.env[AGENT_RUNTIME_ENV];
+			}
 			cleanup();
 		}
 	});

@@ -15,9 +15,13 @@ export function createTranslationContext(sessionId: string, messageId: string): 
 		turnIndex: 0,
 		seenBlockLengths: new Map(),
 		startedToolIds: new Set(),
+		completedToolInputIds: new Set(),
 		assistantStartEmitted: false,
+		assistantEndEmitted: false,
+		awaitingStreamFinalAssistant: false,
 		blockTypes: new Map(),
 		blockToolIds: new Map(),
+		blockToolInputJson: new Map(),
 	};
 }
 
@@ -139,7 +143,7 @@ function handleResult(msg: Record<string, unknown>, ctx: TranslationContext): Ch
 	const durationMs = (msg.duration_ms as number) ?? 0;
 	const numTurns = (msg.num_turns as number) ?? 1;
 
-	if (ctx.assistantStartEmitted) {
+	if (ctx.assistantStartEmitted && !ctx.assistantEndEmitted) {
 		frames.push({
 			event: "message.assistant_end",
 			message_id: ctx.messageId,
@@ -148,8 +152,10 @@ function handleResult(msg: Record<string, unknown>, ctx: TranslationContext): Ch
 				? { input_tokens: usage.input_tokens ?? 0, output_tokens: usage.output_tokens ?? 0 }
 				: undefined,
 		});
-		ctx.assistantStartEmitted = false;
 	}
+	ctx.assistantStartEmitted = false;
+	ctx.assistantEndEmitted = false;
+	ctx.awaitingStreamFinalAssistant = false;
 
 	if (subtype === "success") {
 		const stopReason = ((msg.stop_reason as string) ?? "end_turn") as StopReason;
@@ -180,24 +186,31 @@ function handleResult(msg: Record<string, unknown>, ctx: TranslationContext): Ch
 }
 
 function handleToolProgress(msg: Record<string, unknown>): ChatWireFrame[] {
+	const elapsedSeconds =
+		typeof msg.elapsed_time_seconds === "number"
+			? msg.elapsed_time_seconds
+			: typeof msg.elapsed_ms === "number"
+				? msg.elapsed_ms / 1000
+				: 0;
 	return [
 		{
 			event: "message.tool_call_running",
 			tool_call_id: (msg.tool_use_id as string) ?? "",
-			elapsed_seconds: (msg.elapsed_time_seconds as number) ?? 0,
+			elapsed_seconds: elapsedSeconds,
 		},
 	];
 }
 
 function handleRateLimit(msg: Record<string, unknown>): ChatWireFrame[] {
-	const info = msg.rate_limit_info as Record<string, unknown> | undefined;
+	const info = (msg.rate_limit_info ?? msg.rate_limit) as Record<string, unknown> | undefined;
 	if (!info) return [];
+	const resetsAt = info.resetsAt;
 	return [
 		{
 			event: "session.rate_limit",
 			status: (info.status as "allowed" | "allowed_warning" | "rejected") ?? "allowed",
 			rate_limit_type: info.rateLimitType as string | undefined,
-			resets_at: info.resetsAt ? new Date(info.resetsAt as number).toISOString() : undefined,
+			resets_at: resetsAt ? new Date(resetsAt as string | number).toISOString() : undefined,
 			utilization: info.utilization as number | undefined,
 		},
 	];
@@ -208,7 +221,7 @@ function handlePromptSuggestion(msg: Record<string, unknown>, ctx: TranslationCo
 		{
 			event: "session.suggestion",
 			session_id: ctx.sessionId,
-			suggestion: (msg.suggestion as string) ?? "",
+			suggestion: ((msg.suggestion ?? msg.prompt) as string) ?? "",
 		},
 	];
 }

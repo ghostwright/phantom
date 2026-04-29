@@ -1,9 +1,8 @@
 import type { Database } from "bun:sqlite";
-import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { McpServerConfig, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { type McpServerConfig, type SDKMessage, type SDKUserMessage, query } from "./agent-sdk.ts";
 
 type MessageParam = SDKUserMessage["message"];
-import { buildProviderEnv } from "../config/providers.ts";
+import { buildAgentRuntimeEnv, resolveAgentRuntimeModel } from "../config/providers.ts";
 import type { PhantomConfig } from "../config/types.ts";
 import type { EvolvedConfig } from "../evolution/types.ts";
 import type { MemoryContextBuilder } from "../memory/context-builder.ts";
@@ -18,6 +17,7 @@ import { wrapMessageContent } from "./message-param-utils.ts";
 import { extractCost, extractTextFromMessage } from "./message-utils.ts";
 import { permissionOptionsFromConfig } from "./permission-options.ts";
 import { assemblePrompt } from "./prompt-assembler.ts";
+import { isNoConversationFoundResult, sdkResultErrorText } from "./sdk-result-errors.ts";
 import { SessionStore } from "./session-store.ts";
 import { getThinkingConfig } from "./thinking-config.ts";
 
@@ -194,14 +194,15 @@ export class AgentRuntime {
 		let resultText = "";
 		let cost: AgentCost = emptyCost();
 		let emittedThinking = false;
-		const providerEnv = buildProviderEnv(this.config);
+		const queryModel = resolveAgentRuntimeModel(this.config, this.config.model);
+		const providerEnv = buildAgentRuntimeEnv(this.config, queryModel);
 
 		const runSdkQuery = async (useResume: boolean): Promise<void> => {
 			const permissionOptions = permissionOptionsFromConfig(this.config);
 			const queryStream = query({
 				prompt: text,
 				options: {
-					model: this.config.model,
+					model: queryModel,
 					...permissionOptions,
 					settingSources: ["project", "user"],
 					systemPrompt: { type: "preset" as const, preset: "claude_code" as const, append: appendPrompt },
@@ -255,6 +256,9 @@ export class AgentRuntime {
 						break;
 					}
 					case "result": {
+						if (isNoConversationFoundResult(message)) {
+							throw new Error(sdkResultErrorText(message) ?? "No conversation found");
+						}
 						cost = extractCost(message as unknown as Parameters<typeof extractCost>[0]);
 						if (message.subtype === "success") resultText = message.result || resultText;
 						break;
@@ -292,7 +296,7 @@ export class AgentRuntime {
 		}
 
 		this.lastTrackedFiles = fileTracker.getTrackedFiles();
-		this.costTracker.record(sessionKey, cost, this.config.model);
+		this.costTracker.record(sessionKey, cost, queryModel);
 		this.sessionStore.touch(sessionKey);
 		return { text: resultText, sessionId: sdkSessionId, cost, durationMs: Date.now() - startTime };
 	}

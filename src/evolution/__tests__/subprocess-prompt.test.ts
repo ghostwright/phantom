@@ -28,6 +28,14 @@ describe("REFLECTION_SUBPROCESS_PROMPT", () => {
 		}
 	});
 
+	test("teaches cwd-relative paths for the reflection sandbox", () => {
+		expect(REFLECTION_SUBPROCESS_PROMPT).toContain("current working directory is the phantom-config directory");
+		expect(REFLECTION_SUBPROCESS_PROMPT).toContain('Read "./user-profile.md"');
+		expect(REFLECTION_SUBPROCESS_PROMPT).toContain('Glob with pattern "**" and path "./strategies"');
+		expect(REFLECTION_SUBPROCESS_PROMPT).toContain("Do not prefix paths with");
+		expect(REFLECTION_SUBPROCESS_PROMPT).toContain('"phantom-config/"');
+	});
+
 	test("declares constitution immutability clearly", () => {
 		expect(REFLECTION_SUBPROCESS_PROMPT).toContain("IMMUTABLE");
 		expect(REFLECTION_SUBPROCESS_PROMPT).toContain("Never write to constitution.md");

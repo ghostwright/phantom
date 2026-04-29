@@ -1,11 +1,10 @@
 // Extracted chat-specific query logic for the runForChat method.
 // Lives outside runtime.ts to keep that file under the 300-line budget.
 
-import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { McpServerConfig, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { type McpServerConfig, type SDKMessage, type SDKUserMessage, query } from "./agent-sdk.ts";
 
 type MessageParam = SDKUserMessage["message"];
-import { buildProviderEnv } from "../config/providers.ts";
+import { buildAgentRuntimeEnv, resolveAgentRuntimeModel } from "../config/providers.ts";
 import type { PhantomConfig } from "../config/types.ts";
 import type { EvolvedConfig } from "../evolution/types.ts";
 import type { MemoryContextBuilder } from "../memory/context-builder.ts";
@@ -17,6 +16,7 @@ import { extractTextFromMessageParam } from "./message-param-utils.ts";
 import { extractCost, extractTextFromMessage } from "./message-utils.ts";
 import { permissionOptionsFromConfig } from "./permission-options.ts";
 import { assemblePrompt } from "./prompt-assembler.ts";
+import { isNoConversationFoundResult, sdkResultErrorText } from "./sdk-result-errors.ts";
 import type { Session, SessionStore } from "./session-store.ts";
 import { getThinkingConfig } from "./thinking-config.ts";
 
@@ -63,14 +63,8 @@ export async function executeChatQuery(
 		deps.onboardingPrompt ?? undefined,
 		undefined,
 	);
-	const providerEnv = buildProviderEnv(deps.config);
-
-	let mcpServers: Record<string, McpServerConfig> | undefined;
-	if (deps.mcpServerFactories) {
-		mcpServers = Object.fromEntries(
-			await Promise.all(Object.entries(deps.mcpServerFactories).map(async ([k, f]) => [k, await f()] as const)),
-		);
-	}
+	const queryModel = resolveAgentRuntimeModel(deps.config, deps.config.model);
+	const providerEnv = buildAgentRuntimeEnv(deps.config, queryModel);
 
 	const commandBlocker = createDangerousCommandBlocker();
 	const fileTracker = createFileTracker();
@@ -94,10 +88,15 @@ export async function executeChatQuery(
 
 	const runSdk = async (useResume: boolean): Promise<void> => {
 		const permissionOptions = permissionOptionsFromConfig(deps.config);
+		const mcpServers = deps.mcpServerFactories
+			? Object.fromEntries(
+					await Promise.all(Object.entries(deps.mcpServerFactories).map(async ([k, f]) => [k, await f()] as const)),
+				)
+			: undefined;
 		const queryStream = query({
 			prompt: makePrompt(),
 			options: {
-				model: deps.config.model,
+				model: queryModel,
 				...permissionOptions,
 				settingSources: ["project", "user"],
 				systemPrompt: {
@@ -121,6 +120,9 @@ export async function executeChatQuery(
 		});
 
 		for await (const msg of queryStream) {
+			if (isNoConversationFoundResult(msg)) {
+				throw new Error(sdkResultErrorText(msg) ?? "No conversation found");
+			}
 			options.onSdkEvent(msg);
 			switch (msg.type) {
 				case "system": {
@@ -168,7 +170,7 @@ export async function executeChatQuery(
 		clearTimeout(timeout);
 	}
 
-	deps.costTracker.record(sessionKey, cost, deps.config.model);
+	deps.costTracker.record(sessionKey, cost, queryModel);
 	deps.sessionStore.touch(sessionKey);
 
 	return { text: resultText, sessionId: sdkSessionId, cost, durationMs: Date.now() - startTime };

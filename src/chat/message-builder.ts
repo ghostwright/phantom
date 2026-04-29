@@ -2,7 +2,7 @@
 // Attachments are converted to ImageBlockParam, DocumentBlockParam, or
 // TextBlockParam depending on type. Text block goes last.
 
-import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKUserMessage } from "../agent/agent-sdk.ts";
 
 type MessageParam = SDKUserMessage["message"];
 

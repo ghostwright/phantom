@@ -1,8 +1,8 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query } from "../agent/agent-sdk.ts";
 import { getThinkingConfig } from "../agent/thinking-config.ts";
-import { buildProviderEnv } from "../config/providers.ts";
+import { buildAgentRuntimeEnv, resolveAgentRuntimeModel } from "../config/providers.ts";
 import type { PhantomConfig } from "../config/types.ts";
 import type { EvolutionConfig } from "./config.ts";
 import { runInvariantCheck } from "./invariant-check.ts";
@@ -542,8 +542,9 @@ function bumpFilesTouched(stats: Partial<ReflectionStats>, changes: VersionChang
 async function defaultRunner(input: SpawnQueryInput): Promise<SpawnQueryResult> {
 	const { tier, drainId, config, phantomConfig, systemPrompt, abortSignal } = input;
 	const root = config.paths.config_dir;
-	const providerEnv = phantomConfig ? buildProviderEnv(phantomConfig) : {};
-	const model = TIER_MODELS[tier];
+	const requestedModel = TIER_MODELS[tier];
+	const model = phantomConfig ? resolveAgentRuntimeModel(phantomConfig, requestedModel, tier) : requestedModel;
+	const providerEnv = phantomConfig ? buildAgentRuntimeEnv(phantomConfig, model, tier) : {};
 
 	// Permission rules are anchored at cwd. Read-wide, write-narrow: the
 	// subprocess can read everything inside phantom-config (except meta and
@@ -603,7 +604,7 @@ async function defaultRunner(input: SpawnQueryInput): Promise<SpawnQueryResult> 
 
 	try {
 		const stream = query({
-			prompt: `Read ./.staging/${drainId}.jsonl and manage memory. Follow the teaching prompt. End with a sentinel.`,
+			prompt: `Read ./.staging/${drainId}.jsonl and manage memory using cwd-relative paths like ./user-profile.md, not phantom-config/user-profile.md. Follow the teaching prompt. End with a sentinel.`,
 			options: {
 				model,
 				cwd: root,

@@ -2,6 +2,8 @@ name: phantom
 port: 3100
 role: swe
 model: claude-opus-4-7
+# Agent runtime implementation. Defaults to Anthropic.
+# agent_runtime: anthropic # anthropic | murph
 effort: max
 max_budget_usd: 0
 timeout_minutes: 240
@@ -33,6 +35,13 @@ timeout_minutes: 240
 #     opus: glm-5.1
 #     sonnet: glm-5.1
 #     haiku: glm-4.5-air
+#
+# Example: Murph runtime with OpenAI. Requires @murph/anthropic-sdk-shim to be
+# installed or linked into this Phantom project.
+# agent_runtime: murph
+# model: gpt-5.5
+# provider:
+#   type: openai
 #
 # Example: Local vLLM server hosting any OpenAI-compatible model
 # provider:

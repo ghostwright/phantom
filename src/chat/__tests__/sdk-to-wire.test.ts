@@ -249,6 +249,18 @@ describe("sdk-to-wire translator", () => {
 
 	test("stream_event content_block_delta input_json_delta -> tool_call_input_delta", () => {
 		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_start",
+					content_block: { type: "tool_use", id: "toolu_abc", name: "Read" },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
 		const frames = translateSdkMessage(
 			{
 				type: "stream_event",
@@ -264,6 +276,23 @@ describe("sdk-to-wire translator", () => {
 		expect(frames.some((f) => f.event === "message.tool_call_input_delta")).toBe(true);
 	});
 
+	test("stream_event unanchored input_json_delta is dropped", () => {
+		const ctx = makeCtx();
+		const frames = translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_delta",
+					delta: { type: "input_json_delta", partial_json: '{"f' },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(frames.some((f) => f.event === "message.tool_call_input_delta")).toBe(false);
+	});
+
 	test("stream_event message_stop -> assistant_end", () => {
 		const ctx = makeCtx();
 		ctx.assistantStartEmitted = true;
@@ -272,6 +301,84 @@ describe("sdk-to-wire translator", () => {
 			ctx,
 		);
 		expect(frames.some((f) => f.event === "message.assistant_end")).toBe(true);
+	});
+
+	test("stream_event message_stop followed by result does not duplicate assistant_end", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_start", content_block: { type: "text" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		const stopFrames = translateSdkMessage(
+			{ type: "stream_event", event: { type: "message_stop" }, parent_tool_use_id: null },
+			ctx,
+		);
+		expect(stopFrames.some((f) => f.event === "message.assistant_end")).toBe(true);
+
+		const resultFrames = translateSdkMessage(
+			{
+				type: "result",
+				subtype: "success",
+				result: "done",
+				stop_reason: "end_turn",
+				usage: { input_tokens: 1, output_tokens: 1 },
+			},
+			ctx,
+		);
+		expect(resultFrames.some((f) => f.event === "message.assistant_end")).toBe(false);
+		expect(resultFrames.some((f) => f.event === "session.done")).toBe(true);
+	});
+
+	test("stream_event message_stop followed by final assistant and result does not duplicate assistant_end", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_start", content_block: { type: "text" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_delta", delta: { type: "text_delta", text: "done" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		const stopFrames = translateSdkMessage(
+			{ type: "stream_event", event: { type: "message_stop" }, parent_tool_use_id: null },
+			ctx,
+		);
+		expect(stopFrames.some((f) => f.event === "message.assistant_end")).toBe(true);
+
+		const finalFrames = translateSdkMessage(
+			{
+				type: "assistant",
+				message: { content: [{ type: "text", text: "done" }] },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(finalFrames.some((f) => f.event === "message.text_reconcile")).toBe(true);
+
+		const resultFrames = translateSdkMessage(
+			{
+				type: "result",
+				subtype: "success",
+				result: "done",
+				stop_reason: "end_turn",
+				usage: { input_tokens: 1, output_tokens: 1 },
+			},
+			ctx,
+		);
+		expect(resultFrames.some((f) => f.event === "message.assistant_end")).toBe(false);
+		expect(resultFrames.some((f) => f.event === "session.done")).toBe(true);
 	});
 
 	test("result success -> session.done", () => {
@@ -315,6 +422,15 @@ describe("sdk-to-wire translator", () => {
 		expect(frames[0].event).toBe("session.suggestion");
 	});
 
+	test("prompt_suggestion accepts prompt field from SDK-compatible runtimes", () => {
+		const ctx = makeCtx();
+		const frames = translateSdkMessage({ type: "prompt_suggestion", prompt: "Try the next step" }, ctx);
+		expect(frames.length).toBe(1);
+		if (frames[0].event === "session.suggestion") {
+			expect(frames[0].suggestion).toBe("Try the next step");
+		}
+	});
+
 	test("tool_progress -> tool_call_running", () => {
 		const ctx = makeCtx();
 		const frames = translateSdkMessage(
@@ -323,6 +439,15 @@ describe("sdk-to-wire translator", () => {
 		);
 		expect(frames.length).toBe(1);
 		expect(frames[0].event).toBe("message.tool_call_running");
+	});
+
+	test("tool_progress accepts elapsed_ms from SDK-compatible runtimes", () => {
+		const ctx = makeCtx();
+		const frames = translateSdkMessage({ type: "tool_progress", tool_use_id: "tu_1", elapsed_ms: 1250 }, ctx);
+		expect(frames.length).toBe(1);
+		if (frames[0].event === "message.tool_call_running") {
+			expect(frames[0].elapsed_seconds).toBe(1.25);
+		}
 	});
 
 	test("rate_limit_event -> session.rate_limit", () => {
@@ -336,6 +461,23 @@ describe("sdk-to-wire translator", () => {
 		);
 		expect(frames.length).toBe(1);
 		expect(frames[0].event).toBe("session.rate_limit");
+	});
+
+	test("rate_limit_event accepts rate_limit from SDK-compatible runtimes", () => {
+		const ctx = makeCtx();
+		const frames = translateSdkMessage(
+			{
+				type: "rate_limit_event",
+				rate_limit: { status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.82 },
+			},
+			ctx,
+		);
+		expect(frames.length).toBe(1);
+		if (frames[0].event === "session.rate_limit") {
+			expect(frames[0].status).toBe("allowed_warning");
+			expect(frames[0].rate_limit_type).toBe("five_hour");
+			expect(frames[0].utilization).toBe(0.82);
+		}
 	});
 
 	test("unknown message type -> empty", () => {
@@ -417,6 +559,223 @@ describe("sdk-to-wire translator", () => {
 		);
 		expect(frames.length).toBe(1);
 		expect(frames[0].event).toBe("message.tool_call_input_end");
+		if (frames[0].event === "message.tool_call_input_end") {
+			expect(frames[0].input).toEqual({});
+		}
+	});
+
+	test("content_block_stop emits parsed streamed tool input", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_start",
+					content_block: { type: "tool_use", id: "toolu_abc", name: "Read" },
+					index: 2,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_delta",
+					delta: { type: "input_json_delta", partial_json: '{"file_path"' },
+					index: 2,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_delta",
+					delta: { type: "input_json_delta", partial_json: ':"/tmp/a.txt"}' },
+					index: 2,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		const frames = translateSdkMessage(
+			{ type: "stream_event", event: { type: "content_block_stop", index: 2 }, parent_tool_use_id: null },
+			ctx,
+		);
+		expect(frames.length).toBe(1);
+		expect(frames[0].event).toBe("message.tool_call_input_end");
+		if (frames[0].event === "message.tool_call_input_end") {
+			expect(frames[0].input).toEqual({ file_path: "/tmp/a.txt" });
+		}
+	});
+
+	test("content_block_start resets streamed tool input when a new tool reuses an index", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_start",
+					content_block: { type: "tool_use", id: "toolu_first", name: "Read" },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_delta",
+					delta: { type: "input_json_delta", partial_json: '{"file":"a.txt"}' },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		const firstFrames = translateSdkMessage(
+			{ type: "stream_event", event: { type: "content_block_stop", index: 0 }, parent_tool_use_id: null },
+			ctx,
+		);
+		expect(firstFrames[0].event).toBe("message.tool_call_input_end");
+		if (firstFrames[0].event === "message.tool_call_input_end") {
+			expect(firstFrames[0].tool_call_id).toBe("toolu_first");
+			expect(firstFrames[0].input).toEqual({ file: "a.txt" });
+		}
+
+		translateSdkMessage({ type: "stream_event", event: { type: "message_stop" }, parent_tool_use_id: null }, ctx);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_start",
+					content_block: { type: "tool_use", id: "toolu_second", name: "Read" },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_delta",
+					delta: { type: "input_json_delta", partial_json: '{"file":"b.txt"}' },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		const secondFrames = translateSdkMessage(
+			{ type: "stream_event", event: { type: "content_block_stop", index: 0 }, parent_tool_use_id: null },
+			ctx,
+		);
+		expect(secondFrames[0].event).toBe("message.tool_call_input_end");
+		if (secondFrames[0].event === "message.tool_call_input_end") {
+			expect(secondFrames[0].tool_call_id).toBe("toolu_second");
+			expect(secondFrames[0].input).toEqual({ file: "b.txt" });
+		}
+	});
+
+	test("stream_event + assistant combined: completed streamed tool input is not duplicated", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_start",
+					content_block: { type: "tool_use", id: "toolu_abc", name: "Read" },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_delta",
+					delta: { type: "input_json_delta", partial_json: '{"file":"/tmp/x"}' },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{ type: "stream_event", event: { type: "content_block_stop", index: 0 }, parent_tool_use_id: null },
+			ctx,
+		);
+		const frames = translateSdkMessage(
+			{
+				type: "assistant",
+				message: {
+					content: [{ type: "tool_use", id: "toolu_abc", name: "Read", input: { file: "/tmp/x" } }],
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(frames.some((f) => f.event === "message.tool_call_start")).toBe(false);
+		expect(frames.some((f) => f.event === "message.tool_call_input_end")).toBe(false);
+	});
+
+	test("stream_event + assistant combined: invalid streamed tool JSON defers to final assistant input", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_start",
+					content_block: { type: "tool_use", id: "toolu_abc", name: "Read" },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_delta",
+					delta: { type: "input_json_delta", partial_json: '{"file"' },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		const stopFrames = translateSdkMessage(
+			{ type: "stream_event", event: { type: "content_block_stop", index: 0 }, parent_tool_use_id: null },
+			ctx,
+		);
+		expect(stopFrames.some((f) => f.event === "message.tool_call_input_end")).toBe(false);
+
+		const frames = translateSdkMessage(
+			{
+				type: "assistant",
+				message: {
+					content: [{ type: "tool_use", id: "toolu_abc", name: "Read", input: { file: "/tmp/x" } }],
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(frames.some((f) => f.event === "message.tool_call_start")).toBe(false);
+		const inputEnd = frames.find((f) => f.event === "message.tool_call_input_end");
+		if (inputEnd?.event === "message.tool_call_input_end") {
+			expect(inputEnd.input).toEqual({ file: "/tmp/x" });
+		}
 	});
 
 	test("content_block_stop emits nothing for unknown block type", () => {
@@ -484,6 +843,81 @@ describe("sdk-to-wire translator", () => {
 		}
 		expect(frames.some((f) => f.event === "message.text_start")).toBe(false);
 		expect(frames.some((f) => f.event === "message.text_delta")).toBe(false);
+	});
+
+	test("stream_event + assistant combined: next streamed assistant lifecycle gets fresh block state", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_start", content_block: { type: "text" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_delta", delta: { type: "text_delta", text: "First" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{ type: "stream_event", event: { type: "content_block_stop", index: 0 }, parent_tool_use_id: null },
+			ctx,
+		);
+		translateSdkMessage({ type: "stream_event", event: { type: "message_stop" }, parent_tool_use_id: null }, ctx);
+		const firstFinalFrames = translateSdkMessage(
+			{
+				type: "assistant",
+				message: { content: [{ type: "text", text: "First" }] },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(firstFinalFrames.length).toBe(1);
+		expect(firstFinalFrames[0].event).toBe("message.text_reconcile");
+		if (firstFinalFrames[0].event === "message.text_reconcile") {
+			expect(firstFinalFrames[0].text_block_id).toBe("tb_0_0");
+		}
+
+		const secondStartFrames = translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_start", content_block: { type: "text" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(secondStartFrames.some((f) => f.event === "message.assistant_start")).toBe(false);
+		const secondTextStart = secondStartFrames.find((f) => f.event === "message.text_start");
+		expect(secondTextStart?.event).toBe("message.text_start");
+		if (secondTextStart?.event === "message.text_start") {
+			expect(secondTextStart.text_block_id).toBe("tb_1_0");
+		}
+
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: { type: "content_block_delta", delta: { type: "text_delta", text: "Second" }, index: 0 },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		const secondFinalFrames = translateSdkMessage(
+			{
+				type: "assistant",
+				message: { content: [{ type: "text", text: "Second" }] },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(secondFinalFrames.length).toBe(1);
+		expect(secondFinalFrames[0].event).toBe("message.text_reconcile");
+		if (secondFinalFrames[0].event === "message.text_reconcile") {
+			expect(secondFinalFrames[0].text_block_id).toBe("tb_1_0");
+		}
 	});
 
 	test("stream_event + assistant combined: divergent final text is reconciled to canonical", () => {
@@ -614,7 +1048,7 @@ describe("sdk-to-wire translator", () => {
 		}
 	});
 
-	test("stream_event + assistant combined: tool_use block still guarded by startedToolIds", () => {
+	test("stream_event + assistant combined: final assistant completes streamed tool input", () => {
 		const ctx = makeCtx();
 		translateSdkMessage(
 			{
@@ -639,7 +1073,11 @@ describe("sdk-to-wire translator", () => {
 			ctx,
 		);
 		expect(frames.some((f) => f.event === "message.tool_call_start")).toBe(false);
-		expect(frames.some((f) => f.event === "message.tool_call_input_end")).toBe(false);
+		expect(frames.some((f) => f.event === "message.tool_call_input_end")).toBe(true);
+		const inputEnd = frames.find((f) => f.event === "message.tool_call_input_end");
+		if (inputEnd?.event === "message.tool_call_input_end") {
+			expect(inputEnd.input).toEqual({ file: "/tmp/x" });
+		}
 	});
 
 	test("stream_event + assistant combined: interleaved [text, tool_use, text] reconciles each text block independently", () => {

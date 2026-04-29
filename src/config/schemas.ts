@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AGENT_RUNTIME_KINDS, DEFAULT_AGENT_RUNTIME_KIND } from "../agent/agent-runtime-selection.ts";
 import { ProviderSchema } from "./providers.ts";
 
 export const PeerConfigSchema = z.object({
@@ -56,6 +57,7 @@ export const PhantomConfigSchema = z.object({
 	public_url: z.string().url().optional(),
 	port: z.number().int().min(1).max(65535).default(3100),
 	role: z.string().min(1).default("swe"),
+	agent_runtime: z.enum(AGENT_RUNTIME_KINDS).default(DEFAULT_AGENT_RUNTIME_KIND),
 	model: z.string().min(1).default("claude-opus-4-7"),
 	// Optional override for the model used by evolution judges. Defaults to `model` when omitted
 	// so a single-model deployment "just works". Lets operators run a cheaper model for judging

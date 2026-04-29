@@ -9,7 +9,7 @@
 //
 // When `secret_source === "metadata"` the loader fetches the provider token
 // from the host metadata gateway and writes it into `process.env` BEFORE
-// returning. This is deliberate: `buildProviderEnv` (in providers.ts) reads
+// returning. This is deliberate: provider env builders read
 // `process.env.<api_key_env>` to populate the Agent SDK subprocess env, and
 // keeping that contract means the metadata path is a transparent prefix to
 // the existing flow with zero downstream plumbing changes.
@@ -32,8 +32,9 @@
 
 import { readFileSync } from "node:fs";
 import { parse } from "yaml";
+import { AGENT_RUNTIME_ENV, formatAgentRuntimeKinds, isAgentRuntimeKind } from "../agent/agent-runtime-selection.ts";
 import { MetadataSecretFetcher } from "./metadata-fetcher.ts";
-import { PROVIDER_TYPES, type ProviderType } from "./providers.ts";
+import { PROVIDER_TYPES, type ProviderType, selectedProviderSecretEnvKey } from "./providers.ts";
 import { type ChannelsConfig, ChannelsConfigSchema, PhantomConfigSchema } from "./schemas.ts";
 import type { PhantomConfig } from "./types.ts";
 
@@ -75,6 +76,13 @@ export function loadConfigSync(path?: string): PhantomConfig {
 	// These let operators change settings via env without editing YAML.
 	if (process.env.PHANTOM_MODEL) {
 		config.model = process.env.PHANTOM_MODEL;
+	}
+	if (process.env[AGENT_RUNTIME_ENV]?.trim()) {
+		const candidate = process.env[AGENT_RUNTIME_ENV].trim();
+		if (!isAgentRuntimeKind(candidate)) {
+			throw new Error(`${AGENT_RUNTIME_ENV} must be one of: ${formatAgentRuntimeKinds()}.`);
+		}
+		config.agent_runtime = candidate;
 	}
 	if (process.env.PHANTOM_DOMAIN) {
 		config.domain = process.env.PHANTOM_DOMAIN;
@@ -128,6 +136,8 @@ export function loadConfigSync(path?: string): PhantomConfig {
 		}
 	}
 
+	validateRuntimeProviderCombination(config);
+
 	// Derive public_url from name + domain when not explicitly set
 	if (!config.public_url && config.domain) {
 		const derived = `https://${config.name}.${config.domain}`;
@@ -144,9 +154,8 @@ export function loadConfigSync(path?: string): PhantomConfig {
 
 /**
  * Async loader. Calls `loadConfigSync` and, when `secret_source === "metadata"`,
- * resolves the provider token from the host metadata gateway, populates
- * `process.env.ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` (so the unchanged
- * `buildProviderEnv` finds it), and walks the parsed config replacing any
+ * resolves the provider token from the host metadata gateway, populates the
+ * selected provider env key, and walks the parsed config replacing any
  * `${secret:NAME}` references with their resolved plaintext.
  *
  * For `secret_source === "env"` (the default) this is a sync-fast path that
@@ -163,17 +172,34 @@ export async function loadConfig(path?: string): Promise<PhantomConfig> {
 	const fetcher = new MetadataSecretFetcher(baseUrl);
 
 	// Resolve the provider token first so process.env is populated before any
-	// downstream code that reads it. Both ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN
-	// are set, mirroring the dual-header pattern in buildProviderEnv: the bundled
-	// Agent SDK auth factory prefers ANTHROPIC_API_KEY, but third-party proxies
-	// sometimes accept only ANTHROPIC_AUTH_TOKEN.
+	// downstream code that reads it. Anthropic runtime keeps the existing
+	// ANTHROPIC_API_KEY plus ANTHROPIC_AUTH_TOKEN behavior. Murph runtime
+	// populates only the selected provider key so ambient credentials do not
+	// steer the native route.
 	const providerToken = await fetcher.get(config.provider.secret_name);
-	process.env.ANTHROPIC_API_KEY = providerToken;
-	process.env.ANTHROPIC_AUTH_TOKEN = providerToken;
+	populateMetadataProviderEnv(config, providerToken);
 
 	await interpolateSecretsInPlace(config as unknown as Record<string, unknown>, fetcher);
 
 	return config;
+}
+
+function validateRuntimeProviderCombination(config: PhantomConfig): void {
+	if (config.provider.type === "openai" && config.agent_runtime !== "murph") {
+		throw new Error('provider.type "openai" requires agent_runtime: murph.');
+	}
+}
+
+function populateMetadataProviderEnv(config: PhantomConfig, providerToken: string): void {
+	if (config.agent_runtime !== "murph") {
+		process.env.ANTHROPIC_API_KEY = providerToken;
+		process.env.ANTHROPIC_AUTH_TOKEN = providerToken;
+		return;
+	}
+	const key = selectedProviderSecretEnvKey(config);
+	if (key) {
+		process.env[key] = providerToken;
+	}
 }
 
 /**
