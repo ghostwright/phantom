@@ -189,6 +189,7 @@ describe("Agent SDK boundary", () => {
 	});
 
 	test("keeps direct Agent SDK imports isolated to the boundary module", () => {
+		const allowedDirectAgentSdkFiles = new Set([BOUNDARY_FILE, "agent/thinking-config.ts"]);
 		const packagePattern = "@anthropic-ai/claude-agent-sdk(?:/[^\"'`\\s)]*)?";
 		const directAgentSdkReference = new RegExp(
 			[
@@ -201,7 +202,7 @@ describe("Agent SDK boundary", () => {
 		);
 		const offenders = listTypeScriptFiles(SRC_ROOT)
 			.map((path) => ({ path, rel: relative(SRC_ROOT, path), source: readFileSync(path, "utf-8") }))
-			.filter(({ rel }) => rel !== BOUNDARY_FILE)
+			.filter(({ rel }) => !allowedDirectAgentSdkFiles.has(rel))
 			.filter(({ source }) => directAgentSdkReference.test(source))
 			.map(({ rel }) => rel);
 

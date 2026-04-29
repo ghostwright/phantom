@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { getThinkingConfig } from "../agent/thinking-config.ts";
 import { query } from "../agent/agent-sdk.ts";
+import { getThinkingConfig } from "../agent/thinking-config.ts";
 import { buildAgentRuntimeEnv, resolveAgentRuntimeModel } from "../config/providers.ts";
 import type { PhantomConfig } from "../config/types.ts";
 import type { EvolutionConfig } from "./config.ts";
