@@ -104,6 +104,7 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 
 	const server = Bun.serve({
 		port: config.port,
+		idleTimeout: 60,
 		async fetch(req) {
 			const url = new URL(req.url);
 

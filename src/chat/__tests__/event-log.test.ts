@@ -52,6 +52,22 @@ describe("ChatEventLog", () => {
 		expect(log.getMaxSeq("sess-1")).toBe(10);
 	});
 
+	test("getLatestTerminalSeq returns the newest terminal event seq", () => {
+		log.append("sess-1", null, 1, "message.assistant_start", {});
+		log.append("sess-1", null, 3, "session.error", {});
+		log.append("sess-1", null, 5, "message.text_delta", {});
+		log.append("sess-1", null, 8, "session.aborted", {});
+
+		expect(log.getLatestTerminalSeq("sess-1")).toBe(8);
+	});
+
+	test("getLatestTerminalSeq on empty terminal tail returns 0", () => {
+		log.append("sess-1", null, 1, "message.assistant_start", {});
+		log.append("sess-1", null, 2, "message.text_delta", {});
+
+		expect(log.getLatestTerminalSeq("sess-1")).toBe(0);
+	});
+
 	test("sweep removes old events", () => {
 		log.append("sess-1", null, 1, "old", {});
 		db.run("UPDATE chat_stream_events SET created_at = datetime('now', '-25 hours') WHERE seq = 1");

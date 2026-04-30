@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { CHAT_TERMINAL_EVENT_TYPES } from "./sse.ts";
 
 export type ChatStreamEvent = {
 	id: number;
@@ -41,6 +42,16 @@ export class ChatEventLog {
 		const row = this.db
 			.query("SELECT MAX(seq) as max_seq FROM chat_stream_events WHERE session_id = ?")
 			.get(sessionId) as { max_seq: number | null } | null;
+		return row?.max_seq ?? 0;
+	}
+
+	getLatestTerminalSeq(sessionId: string): number {
+		const row = this.db
+			.query(
+				`SELECT MAX(seq) as max_seq FROM chat_stream_events
+				 WHERE session_id = ? AND event_type IN (?, ?, ?)`,
+			)
+			.get(sessionId, ...CHAT_TERMINAL_EVENT_TYPES) as { max_seq: number | null } | null;
 		return row?.max_seq ?? 0;
 	}
 

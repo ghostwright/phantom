@@ -6,8 +6,18 @@ import type { SDKUserMessage } from "../agent/agent-sdk.ts";
 type MessageParam = SDKUserMessage["message"];
 import type { ChatHandlerDeps } from "./http.ts";
 import { buildUserMessageParam } from "./message-builder.ts";
+import {
+	CHAT_SSE_HEADERS,
+	CHAT_SSE_RETRY_MS,
+	closeSseController,
+	createServerRestartRecoveryFrame,
+	createSseCloseScheduler,
+	formatSSE,
+	isTerminalChatEvent,
+	startSseHeartbeat,
+} from "./sse.ts";
 import { readAttachmentFile } from "./storage.ts";
-import type { StreamBus } from "./stream-bus.ts";
+import { createSSEStream } from "./stream-sse.ts";
 import type { ChatWireFrame } from "./types.ts";
 import { ChatSessionWriter, getActiveWriter } from "./writer.ts";
 
@@ -105,12 +115,7 @@ export async function handleStream(req: Request, deps: ChatHandlerDeps): Promise
 	});
 
 	return new Response(stream, {
-		headers: {
-			"Content-Type": "text/event-stream",
-			"Cache-Control": "no-cache",
-			Connection: "keep-alive",
-			"X-Phantom-Chat-Wire-Version": "1",
-		},
+		headers: CHAT_SSE_HEADERS,
 	});
 }
 
@@ -125,6 +130,13 @@ export async function handleResume(req: Request, sessionId: string, deps: ChatHa
 	const clientLastSeq = body.client_last_seq ?? 0;
 
 	let resumeUnsub: (() => void) | null = null;
+	let resumeHeartbeatCleanup: (() => void) | null = null;
+	const cleanupResumeStream = (): void => {
+		resumeUnsub?.();
+		resumeUnsub = null;
+		resumeHeartbeatCleanup?.();
+		resumeHeartbeatCleanup = null;
+	};
 
 	const stream = new ReadableStream({
 		start(controller) {
@@ -137,9 +149,37 @@ export async function handleResume(req: Request, sessionId: string, deps: ChatHa
 				}
 			};
 
-			write("retry: 5000\n\n");
+			const close = (): void => {
+				cleanupResumeStream();
+				closeSseController(controller);
+			};
+			const closeSoon = createSseCloseScheduler(() => {
+				resumeHeartbeatCleanup?.();
+				resumeHeartbeatCleanup = null;
+			}, close);
+
+			write(`retry: ${CHAT_SSE_RETRY_MS}\n\n`);
 
 			const writerActive = getActiveWriter(sessionId)?.isActive ?? false;
+			const liveReplayBuffer: Array<{ frame: ChatWireFrame; seq: number }> = [];
+			let replaying = true;
+			let replayAfterSeq = clientLastSeq;
+			let terminalSeenDuringReplay = false;
+
+			if (writerActive) {
+				resumeUnsub = deps.streamBus.subscribe(sessionId, (frame, seq) => {
+					if (replaying) {
+						liveReplayBuffer.push({ frame, seq });
+						return;
+					}
+					if (seq <= replayAfterSeq) return;
+					write(formatSSE(frame, seq));
+					replayAfterSeq = seq;
+					if (isTerminalChatEvent(frame.event)) {
+						closeSoon();
+					}
+				});
+			}
 
 			const resumedFrame: ChatWireFrame = {
 				event: "session.resumed",
@@ -147,47 +187,64 @@ export async function handleResume(req: Request, sessionId: string, deps: ChatHa
 				resumed_from_seq: clientLastSeq,
 				writer_active: writerActive,
 			};
-			write(formatSSE(resumedFrame, clientLastSeq + 1));
+			write(formatSSE(resumedFrame));
 
-			const events = deps.eventLog.drain(sessionId, clientLastSeq);
-			for (const evt of events) {
-				write(`id: ${evt.seq}\nevent: ${evt.event_type}\ndata: ${evt.payload_json}\n\n`);
+			while (true) {
+				const events = deps.eventLog.drain(sessionId, replayAfterSeq);
+				if (events.length === 0) break;
+				for (const evt of events) {
+					write(`id: ${evt.seq}\nevent: ${evt.event_type}\ndata: ${evt.payload_json}\n\n`);
+					replayAfterSeq = evt.seq;
+					if (isTerminalChatEvent(evt.event_type)) {
+						terminalSeenDuringReplay = true;
+					}
+				}
 			}
 
-			const maxSeq = deps.eventLog.getMaxSeq(sessionId);
+			if (writerActive) {
+				liveReplayBuffer.sort((left, right) => left.seq - right.seq);
+				for (const buffered of liveReplayBuffer) {
+					if (buffered.seq <= replayAfterSeq) continue;
+					write(formatSSE(buffered.frame, buffered.seq));
+					replayAfterSeq = buffered.seq;
+					if (isTerminalChatEvent(buffered.frame.event)) {
+						terminalSeenDuringReplay = true;
+					}
+				}
+			}
+			replaying = false;
+
+			const maxSeq = writerActive ? replayAfterSeq : deps.eventLog.getMaxSeq(sessionId);
 			const caughtUpFrame: ChatWireFrame = {
 				event: "session.caught_up",
 				session_id: sessionId,
 				up_to_seq: maxSeq,
 			};
-			write(formatSSE(caughtUpFrame, maxSeq + 1));
+			write(formatSSE(caughtUpFrame));
 
 			if (writerActive) {
-				resumeUnsub = deps.streamBus.subscribe(sessionId, (frame, seq) => {
-					write(formatSSE(frame, seq));
-					if (frame.event === "session.done" || frame.event === "session.error") {
-						resumeUnsub?.();
-						resumeUnsub = null;
-						controller.close();
-					}
-				});
+				if (terminalSeenDuringReplay || !(getActiveWriter(sessionId)?.isActive ?? false)) {
+					closeSoon();
+				} else {
+					resumeHeartbeatCleanup = startSseHeartbeat(write, () => getActiveWriter(sessionId)?.isActive ?? false, {
+						onStop: closeSoon,
+					});
+				}
 			} else {
+				const latestTerminalSeq = deps.eventLog.getLatestTerminalSeq(sessionId);
+				if (maxSeq > latestTerminalSeq) {
+					write(formatSSE(createServerRestartRecoveryFrame(sessionId)));
+				}
 				controller.close();
 			}
 		},
 		cancel() {
-			resumeUnsub?.();
-			resumeUnsub = null;
+			cleanupResumeStream();
 		},
 	});
 
 	return new Response(stream, {
-		headers: {
-			"Content-Type": "text/event-stream",
-			"Cache-Control": "no-cache",
-			Connection: "keep-alive",
-			"X-Phantom-Chat-Wire-Version": "1",
-		},
+		headers: CHAT_SSE_HEADERS,
 	});
 }
 
@@ -195,10 +252,6 @@ export function handleAbort(sessionId: string): Response {
 	const writer = getActiveWriter(sessionId);
 	if (writer?.isActive) writer.abort();
 	return new Response(null, { status: 204 });
-}
-
-export function formatSSE(frame: ChatWireFrame, seq: number): string {
-	return `id: ${seq}\nevent: ${frame.event}\ndata: ${JSON.stringify(frame)}\n\n`;
 }
 
 export async function handleAttachmentPreview(attachmentId: string, deps: ChatHandlerDeps): Promise<Response> {
@@ -224,54 +277,4 @@ export async function handleAttachmentPreview(attachmentId: string, deps: ChatHa
 	} catch {
 		return Response.json({ error: "File not found" }, { status: 404 });
 	}
-}
-
-function createSSEStream(sessionId: string, streamBus: StreamBus, writer: ChatSessionWriter): ReadableStream {
-	let unsub: (() => void) | null = null;
-	let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
-
-	return new ReadableStream({
-		start(controller) {
-			const encoder = new TextEncoder();
-			const write = (text: string): void => {
-				try {
-					controller.enqueue(encoder.encode(text));
-				} catch {
-					/* closed */
-				}
-			};
-
-			write("retry: 5000\n\n");
-
-			unsub = streamBus.subscribe(sessionId, (frame, seq) => {
-				write(formatSSE(frame, seq));
-				if (frame.event === "session.done" || frame.event === "session.error") {
-					unsub?.();
-					unsub = null;
-					if (keepAliveTimer) clearInterval(keepAliveTimer);
-					keepAliveTimer = null;
-					try {
-						controller.close();
-					} catch {
-						/* already closed */
-					}
-				}
-			});
-
-			keepAliveTimer = setInterval(() => {
-				if (!writer.isActive) {
-					if (keepAliveTimer) clearInterval(keepAliveTimer);
-					keepAliveTimer = null;
-					return;
-				}
-				write(":ka\n\n");
-			}, 25000);
-		},
-		cancel() {
-			unsub?.();
-			unsub = null;
-			if (keepAliveTimer) clearInterval(keepAliveTimer);
-			keepAliveTimer = null;
-		},
-	});
 }
