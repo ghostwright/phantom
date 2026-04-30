@@ -4,7 +4,7 @@
 // sdk-to-wire-handlers.ts to keep both files under 300 lines.
 
 import { type TranslationContext, handleAssistant, handleStreamEvent } from "./sdk-to-wire-handlers.ts";
-import type { ChatWireFrame, StopReason } from "./types.ts";
+import type { ChatWireFrame, StopReason, ToolCallResultFrame, ToolCallRunningFrame } from "./types.ts";
 
 export type { TranslationContext } from "./sdk-to-wire-handlers.ts";
 
@@ -38,9 +38,9 @@ export function translateSdkMessage(msg: Record<string, unknown>, ctx: Translati
 		case "result":
 			return handleResult(msg, ctx);
 		case "user":
-			return [];
+			return handleUser(msg, ctx);
 		case "tool_progress":
-			return handleToolProgress(msg);
+			return handleToolProgress(msg, ctx);
 		case "rate_limit_event":
 			return handleRateLimit(msg);
 		case "prompt_suggestion":
@@ -135,6 +135,74 @@ function handleSystem(msg: Record<string, unknown>, ctx: TranslationContext): Ch
 	return frames;
 }
 
+const TOOL_RESULT_OUTPUT_LIMIT = 4000;
+const SAFE_TOOL_ERROR_MESSAGE = "Tool returned an error. Details are hidden for safety.";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function safeToolResultText(content: unknown): string | undefined {
+	if (typeof content === "string") return content;
+	if (Array.isArray(content)) {
+		const parts = content
+			.map((item) => {
+				if (typeof item === "string") return item;
+				if (isRecord(item) && typeof item.text === "string") return item.text;
+				return "";
+			})
+			.filter((part) => part.length > 0);
+		return parts.length > 0 ? parts.join("\n") : undefined;
+	}
+	if (isRecord(content) && typeof content.text === "string") return content.text;
+	return undefined;
+}
+
+function truncateToolResultOutput(
+	text: string,
+): Pick<ToolCallResultFrame, "output" | "output_truncated" | "output_full_size"> {
+	if (text.length <= TOOL_RESULT_OUTPUT_LIMIT) return { output: text };
+	return {
+		output: text.slice(0, TOOL_RESULT_OUTPUT_LIMIT),
+		output_truncated: true,
+		output_full_size: text.length,
+	};
+}
+
+function handleUser(msg: Record<string, unknown>, ctx: TranslationContext): ChatWireFrame[] {
+	const message = msg.message;
+	if (!isRecord(message)) return [];
+	const content = message.content;
+	const blocks = Array.isArray(content) ? content : [content];
+	const frames: ChatWireFrame[] = [];
+
+	for (const block of blocks) {
+		if (!isRecord(block) || block.type !== "tool_result") continue;
+		const toolCallId = block.tool_use_id;
+		if (typeof toolCallId !== "string" || toolCallId.length === 0) continue;
+
+		const resultText = safeToolResultText(block.content);
+		const output = resultText ? truncateToolResultOutput(resultText) : {};
+		const isError = block.is_error === true || block.status === "error";
+		const frame: ToolCallResultFrame = {
+			event: "message.tool_call_result",
+			message_id: typeof msg.message_id === "string" ? msg.message_id : ctx.messageId,
+			tool_call_id: toolCallId,
+			status: isError ? "error" : "success",
+			...output,
+		};
+		if (isError) {
+			frame.error = SAFE_TOOL_ERROR_MESSAGE;
+			frame.output = undefined;
+			frame.output_truncated = undefined;
+			frame.output_full_size = undefined;
+		}
+		frames.push(frame);
+	}
+
+	return frames;
+}
+
 function handleResult(msg: Record<string, unknown>, ctx: TranslationContext): ChatWireFrame[] {
 	const frames: ChatWireFrame[] = [];
 	const subtype = msg.subtype as string;
@@ -185,20 +253,22 @@ function handleResult(msg: Record<string, unknown>, ctx: TranslationContext): Ch
 	return frames;
 }
 
-function handleToolProgress(msg: Record<string, unknown>): ChatWireFrame[] {
+function handleToolProgress(msg: Record<string, unknown>, ctx: TranslationContext): ChatWireFrame[] {
 	const elapsedSeconds =
 		typeof msg.elapsed_time_seconds === "number"
 			? msg.elapsed_time_seconds
 			: typeof msg.elapsed_ms === "number"
 				? msg.elapsed_ms / 1000
 				: 0;
-	return [
-		{
-			event: "message.tool_call_running",
-			tool_call_id: (msg.tool_use_id as string) ?? "",
-			elapsed_seconds: elapsedSeconds,
-		},
-	];
+	const frame: ToolCallRunningFrame = {
+		event: "message.tool_call_running",
+		message_id:
+			typeof msg.message_id === "string" ? msg.message_id : ctx.assistantStartEmitted ? ctx.messageId : undefined,
+		tool_call_id: (msg.tool_use_id as string) ?? "",
+		tool_name: typeof msg.tool_name === "string" ? msg.tool_name : undefined,
+		elapsed_seconds: elapsedSeconds,
+	};
+	return [frame];
 }
 
 function handleRateLimit(msg: Record<string, unknown>): ChatWireFrame[] {

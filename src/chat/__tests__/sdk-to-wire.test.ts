@@ -439,6 +439,9 @@ describe("sdk-to-wire translator", () => {
 		);
 		expect(frames.length).toBe(1);
 		expect(frames[0].event).toBe("message.tool_call_running");
+		if (frames[0].event === "message.tool_call_running") {
+			expect(frames[0].tool_name).toBe("Bash");
+		}
 	});
 
 	test("tool_progress accepts elapsed_ms from SDK-compatible runtimes", () => {
@@ -486,13 +489,56 @@ describe("sdk-to-wire translator", () => {
 		expect(frames.length).toBe(0);
 	});
 
-	test("user message -> empty (synthetic tool result)", () => {
+	test("user message without tool_result content -> empty", () => {
 		const ctx = makeCtx();
 		const frames = translateSdkMessage(
 			{ type: "user", message: { role: "user", content: "test" }, parent_tool_use_id: null },
 			ctx,
 		);
 		expect(frames.length).toBe(0);
+	});
+
+	test("user tool_result content -> message.tool_call_result", () => {
+		const ctx = makeCtx();
+		const frames = translateSdkMessage(
+			{
+				type: "user",
+				message: {
+					role: "user",
+					content: [{ type: "tool_result", tool_use_id: "tu_1", content: [{ type: "text", text: "done" }] }],
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(frames.length).toBe(1);
+		expect(frames[0].event).toBe("message.tool_call_result");
+		if (frames[0].event === "message.tool_call_result") {
+			expect(frames[0].tool_call_id).toBe("tu_1");
+			expect(frames[0].status).toBe("success");
+			expect(frames[0].output).toBe("done");
+		}
+	});
+
+	test("user errored tool_result content -> errored message.tool_call_result", () => {
+		const ctx = makeCtx();
+		const frames = translateSdkMessage(
+			{
+				type: "user",
+				message: {
+					role: "user",
+					content: [{ type: "tool_result", tool_use_id: "tu_1", content: "failed", is_error: true }],
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		expect(frames.length).toBe(1);
+		if (frames[0].event === "message.tool_call_result") {
+			expect(frames[0].status).toBe("error");
+			expect(frames[0].error).toBe("Tool returned an error. Details are hidden for safety.");
+			expect(frames[0].output).toBeUndefined();
+		}
 	});
 
 	test("session.created carries placeholder seq (assigned by writer)", () => {
