@@ -28,6 +28,7 @@ export type ChatMessage = {
 	costUsd?: number | null;
 	inputTokens?: number | null;
 	outputTokens?: number | null;
+	runTimeline?: RunTimelineView;
 };
 
 export type ToolCallState = {
@@ -63,6 +64,15 @@ export type RunActivityStatus =
 	| "completed"
 	| "error"
 	| "aborted";
+
+export type StreamConnectionState =
+	| "idle"
+	| "starting"
+	| "reconnecting"
+	| "replaying"
+	| "attached"
+	| "detached"
+	| "interrupted";
 
 export type CompactActivity = {
 	trigger: "manual" | "auto";
@@ -106,6 +116,50 @@ export type RunActivityState = {
 export type TextBlockState = {
 	messageId: string;
 	text: string;
+	isReplayShadow?: boolean;
+};
+
+export type DurableRunTimelineSummary = {
+	schemaVersion: 1;
+	status: "working" | "completed" | "error" | "aborted" | "recovered";
+	startSeq: number;
+	endSeq: number | null;
+	startedAt: string;
+	completedAt?: string;
+	currentLabel?: string;
+	stopReason?: string;
+	durationMs?: number;
+	costUsd?: number;
+	inputTokens?: number;
+	outputTokens?: number;
+	compact?: CompactActivity;
+	rateLimit?: RateLimitActivity;
+	mcpServers?: Array<{ name: string; status: string }>;
+	truncatedBacklog?: { olderThanSeq: number; reason: string };
+	tools: Array<{
+		id: string;
+		name: string;
+		state: "running" | "result" | "error" | "aborted" | "blocked";
+		isMcp: boolean;
+		mcpServer?: string;
+		safeInputSummary?: string;
+		safeOutputSummary?: string;
+		outputTruncated?: boolean;
+		durationMs?: number;
+		elapsedSeconds?: number;
+		blockReason?: string;
+	}>;
+	subagents: Array<Omit<SubagentActivity, "updatedAt">>;
+	errors: Array<{
+		subtype: string;
+		recoverable: boolean;
+		message: string;
+	}>;
+};
+
+export type RunTimelineView = {
+	activity: RunActivityState;
+	toolCalls: ToolCallState[];
 };
 
 export type ChatState = {
@@ -115,6 +169,7 @@ export type ChatState = {
 	textBlocks: Map<string, TextBlockState>;
 	runActivity: RunActivityState | null;
 	isStreaming: boolean;
+	streamConnectionState: StreamConnectionState;
 	lastSeq: number;
 	sessionId: string | null;
 };

@@ -84,6 +84,9 @@ export function MessageList({
 								thinkingBlocks={thinkingByMessage.get(message.id) ?? []}
 							/>
 							{message.role === "assistant" && <MessageActions message={message} />}
+							{message.runTimeline && (
+								<RunActivityRow activity={message.runTimeline.activity} toolCalls={message.runTimeline.toolCalls} />
+							)}
 						</div>
 					))}
 					{runActivity && (

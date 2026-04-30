@@ -259,6 +259,91 @@ describe("Chat HTTP resume", () => {
 		expect(eventLog.drain(session.id, 0).map((evt) => evt.event_type)).not.toContain("session.error");
 	});
 
+	test("does not emit recovery for benign post-terminal suggestion events", async () => {
+		const session = sessionStore.create("completed suggestion");
+		eventLog.append(session.id, null, 1, "message.assistant_start", {
+			event: "message.assistant_start",
+			message_id: "assistant-1",
+			parent_tool_use_id: null,
+		});
+		eventLog.append(session.id, null, 2, "session.done", {
+			event: "session.done",
+			session_id: session.id,
+			message_id: "assistant-1",
+			stop_reason: "end_turn",
+			usage: { input_tokens: 1, output_tokens: 1 },
+			cost_usd: 0,
+			duration_ms: 1,
+			num_turns: 1,
+		});
+		eventLog.append(session.id, null, 3, "session.suggestion", {
+			event: "session.suggestion",
+			session_id: session.id,
+			title: "Follow up",
+		});
+
+		const res = await handler(
+			makeAuthReq(`/chat/sessions/${session.id}/resume`, {
+				method: "POST",
+				body: JSON.stringify({ client_last_seq: 0 }),
+			}),
+		);
+		if (!res) {
+			throw new Error("Expected resume response");
+		}
+
+		const frames = parseSseFrames(await res.text());
+		expect(frames.map((frame) => frame.event)).toContain("session.suggestion");
+		expect(frames.find((frame) => frame.event === "session.error")).toBeUndefined();
+		expect(frames.find((frame) => frame.event === "session.caught_up")?.data.up_to_seq).toBe(3);
+	});
+
+	test("emits recovery when an active writer disappears during replay without terminal", async () => {
+		const session = sessionStore.create("disappearing writer");
+		const { runtime, resolveRun } = createPendingRuntime();
+		const writer = new ChatSessionWriter({
+			sessionId: session.id,
+			runtime,
+			eventLog,
+			messageStore,
+			sessionStore,
+			streamBus,
+		});
+		writer.claim();
+		const runPromise = writer.run({ role: "user", content: "hello" }, "tab-1", "hello");
+
+		const originalDrain = eventLog.drain.bind(eventLog);
+		let disappeared = false;
+		eventLog.drain = ((targetSessionId: string, afterSeq: number, limit?: number) => {
+			const events = originalDrain(targetSessionId, afterSeq, limit);
+			if (targetSessionId === session.id && events.length > 0 && !disappeared) {
+				disappeared = true;
+				Reflect.set(writer, "running", false);
+			}
+			return events;
+		}) satisfies ChatEventLog["drain"];
+
+		const res = await handler(
+			makeAuthReq(`/chat/sessions/${session.id}/resume`, {
+				method: "POST",
+				body: JSON.stringify({ client_last_seq: 0 }),
+			}),
+		);
+		if (!res) {
+			throw new Error("Expected resume response");
+		}
+
+		const frames = parseSseFrames(await res.text());
+		const recovery = frames.find((frame) => frame.event === "session.error")?.data;
+		expect(frames.find((frame) => frame.event === "session.resumed")?.data.writer_active).toBe(true);
+		expect(recovery?.subtype).toBe("server_restart");
+		expect(recovery?.message_id).toBeNull();
+		expect(frames.find((frame) => frame.event === "session.error")?.id).toBeNull();
+
+		resolveRun();
+		await runPromise;
+	});
+
 	test("replays more than the default event-log page before caught_up", async () => {
 		const session = sessionStore.create("large replay test");
 		for (let seq = 1; seq <= 5005; seq++) {

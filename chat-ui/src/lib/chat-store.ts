@@ -11,7 +11,7 @@ import {
 	dispatchToolRunning,
 	dispatchToolStart,
 } from "./chat-dispatch-tools";
-import type { ChatState } from "./chat-types";
+import type { ChatMessage, ChatState } from "./chat-types";
 
 type Listener = () => void;
 
@@ -23,6 +23,7 @@ function createInitialState(): ChatState {
 		textBlocks: new Map(),
 		runActivity: null,
 		isStreaming: false,
+		streamConnectionState: "idle",
 		lastSeq: 0,
 		sessionId: null,
 	};
@@ -61,28 +62,69 @@ export function createChatStore(): ChatStore {
 }
 
 export function beginRunActivity(store: ChatStore): void {
-	store.update((s) => ({ ...beginRunActivityState(s), isStreaming: true }));
+	store.update((s) => ({ ...beginRunActivityState(s), isStreaming: true, streamConnectionState: "starting" }));
+}
+
+export type ChatFrameSource = "live" | "replay";
+
+export type DispatchFrameOptions = {
+	source?: ChatFrameSource;
+};
+
+function findMessageIndex(messages: ChatMessage[], messageId: string): number {
+	return messages.findIndex((message) => message.id === messageId);
+}
+
+function upsertMessage(messages: ChatMessage[], message: ChatMessage): ChatMessage[] {
+	const existingIndex = findMessageIndex(messages, message.id);
+	if (existingIndex === -1) return [...messages, message];
+	const next = [...messages];
+	const existing = next[existingIndex];
+	if (!existing) return messages;
+	next[existingIndex] = {
+		...existing,
+		...message,
+		content: existing.content.length > 0 ? existing.content : message.content,
+		status: existing.status === "committed" ? existing.status : message.status,
+		runTimeline: existing.runTimeline ?? message.runTimeline,
+	};
+	return next;
 }
 
 function updateTextBlockInContent(s: ChatState, blockId: string, updater: (text: string) => string): ChatState {
+	const block = s.textBlocks.get(blockId);
+	if (!block) return s;
+	const blocks = new Map(s.textBlocks);
+	const nextText = updater(block.text);
+	blocks.set(blockId, { ...block, text: nextText });
+	if (block.isReplayShadow) {
+		return { ...s, textBlocks: blocks };
+	}
 	const msgs = [...s.messages];
-	const last = msgs[msgs.length - 1];
-	if (last && last.role === "assistant") {
-		const content = last.content.map((b) =>
+	const index = findMessageIndex(msgs, block.messageId);
+	const target = index >= 0 ? msgs[index] : undefined;
+	if (target && target.role === "assistant") {
+		const content = target.content.map((b) =>
 			b.type === "text" && b.blockId === blockId ? { ...b, text: updater(b.text ?? "") } : b,
 		);
-		msgs[msgs.length - 1] = { ...last, content };
+		msgs[index] = { ...target, content };
 	}
-	return { ...s, messages: msgs };
+	return { ...s, messages: msgs, textBlocks: blocks };
 }
 
-export function dispatchFrame(store: ChatStore, event: string, dataStr: string): void {
+export function dispatchFrame(
+	store: ChatStore,
+	event: string,
+	dataStr: string,
+	options: DispatchFrameOptions = {},
+): void {
 	let data: Record<string, unknown>;
 	try {
 		data = JSON.parse(dataStr) as Record<string, unknown>;
 	} catch {
 		return;
 	}
+	const source = options.source ?? "live";
 
 	switch (event) {
 		case "user.message":
@@ -90,16 +132,13 @@ export function dispatchFrame(store: ChatStore, event: string, dataStr: string):
 				updateRunActivityForFrame(
 					{
 						...s,
-						messages: [
-							...s.messages,
-							{
-								id: data.message_id as string,
-								role: "user" as const,
-								content: [{ type: "text", text: data.text as string }],
-								createdAt: data.sent_at as string,
-								status: "committed" as const,
-							},
-						],
+						messages: upsertMessage(s.messages, {
+							id: data.message_id as string,
+							role: "user" as const,
+							content: [{ type: "text", text: data.text as string }],
+							createdAt: data.sent_at as string,
+							status: "committed" as const,
+						}),
 					},
 					event,
 					data,
@@ -110,11 +149,12 @@ export function dispatchFrame(store: ChatStore, event: string, dataStr: string):
 		case "message.assistant_start":
 			store.update((s) => {
 				const messageId = data.message_id as string;
-				return updateRunActivityForFrame(
-					attachActivityToolsToAssistant(
-						{
-							...s,
-							messages: [
+				const existingIndex = findMessageIndex(s.messages, messageId);
+				const existing = existingIndex >= 0 ? s.messages[existingIndex] : undefined;
+				const messages =
+					existing?.role === "assistant"
+						? s.messages
+						: [
 								...s.messages,
 								{
 									id: messageId,
@@ -123,7 +163,12 @@ export function dispatchFrame(store: ChatStore, event: string, dataStr: string):
 									createdAt: new Date().toISOString(),
 									status: "streaming" as const,
 								},
-							],
+							];
+				return updateRunActivityForFrame(
+					attachActivityToolsToAssistant(
+						{
+							...s,
+							messages,
 						},
 						messageId,
 					),
@@ -135,16 +180,23 @@ export function dispatchFrame(store: ChatStore, event: string, dataStr: string):
 
 		case "message.text_start":
 			store.update((s) => {
+				const blockId = data.text_block_id as string;
+				if (s.textBlocks.has(blockId)) return s;
+				const messageId = data.message_id as string;
 				const msgs = [...s.messages];
-				const last = msgs[msgs.length - 1];
-				if (last && last.role === "assistant") {
-					const blockId = data.text_block_id as string;
-					msgs[msgs.length - 1] = {
-						...last,
-						content: [...last.content, { type: "text", blockId, text: "" }],
+				const index = findMessageIndex(msgs, messageId);
+				const target = index >= 0 ? msgs[index] : undefined;
+				if (!target || target.role !== "assistant") return s;
+				const blocks = new Map(s.textBlocks);
+				const isReplayShadow = source === "replay" && target.status === "committed";
+				blocks.set(blockId, { messageId, text: "", isReplayShadow });
+				if (!isReplayShadow && !target.content.some((block) => block.type === "text" && block.blockId === blockId)) {
+					msgs[index] = {
+						...target,
+						content: [...target.content, { type: "text", blockId, text: "" }],
 					};
 				}
-				return { ...s, messages: msgs };
+				return { ...s, messages: msgs, textBlocks: blocks };
 			});
 			break;
 
@@ -240,9 +292,11 @@ export function dispatchFrame(store: ChatStore, event: string, dataStr: string):
 		case "message.assistant_end":
 			store.update((s) => {
 				const msgs = [...s.messages];
-				const last = msgs[msgs.length - 1];
-				if (last && last.role === "assistant") {
-					msgs[msgs.length - 1] = { ...last, status: "committed" };
+				const messageId = data.message_id as string;
+				const index = findMessageIndex(msgs, messageId);
+				const target = index >= 0 ? msgs[index] : undefined;
+				if (target && target.role === "assistant" && target.status === "streaming") {
+					msgs[index] = { ...target, status: "committed" };
 				}
 				return { ...s, messages: msgs };
 			});
@@ -253,23 +307,52 @@ export function dispatchFrame(store: ChatStore, event: string, dataStr: string):
 		case "session.aborted":
 			store.update((s) => {
 				const msgs = [...s.messages];
-				const last = msgs[msgs.length - 1];
-				if (last && last.role === "assistant" && last.status === "streaming") {
+				const isRecoveryError = event === "session.error" && data.subtype === "server_restart";
+				const messageId = typeof data.message_id === "string" ? data.message_id : null;
+				const index =
+					messageId !== null
+						? findMessageIndex(msgs, messageId)
+						: [...msgs]
+								.reverse()
+								.findIndex((message) => message.role === "assistant" && message.status === "streaming");
+				const normalizedIndex = messageId !== null ? index : index >= 0 ? msgs.length - 1 - index : -1;
+				const target = normalizedIndex >= 0 ? msgs[normalizedIndex] : undefined;
+				if (target && target.role === "assistant" && target.status === "streaming") {
 					const newStatus = event === "session.error" ? "error" : "committed";
-					msgs[msgs.length - 1] = { ...last, status: newStatus };
+					msgs[normalizedIndex] = { ...target, status: newStatus };
 				}
 				return {
 					...s,
 					messages: msgs,
 					isStreaming: false,
+					streamConnectionState: isRecoveryError ? "interrupted" : "detached",
 				};
 			});
 			store.update((s) => updateRunActivityForFrame(s, event, data));
 			break;
 
 		case "session.created":
+			store.update((s) => ({
+				...s,
+				streamConnectionState: s.isStreaming ? "attached" : s.streamConnectionState,
+			}));
+			store.update((s) => updateRunActivityForFrame(s, event, data));
+			break;
 		case "session.resumed":
+			store.update((s) => ({
+				...s,
+				isStreaming: data.writer_active === true,
+				streamConnectionState: "replaying",
+			}));
+			store.update((s) => updateRunActivityForFrame(s, event, data));
+			break;
 		case "session.caught_up":
+			store.update((s) => ({
+				...s,
+				streamConnectionState: s.runActivity?.isActive || s.isStreaming ? "attached" : "detached",
+			}));
+			store.update((s) => updateRunActivityForFrame(s, event, data));
+			break;
 		case "session.rate_limit":
 		case "session.compact_boundary":
 		case "session.status":

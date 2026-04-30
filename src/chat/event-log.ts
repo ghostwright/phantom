@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { CHAT_TERMINAL_EVENT_TYPES } from "./sse.ts";
+import { CHAT_POST_TERMINAL_NON_RECOVERY_EVENT_TYPES, CHAT_TERMINAL_EVENT_TYPES } from "./sse.ts";
 
 export type ChatStreamEvent = {
 	id: number;
@@ -9,6 +9,13 @@ export type ChatStreamEvent = {
 	event_type: string;
 	payload_json: string;
 	created_at: string;
+};
+
+export type ChatStreamState = {
+	maxSeq: number;
+	latestTerminalSeq: number;
+	writerActive: boolean;
+	hasIncompleteTail: boolean;
 };
 
 export class ChatEventLog {
@@ -53,6 +60,28 @@ export class ChatEventLog {
 			)
 			.get(sessionId, ...CHAT_TERMINAL_EVENT_TYPES) as { max_seq: number | null } | null;
 		return row?.max_seq ?? 0;
+	}
+
+	getLatestRecoveryRelevantSeq(sessionId: string): number {
+		const row = this.db
+			.query(
+				`SELECT MAX(seq) as max_seq FROM chat_stream_events
+				 WHERE session_id = ? AND event_type NOT IN (?)`,
+			)
+			.get(sessionId, ...CHAT_POST_TERMINAL_NON_RECOVERY_EVENT_TYPES) as { max_seq: number | null } | null;
+		return row?.max_seq ?? 0;
+	}
+
+	getStreamState(sessionId: string, writerActive: boolean): ChatStreamState {
+		const maxSeq = this.getMaxSeq(sessionId);
+		const latestTerminalSeq = this.getLatestTerminalSeq(sessionId);
+		const latestRecoveryRelevantSeq = this.getLatestRecoveryRelevantSeq(sessionId);
+		return {
+			maxSeq,
+			latestTerminalSeq,
+			writerActive,
+			hasIncompleteTail: writerActive || latestRecoveryRelevantSeq > latestTerminalSeq,
+		};
 	}
 
 	sweep(olderThanHours: number): number {

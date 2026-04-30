@@ -203,6 +203,7 @@ export class ChatSessionStore {
 		const placeholders = ids.map(() => "?").join(",");
 
 		const txn = this.db.transaction(() => {
+			this.db.run(`DELETE FROM chat_run_timelines WHERE session_id IN (${placeholders})`, ids);
 			this.db.run(`DELETE FROM chat_stream_events WHERE session_id IN (${placeholders})`, ids);
 			this.db.run(`DELETE FROM chat_attachments WHERE session_id IN (${placeholders})`, ids);
 			this.db.run(`DELETE FROM chat_messages WHERE session_id IN (${placeholders})`, ids);

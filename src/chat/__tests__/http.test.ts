@@ -6,6 +6,7 @@ import { ChatAttachmentStore } from "../attachment-store.ts";
 import { ChatEventLog } from "../event-log.ts";
 import { createChatHandler } from "../http.ts";
 import { ChatMessageStore } from "../message-store.ts";
+import { ChatRunTimelineStore } from "../run-timeline.ts";
 import { ChatSessionStore } from "../session-store.ts";
 import { StreamBus } from "../stream-bus.ts";
 
@@ -46,6 +47,7 @@ beforeEach(() => {
 		sessionStore: new ChatSessionStore(db),
 		messageStore: new ChatMessageStore(db),
 		eventLog: new ChatEventLog(db),
+		timelineStore: new ChatRunTimelineStore(db),
 		attachmentStore: new ChatAttachmentStore(db),
 		streamBus: new StreamBus(),
 		getBootstrapData: () => ({ agent_name: "TestAgent", evolution_gen: 0 }),
@@ -111,6 +113,68 @@ describe("Chat HTTP handlers", () => {
 		expect(res?.status).toBe(200);
 		const body = await res?.json();
 		expect(body.title).toBe("detail test");
+	});
+
+	test("GET /chat/sessions/:id returns stream state and durable timelines", async () => {
+		const createRes = await handler(
+			makeAuthReq("/chat/sessions", {
+				method: "POST",
+				body: JSON.stringify({ title: "stream state" }),
+			}),
+		);
+		const created = (await createRes?.json()) as { id: string };
+		const id = created.id;
+		const messageStore = new ChatMessageStore(db);
+		const eventLog = new ChatEventLog(db);
+		const timelineStore = new ChatRunTimelineStore(db);
+		messageStore.commit({ id: "user-1", sessionId: id, seq: 1, role: "user", contentJson: JSON.stringify("hello") });
+		eventLog.append(id, null, 1, "user.message", { event: "user.message", message_id: "user-1" });
+		eventLog.append(id, null, 2, "message.assistant_start", {
+			event: "message.assistant_start",
+			message_id: "assistant-1",
+			parent_tool_use_id: null,
+		});
+		timelineStore.upsert({
+			id: "user-1",
+			sessionId: id,
+			userMessageId: "user-1",
+			startSeq: 1,
+			status: "working",
+			startedAt: "2026-04-30T00:00:00.000Z",
+			currentLabel: "Using Bash...",
+			summary: {
+				schemaVersion: 1,
+				status: "working",
+				startSeq: 1,
+				endSeq: null,
+				startedAt: "2026-04-30T00:00:00.000Z",
+				currentLabel: "Using Bash...",
+				tools: [],
+				subagents: [],
+				errors: [],
+			},
+		});
+
+		const res = await handler(makeAuthReq(`/chat/sessions/${id}`));
+		expect(res?.status).toBe(200);
+		const body = (await res?.json()) as {
+			stream_state: {
+				max_seq: number;
+				latest_terminal_seq: number;
+				writer_active: boolean;
+				has_incomplete_tail: boolean;
+			};
+			run_timelines: Array<{ user_message_id: string; summary: { status: string; currentLabel?: string } }>;
+		};
+
+		expect(body.stream_state).toEqual({
+			max_seq: 2,
+			latest_terminal_seq: 0,
+			writer_active: false,
+			has_incomplete_tail: true,
+		});
+		expect(body.run_timelines[0]?.user_message_id).toBe("user-1");
+		expect(body.run_timelines[0]?.summary.status).toBe("working");
 	});
 
 	test("GET /chat/sessions/:id returns 404 for missing session", async () => {

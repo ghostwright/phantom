@@ -1,4 +1,13 @@
-import type { ChatState, RateLimitActivity, RunActivityState, RunActivityStatus, SubagentActivity } from "./chat-types";
+import type {
+	ChatState,
+	DurableRunTimelineSummary,
+	RateLimitActivity,
+	RunActivityState,
+	RunActivityStatus,
+	RunTimelineView,
+	SubagentActivity,
+	ToolCallState,
+} from "./chat-types";
 
 export const ACTIVE_RUN_MESSAGE_ID = "__phantom_active_run__";
 
@@ -81,6 +90,59 @@ export function attachActivityToolsToAssistant(s: ChatState, messageId: string):
 	return changed ? { ...s, activeToolCalls: calls } : s;
 }
 
+export function runTimelineSummaryToView(summary: DurableRunTimelineSummary): RunTimelineView {
+	const updatedAt = summary.completedAt ?? summary.startedAt;
+	const activity: RunActivityState = {
+		status: runTimelineStatusToActivityStatus(summary.status),
+		currentLabel: summary.currentLabel ?? runTimelineFallbackLabel(summary.status),
+		startedAt: summary.startedAt,
+		updatedAt,
+		isActive: summary.status === "working",
+		compact: summary.compact,
+		rateLimit: summary.rateLimit,
+		mcpServers: summary.mcpServers,
+		truncatedBacklog: summary.truncatedBacklog,
+		subagents: new Map(
+			summary.subagents.map((subagent) => [
+				subagent.taskId,
+				{
+					...subagent,
+					updatedAt,
+				},
+			]),
+		),
+	};
+	const toolCalls: ToolCallState[] = summary.tools.map((tool) => ({
+		id: tool.id,
+		messageId: ACTIVE_RUN_MESSAGE_ID,
+		toolName: tool.name,
+		state: tool.state,
+		inputJson: tool.safeInputSummary ?? "",
+		output: tool.safeOutputSummary,
+		durationMs: tool.durationMs,
+		elapsedSeconds: tool.elapsedSeconds,
+		outputTruncated: tool.outputTruncated,
+		isMcp: tool.isMcp,
+		mcpServer: tool.mcpServer,
+		blockReason: tool.blockReason,
+	}));
+	return { activity, toolCalls };
+}
+
+function runTimelineStatusToActivityStatus(status: DurableRunTimelineSummary["status"]): RunActivityStatus {
+	if (status === "completed") return "completed";
+	if (status === "aborted") return "aborted";
+	if (status === "error" || status === "recovered") return "error";
+	return "working";
+}
+
+function runTimelineFallbackLabel(status: DurableRunTimelineSummary["status"]): string {
+	if (status === "completed") return "Completed.";
+	if (status === "aborted") return "Run stopped.";
+	if (status === "error" || status === "recovered") return "Run stopped with an error.";
+	return "Working...";
+}
+
 function statusLabel(status: string | undefined): {
 	status: RunActivityStatus;
 	label: string;
@@ -136,6 +198,22 @@ export function updateRunActivityForFrame(s: ChatState, event: string, data: Rec
 				status: "working",
 				currentLabel: "Drafting a response...",
 			}));
+		case "session.resumed":
+			return patchActivity(s, (activity) => ({
+				...activity,
+				status: "working",
+				currentLabel: "Replaying recent activity...",
+				isActive: data.writer_active === true || activity.isActive,
+			}));
+		case "session.caught_up":
+			return s.runActivity?.isActive
+				? patchActivity(s, (activity) => ({
+						...activity,
+						status: "working",
+						currentLabel: "Reconnected.",
+						isActive: true,
+					}))
+				: s;
 		case "session.status":
 			return patchActivity(s, (activity) => {
 				const next = statusLabel(str(data, "status"));
@@ -248,15 +326,16 @@ export function updateRunActivityForFrame(s: ChatState, event: string, data: Rec
 		case "session.done":
 			return patchActivity(s, (activity) => ({
 				...activity,
-				status: "completed",
-				currentLabel: "Completed.",
+				status: str(data, "stop_reason") === "aborted" ? "aborted" : "completed",
+				currentLabel: str(data, "stop_reason") === "aborted" ? "Run stopped." : "Completed.",
 				isActive: false,
 			}));
 		case "session.error":
 			return patchActivity(s, (activity) => ({
 				...activity,
 				status: "error",
-				currentLabel: "Run stopped with an error.",
+				currentLabel:
+					str(data, "subtype") === "server_restart" ? "Connection interrupted." : "Run stopped with an error.",
 				isActive: false,
 			}));
 		case "session.aborted":

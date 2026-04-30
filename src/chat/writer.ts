@@ -6,6 +6,8 @@ import { autoRenameSession } from "./auto-rename.ts";
 import type { ChatEventLog } from "./event-log.ts";
 import type { ChatMessageStore } from "./message-store.ts";
 import type { NotificationTriggerService } from "./notifications/triggers.ts";
+import type { ChatRunTimelineStore } from "./run-timeline.ts";
+import { DurableRunTimelineBuilder } from "./run-timeline.ts";
 import { createTranslationContext, translateSdkMessage } from "./sdk-to-wire.ts";
 import type { ChatSessionStore } from "./session-store.ts";
 import type { StreamBus } from "./stream-bus.ts";
@@ -17,6 +19,7 @@ export type ChatSessionWriterDeps = {
 	eventLog: ChatEventLog;
 	messageStore: ChatMessageStore;
 	sessionStore: ChatSessionStore;
+	timelineStore?: ChatRunTimelineStore;
 	streamBus: StreamBus;
 	notificationTriggers?: NotificationTriggerService;
 };
@@ -77,7 +80,15 @@ export class ChatSessionWriter {
 			sent_at: new Date().toISOString(),
 			source_tab_id: tabId,
 		};
-		this.emitFrame(userFrame, seqCounter);
+		const userSeq = this.emitFrame(userFrame, seqCounter);
+		const timeline = DurableRunTimelineBuilder.start({
+			sessionId: this.deps.sessionId,
+			userMessageId,
+			startSeq: userSeq,
+			startedAt: userFrame.sent_at,
+		});
+		timeline.apply(userFrame, userSeq);
+		this.persistTimeline(timeline);
 
 		const assistantSeq = msgSeq + 1;
 		const assistantMessageId = crypto.randomUUID();
@@ -93,7 +104,10 @@ export class ChatSessionWriter {
 				onSdkEvent: (sdkMsg: unknown) => {
 					const frames = translateSdkMessage(sdkMsg as Record<string, unknown>, ctx);
 					for (const frame of frames) {
-						this.emitFrame(frame, seqCounter);
+						const seq = this.emitFrame(frame, seqCounter);
+						if (timeline.apply(frame, seq)) {
+							this.persistTimeline(timeline);
+						}
 					}
 				},
 			});
@@ -101,6 +115,7 @@ export class ChatSessionWriter {
 			resultText = response.text;
 
 			this.deps.messageStore.commit({
+				id: assistantMessageId,
 				sessionId: this.deps.sessionId,
 				seq: assistantSeq,
 				role: "assistant",
@@ -110,6 +125,8 @@ export class ChatSessionWriter {
 				costUsd: response.cost.totalUsd,
 				stopReason: "end_turn",
 			});
+			timeline.setAssistantMessageId(assistantMessageId);
+			this.persistTimeline(timeline);
 
 			this.deps.sessionStore.incrementMessageCount(this.deps.sessionId);
 			this.deps.sessionStore.updateCost(this.deps.sessionId, response.cost);
@@ -145,7 +162,10 @@ export class ChatSessionWriter {
 					cost_usd: 0,
 					duration_ms: Date.now() - startTime,
 				};
-				this.emitFrame(abortedFrame, seqCounter);
+				const abortedSeq = this.emitFrame(abortedFrame, seqCounter);
+				if (timeline.apply(abortedFrame, abortedSeq)) {
+					this.persistTimeline(timeline);
+				}
 
 				const doneFrame: ChatWireFrame = {
 					event: "session.done",
@@ -157,7 +177,10 @@ export class ChatSessionWriter {
 					duration_ms: Date.now() - startTime,
 					num_turns: 0,
 				};
-				this.emitFrame(doneFrame, seqCounter);
+				const doneSeq = this.emitFrame(doneFrame, seqCounter);
+				if (timeline.apply(doneFrame, doneSeq)) {
+					this.persistTimeline(timeline);
+				}
 			} else {
 				const errorFrame: ChatWireFrame = {
 					event: "session.error",
@@ -169,7 +192,10 @@ export class ChatSessionWriter {
 					cost_usd: 0,
 					duration_ms: Date.now() - startTime,
 				};
-				this.emitFrame(errorFrame, seqCounter);
+				const errorSeq = this.emitFrame(errorFrame, seqCounter);
+				if (timeline.apply(errorFrame, errorSeq)) {
+					this.persistTimeline(timeline);
+				}
 
 				if (this.deps.notificationTriggers) {
 					this.deps.notificationTriggers.onHardError(this.deps.sessionId, errorMsg).catch((triggerErr: unknown) => {
@@ -191,7 +217,7 @@ export class ChatSessionWriter {
 		}
 	}
 
-	private emitFrame(frame: ChatWireFrame, seqCounter: { current: number }): void {
+	private emitFrame(frame: ChatWireFrame, seqCounter: { current: number }): number {
 		const seq = ++seqCounter.current;
 		// session.created carries a seq field - assign it here so payload matches persisted seq
 		if (frame.event === "session.created") {
@@ -199,5 +225,10 @@ export class ChatSessionWriter {
 		}
 		this.deps.eventLog.append(this.deps.sessionId, null, seq, frame.event, frame);
 		this.deps.streamBus.publish(this.deps.sessionId, frame, seq);
+		return seq;
+	}
+
+	private persistTimeline(timeline: DurableRunTimelineBuilder): void {
+		this.deps.timelineStore?.upsert(timeline.toUpsertParams());
 	}
 }

@@ -1,6 +1,14 @@
+import { runTimelineSummaryToView } from "@/lib/chat-activity";
 import { type ChatStore, beginRunActivity, createChatStore, dispatchFrame } from "@/lib/chat-store";
-import type { ChatMessage, RunActivityState, ThinkingBlockState, ToolCallState } from "@/lib/chat-types";
-import { type SessionDetail, abortSession, getSession } from "@/lib/client";
+import type {
+	ChatMessage,
+	RunActivityState,
+	RunTimelineView,
+	StreamConnectionState,
+	ThinkingBlockState,
+	ToolCallState,
+} from "@/lib/chat-types";
+import { type SessionDetail, abortSession, getSession, resumeSession } from "@/lib/client";
 import { useCallback, useRef, useSyncExternalStore } from "react";
 
 export function useChat(sessionId: string | null): {
@@ -9,6 +17,7 @@ export function useChat(sessionId: string | null): {
 	thinkingBlocks: Map<string, ThinkingBlockState>;
 	runActivity: RunActivityState | null;
 	isStreaming: boolean;
+	streamConnectionState: StreamConnectionState;
 	sendMessage: (text: string, attachmentIds?: string[]) => void;
 	abort: () => void;
 	loadSession: (id: string) => void;
@@ -22,13 +31,14 @@ export function useChat(sessionId: string | null): {
 	const state = useSyncExternalStore(store.subscribe, store.getState);
 
 	const processSSEStream = useCallback(
-		async (body: ReadableStream<Uint8Array>, gen: number) => {
+		async (body: ReadableStream<Uint8Array>, gen: number, mode: "live" | "resume" = "live") => {
 			const decoder = new TextDecoder();
 			const reader = body.getReader();
 			readerRef.current = reader;
 			let buffer = "";
 			let currentEvent = "";
 			let currentData = "";
+			let replaying = mode === "resume";
 
 			while (true) {
 				if (generationRef.current !== gen) return;
@@ -57,7 +67,10 @@ export function useChat(sessionId: string | null): {
 						}
 					} else if (line === "" && currentEvent && currentData) {
 						if (generationRef.current !== gen) return;
-						dispatchFrame(store, currentEvent, currentData);
+						dispatchFrame(store, currentEvent, currentData, { source: replaying ? "replay" : "live" });
+						if (currentEvent === "session.caught_up") {
+							replaying = false;
+						}
 						currentEvent = "";
 						currentData = "";
 					}
@@ -65,7 +78,28 @@ export function useChat(sessionId: string | null): {
 			}
 
 			if (generationRef.current === gen) {
-				store.update((s) => ({ ...s, isStreaming: false }));
+				store.update((s) => {
+					const interrupted = s.runActivity?.isActive === true && s.streamConnectionState !== "detached";
+					return {
+						...s,
+						isStreaming: false,
+						streamConnectionState: interrupted
+							? "interrupted"
+							: s.streamConnectionState === "attached"
+								? "detached"
+								: s.streamConnectionState,
+						runActivity:
+							interrupted && s.runActivity
+								? {
+										...s.runActivity,
+										status: "error",
+										currentLabel: "Connection interrupted.",
+										updatedAt: new Date().toISOString(),
+										isActive: false,
+									}
+								: s.runActivity,
+					};
+				});
 			}
 			readerRef.current = null;
 		},
@@ -107,6 +141,7 @@ export function useChat(sessionId: string | null): {
 						store.update((s) => ({
 							...s,
 							isStreaming: false,
+							streamConnectionState: "detached",
 							runActivity: s.runActivity
 								? {
 										...s.runActivity,
@@ -119,13 +154,15 @@ export function useChat(sessionId: string | null): {
 						}));
 						return;
 					}
-					return processSSEStream(res.body, gen);
+					store.update((s) => ({ ...s, streamConnectionState: "attached" }));
+					return processSSEStream(res.body, gen, "live");
 				})
 				.catch(() => {
 					if (generationRef.current === gen) {
 						store.update((s) => ({
 							...s,
 							isStreaming: false,
+							streamConnectionState: "interrupted",
 							runActivity: s.runActivity
 								? {
 										...s.runActivity,
@@ -153,6 +190,7 @@ export function useChat(sessionId: string | null): {
 		store.update((s) => ({
 			...s,
 			isStreaming: false,
+			streamConnectionState: "detached",
 			runActivity: s.runActivity
 				? {
 						...s.runActivity,
@@ -167,16 +205,41 @@ export function useChat(sessionId: string | null): {
 
 	const loadSession = useCallback(
 		(id: string) => {
+			readerRef.current?.cancel();
+			readerRef.current = null;
+			abortRef.current?.abort();
+			const gen = ++generationRef.current;
 			store.reset(id);
 			getSession(id)
 				.then((detail: SessionDetail) => {
+					if (generationRef.current !== gen) return;
 					if (store.getState().sessionId !== id) return;
-					const msgs = detail.messages.map(messageRowToChatMessage);
-					store.update((s) => ({ ...s, messages: msgs, sessionId: id }));
+					const timelineByMessageId = buildTimelineViewMap(detail);
+					const msgs = detail.messages.map((row) => messageRowToChatMessage(row, timelineByMessageId.get(row.id)));
+					const streamState = detail.stream_state;
+					store.update((s) => ({
+						...s,
+						messages: msgs,
+						sessionId: id,
+						lastSeq: streamState?.latest_terminal_seq ?? s.lastSeq,
+						streamConnectionState: "idle",
+					}));
+					if (streamState?.writer_active || streamState?.has_incomplete_tail) {
+						store.update((s) => ({
+							...s,
+							isStreaming: streamState.writer_active,
+							streamConnectionState: "reconnecting",
+						}));
+						void processSSEStream(resumeSession(id, streamState.latest_terminal_seq), gen, "resume");
+					}
 				})
-				.catch(() => {});
+				.catch(() => {
+					if (generationRef.current === gen) {
+						store.update((s) => ({ ...s, streamConnectionState: "interrupted" }));
+					}
+				});
 		},
-		[store],
+		[store, processSSEStream],
 	);
 
 	return {
@@ -185,13 +248,23 @@ export function useChat(sessionId: string | null): {
 		thinkingBlocks: state.thinkingBlocks,
 		runActivity: state.runActivity,
 		isStreaming: state.isStreaming,
+		streamConnectionState: state.streamConnectionState,
 		sendMessage,
 		abort,
 		loadSession,
 	};
 }
 
-function messageRowToChatMessage(row: SessionDetail["messages"][number]): ChatMessage {
+function buildTimelineViewMap(detail: SessionDetail): Map<string, RunTimelineView> {
+	const map = new Map<string, RunTimelineView>();
+	for (const timeline of detail.run_timelines ?? []) {
+		const key = timeline.assistant_message_id ?? timeline.user_message_id;
+		map.set(key, runTimelineSummaryToView(timeline.summary));
+	}
+	return map;
+}
+
+function messageRowToChatMessage(row: SessionDetail["messages"][number], runTimeline?: RunTimelineView): ChatMessage {
 	let contentBlocks: Array<{
 		type: string;
 		text?: string;
@@ -220,5 +293,6 @@ function messageRowToChatMessage(row: SessionDetail["messages"][number]): ChatMe
 		costUsd: row.cost_usd,
 		inputTokens: row.input_tokens,
 		outputTokens: row.output_tokens,
+		runTimeline,
 	};
 }

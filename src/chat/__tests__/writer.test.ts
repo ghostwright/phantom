@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { MIGRATIONS } from "../../db/schema.ts";
 import { ChatEventLog } from "../event-log.ts";
 import { ChatMessageStore } from "../message-store.ts";
+import { ChatRunTimelineStore } from "../run-timeline.ts";
 import { ChatSessionStore } from "../session-store.ts";
 import { StreamBus } from "../stream-bus.ts";
 import type { ChatWireFrame } from "../types.ts";
@@ -12,6 +13,7 @@ let db: Database;
 let sessionStore: ChatSessionStore;
 let messageStore: ChatMessageStore;
 let eventLog: ChatEventLog;
+let timelineStore: ChatRunTimelineStore;
 let streamBus: StreamBus;
 
 beforeEach(() => {
@@ -22,6 +24,7 @@ beforeEach(() => {
 	sessionStore = new ChatSessionStore(db);
 	messageStore = new ChatMessageStore(db);
 	eventLog = new ChatEventLog(db);
+	timelineStore = new ChatRunTimelineStore(db);
 	streamBus = new StreamBus();
 });
 
@@ -278,5 +281,79 @@ describe("ChatSessionWriter", () => {
 			const createdEvent = events.find((e) => e.event_type === "session.created");
 			expect(createdEvent?.seq).toBe(createdFrame.seq);
 		}
+	});
+
+	test("persists completed run timeline with committed assistant id", async () => {
+		const session = sessionStore.create();
+		const writer = new ChatSessionWriter({
+			sessionId: session.id,
+			runtime: mockRuntime(),
+			eventLog,
+			messageStore,
+			sessionStore,
+			timelineStore,
+			streamBus,
+		});
+		writer.claim();
+
+		await writer.run({ role: "user", content: "timeline" }, "t1", "timeline");
+
+		const timelines = timelineStore.getDetailsBySession(session.id);
+		expect(timelines).toHaveLength(1);
+		expect(timelines[0]?.status).toBe("completed");
+		expect(timelines[0]?.assistant_message_id).not.toBeNull();
+		expect(timelines[0]?.summary.status).toBe("completed");
+	});
+
+	test("persists errored run timeline without committing assistant id", async () => {
+		const session = sessionStore.create();
+		const writer = new ChatSessionWriter({
+			sessionId: session.id,
+			runtime: mockRuntime({
+				runForChat: async () => {
+					throw new Error("SDK crashed");
+				},
+			}),
+			eventLog,
+			messageStore,
+			sessionStore,
+			timelineStore,
+			streamBus,
+		});
+		writer.claim();
+
+		await writer.run({ role: "user", content: "fail" }, "t1", "fail");
+
+		const timelines = timelineStore.getDetailsBySession(session.id);
+		expect(timelines[0]?.status).toBe("error");
+		expect(timelines[0]?.assistant_message_id).toBeNull();
+		expect(timelines[0]?.summary.errors[0]?.message).toBe("SDK crashed");
+	});
+
+	test("persists aborted run timeline as one aborted terminal", async () => {
+		const session = sessionStore.create();
+		const writer = new ChatSessionWriter({
+			sessionId: session.id,
+			runtime: mockRuntime({
+				runForChat: async () => {
+					const err = new Error("aborted");
+					err.name = "AbortError";
+					throw err;
+				},
+			}),
+			eventLog,
+			messageStore,
+			sessionStore,
+			timelineStore,
+			streamBus,
+		});
+		writer.claim();
+
+		await writer.run({ role: "user", content: "stop" }, "t1", "stop");
+
+		const timelines = timelineStore.getDetailsBySession(session.id);
+		expect(timelines[0]?.status).toBe("aborted");
+		expect(timelines[0]?.summary.status).toBe("aborted");
+		expect(timelines[0]?.summary.currentLabel).toBe("Run stopped.");
 	});
 });

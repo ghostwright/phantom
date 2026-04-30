@@ -25,7 +25,20 @@ export function handleGetSession(sessionId: string, deps: ChatHandlerDeps): Resp
 	const session = deps.sessionStore.get(sessionId);
 	if (!session) return Response.json({ error: "Session not found" }, { status: 404 });
 	const messages = deps.messageStore.getBySession(sessionId);
-	return Response.json({ ...session, messages });
+	const writerActive = getActiveWriter(sessionId)?.isActive ?? false;
+	const streamState = deps.eventLog.getStreamState(sessionId, writerActive);
+	const runTimelines = deps.timelineStore?.getDetailsBySession(sessionId) ?? [];
+	return Response.json({
+		...session,
+		messages,
+		stream_state: {
+			max_seq: streamState.maxSeq,
+			latest_terminal_seq: streamState.latestTerminalSeq,
+			writer_active: streamState.writerActive,
+			has_incomplete_tail: streamState.hasIncompleteTail,
+		},
+		run_timelines: runTimelines,
+	});
 }
 
 export async function handleUpdateSession(req: Request, sessionId: string, deps: ChatHandlerDeps): Promise<Response> {
@@ -101,6 +114,7 @@ export async function handleStream(req: Request, deps: ChatHandlerDeps): Promise
 		eventLog: deps.eventLog,
 		messageStore: deps.messageStore,
 		sessionStore: deps.sessionStore,
+		timelineStore: deps.timelineStore,
 		streamBus: deps.streamBus,
 		notificationTriggers: deps.notificationTriggers,
 	});
@@ -223,7 +237,11 @@ export async function handleResume(req: Request, sessionId: string, deps: ChatHa
 			write(formatSSE(caughtUpFrame));
 
 			if (writerActive) {
-				if (terminalSeenDuringReplay || !(getActiveWriter(sessionId)?.isActive ?? false)) {
+				const writerStillActive = getActiveWriter(sessionId)?.isActive ?? false;
+				if (terminalSeenDuringReplay) {
+					closeSoon();
+				} else if (!writerStillActive) {
+					write(formatSSE(createServerRestartRecoveryFrame(sessionId)));
 					closeSoon();
 				} else {
 					resumeHeartbeatCleanup = startSseHeartbeat(write, () => getActiveWriter(sessionId)?.isActive ?? false, {
@@ -231,8 +249,8 @@ export async function handleResume(req: Request, sessionId: string, deps: ChatHa
 					});
 				}
 			} else {
-				const latestTerminalSeq = deps.eventLog.getLatestTerminalSeq(sessionId);
-				if (maxSeq > latestTerminalSeq) {
+				const streamState = deps.eventLog.getStreamState(sessionId, false);
+				if (streamState.hasIncompleteTail) {
 					write(formatSSE(createServerRestartRecoveryFrame(sessionId)));
 				}
 				controller.close();

@@ -4,6 +4,7 @@ import { MIGRATIONS } from "../../db/schema.ts";
 import { ChatAttachmentStore } from "../attachment-store.ts";
 import { ChatEventLog } from "../event-log.ts";
 import { ChatMessageStore } from "../message-store.ts";
+import { ChatRunTimelineStore } from "../run-timeline.ts";
 import { ChatSessionStore } from "../session-store.ts";
 
 let db: Database;
@@ -144,15 +145,34 @@ describe("ChatSessionStore", () => {
 		const session = store.create("FK Test");
 		const messageStore = new ChatMessageStore(db);
 		const eventLog = new ChatEventLog(db);
+		const timelineStore = new ChatRunTimelineStore(db);
 		const attachmentStore = new ChatAttachmentStore(db);
 
-		messageStore.commit({
+		const userMessageId = messageStore.commit({
 			sessionId: session.id,
 			seq: 1,
 			role: "user",
 			contentJson: JSON.stringify("hello"),
 		});
 		eventLog.append(session.id, null, 1, "user.message", { event: "user.message" });
+		timelineStore.upsert({
+			id: userMessageId,
+			sessionId: session.id,
+			userMessageId,
+			startSeq: 1,
+			status: "working",
+			startedAt: "2026-04-30T00:00:00.000Z",
+			summary: {
+				schemaVersion: 1,
+				status: "working",
+				startSeq: 1,
+				endSeq: null,
+				startedAt: "2026-04-30T00:00:00.000Z",
+				tools: [],
+				subagents: [],
+				errors: [],
+			},
+		});
 		attachmentStore.create({
 			sessionId: session.id,
 			kind: "file",
@@ -173,6 +193,7 @@ describe("ChatSessionStore", () => {
 		expect(messages).toHaveLength(0);
 		const events = eventLog.drain(session.id, 0);
 		expect(events).toHaveLength(0);
+		expect(timelineStore.getBySession(session.id)).toHaveLength(0);
 	});
 
 	test("cursor pagination uses consistent sort key", () => {

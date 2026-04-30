@@ -7,6 +7,7 @@ export const CHAT_STREAM_ENDED_RECOVERY_MESSAGE =
 	"Stream ended before the session completed. Please resend your message.";
 
 export const CHAT_TERMINAL_EVENT_TYPES = ["session.done", "session.error", "session.aborted"] as const;
+export const CHAT_POST_TERMINAL_NON_RECOVERY_EVENT_TYPES = ["session.suggestion"] as const;
 
 export const CHAT_SSE_HEADERS = {
 	"Content-Type": "text/event-stream",

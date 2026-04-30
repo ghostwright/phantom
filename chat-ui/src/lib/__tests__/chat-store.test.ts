@@ -6,6 +6,10 @@ function send(store: ReturnType<typeof createChatStore>, event: string, data: Re
 	dispatchFrame(store, event, JSON.stringify(data));
 }
 
+function replay(store: ReturnType<typeof createChatStore>, event: string, data: Record<string, unknown>): void {
+	dispatchFrame(store, event, JSON.stringify(data), { source: "replay" });
+}
+
 describe("chat-store reducer: text block lifecycle", () => {
 	it("accumulates text_delta into a single content block for one text_start", () => {
 		const store = createChatStore();
@@ -265,5 +269,158 @@ describe("chat-store reducer: run activity", () => {
 		expect(subagent?.status).toBe("completed");
 		expect(subagent?.summary).toBe("Found the issue");
 		expect(subagent?.toolUses).toBe(4);
+	});
+});
+
+describe("chat-store reducer: replay idempotency", () => {
+	it("upserts replayed user and assistant messages by message id", () => {
+		const store = createChatStore();
+		store.update((state) => ({
+			...state,
+			messages: [
+				{
+					id: "u1",
+					role: "user",
+					content: [{ type: "text", text: "Hello" }],
+					createdAt: "2026-04-30T00:00:00.000Z",
+					status: "committed",
+				},
+				{
+					id: "a1",
+					role: "assistant",
+					content: [{ type: "text", text: "Hello world" }],
+					createdAt: "2026-04-30T00:00:01.000Z",
+					status: "committed",
+				},
+			],
+		}));
+
+		replay(store, "user.message", {
+			message_id: "u1",
+			text: "Hello",
+			attachments: [],
+			sent_at: "2026-04-30T00:00:00.000Z",
+			source_tab_id: "tab-1",
+		});
+		replay(store, "message.assistant_start", { message_id: "a1", parent_tool_use_id: null });
+
+		expect(store.getState().messages.map((message) => message.id)).toEqual(["u1", "a1"]);
+	});
+
+	it("does not duplicate replayed text over a committed final assistant", () => {
+		const store = createChatStore();
+		store.update((state) => ({
+			...state,
+			messages: [
+				{
+					id: "a1",
+					role: "assistant",
+					content: [{ type: "text", text: "Hello world" }],
+					createdAt: "2026-04-30T00:00:01.000Z",
+					status: "committed",
+				},
+			],
+		}));
+
+		replay(store, "message.assistant_start", { message_id: "a1", parent_tool_use_id: null });
+		replay(store, "message.text_start", { message_id: "a1", text_block_id: "tb_0_0", index: 0 });
+		replay(store, "message.text_delta", { text_block_id: "tb_0_0", delta: "Hello world" });
+
+		const assistant = store.getState().messages[0];
+		expect(assistant?.content).toEqual([{ type: "text", text: "Hello world" }]);
+		expect(store.getState().textBlocks.get("tb_0_0")?.text).toBe("Hello world");
+	});
+
+	it("reconstructs partial assistant text during replay when no committed assistant exists", () => {
+		const store = createChatStore();
+		replay(store, "message.assistant_start", { message_id: "a1", parent_tool_use_id: null });
+		replay(store, "message.text_start", { message_id: "a1", text_block_id: "tb_0_0", index: 0 });
+		replay(store, "message.text_delta", { text_block_id: "tb_0_0", delta: "Partial" });
+
+		const assistant = store.getState().messages[0];
+		expect(assistant?.role).toBe("assistant");
+		expect(assistant?.content[0]?.text).toBe("Partial");
+	});
+
+	it("merges orphan running, later start, and later result into one tool call", () => {
+		const store = createChatStore();
+		beginRunActivity(store);
+		replay(store, "message.tool_call_running", { tool_call_id: "tool-1", elapsed_seconds: 2 });
+		replay(store, "message.tool_call_start", {
+			message_id: "a1",
+			tool_call_id: "tool-1",
+			tool_name: "Read",
+			is_mcp: false,
+		});
+		replay(store, "message.tool_call_result", {
+			tool_call_id: "tool-1",
+			tool_name: "Read",
+			status: "success",
+			output: "done",
+		});
+
+		expect(store.getState().activeToolCalls.size).toBe(1);
+		expect(store.getState().activeToolCalls.get("tool-1")).toMatchObject({
+			toolName: "Read",
+			state: "result",
+			output: "done",
+		});
+	});
+});
+
+describe("chat-store reducer: connection state", () => {
+	it("tracks replaying and attached separately from streaming state", () => {
+		const store = createChatStore();
+		beginRunActivity(store);
+		send(store, "session.resumed", {
+			session_id: "s1",
+			resumed_from_seq: 3,
+			writer_active: true,
+		});
+		expect(store.getState().streamConnectionState).toBe("replaying");
+		expect(store.getState().isStreaming).toBe(true);
+		expect(store.getState().lastSeq).toBe(0);
+
+		send(store, "session.caught_up", { session_id: "s1", up_to_seq: 5 });
+		expect(store.getState().streamConnectionState).toBe("attached");
+	});
+
+	it("marks completed replay as detached, not attached live work", () => {
+		const store = createChatStore();
+		send(store, "session.resumed", {
+			session_id: "s1",
+			resumed_from_seq: 0,
+			writer_active: false,
+		});
+		replay(store, "session.done", {
+			session_id: "s1",
+			message_id: "a1",
+			stop_reason: "end_turn",
+			usage: { input_tokens: 1, output_tokens: 1 },
+			cost_usd: 0,
+			duration_ms: 10,
+			num_turns: 1,
+		});
+		send(store, "session.caught_up", { session_id: "s1", up_to_seq: 2 });
+
+		expect(store.getState().streamConnectionState).toBe("detached");
+		expect(store.getState().runActivity?.status).toBe("completed");
+	});
+
+	it("marks server restart recovery as interrupted", () => {
+		const store = createChatStore();
+		beginRunActivity(store);
+		send(store, "session.error", {
+			session_id: "s1",
+			message_id: null,
+			subtype: "server_restart",
+			recoverable: true,
+			errors: ["Stream ended before the session completed."],
+			cost_usd: 0,
+			duration_ms: 0,
+		});
+
+		expect(store.getState().streamConnectionState).toBe("interrupted");
+		expect(store.getState().runActivity?.currentLabel).toBe("Connection interrupted.");
 	});
 });

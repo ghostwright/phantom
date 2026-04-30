@@ -432,6 +432,7 @@ async function main(): Promise<void> {
 	const { ChatMessageStore } = await import("./chat/message-store.ts");
 	const { ChatEventLog } = await import("./chat/event-log.ts");
 	const { ChatAttachmentStore } = await import("./chat/attachment-store.ts");
+	const { ChatRunTimelineStore } = await import("./chat/run-timeline.ts");
 	const { StreamBus } = await import("./chat/stream-bus.ts");
 	const { createChatHandler } = await import("./chat/http.ts");
 	const { startSweepInterval } = await import("./chat/sweep.ts");
@@ -443,6 +444,7 @@ async function main(): Promise<void> {
 	const chatMessageStore = new ChatMessageStore(db);
 	const chatEventLog = new ChatEventLog(db);
 	const chatAttachmentStore = new ChatAttachmentStore(db);
+	const chatRunTimelineStore = new ChatRunTimelineStore(db);
 	const chatStreamBus = new StreamBus();
 
 	// Initialize push notification subsystem
@@ -468,6 +470,7 @@ async function main(): Promise<void> {
 		sessionStore: chatSessionStore,
 		messageStore: chatMessageStore,
 		eventLog: chatEventLog,
+		timelineStore: chatRunTimelineStore,
 		attachmentStore: chatAttachmentStore,
 		streamBus: chatStreamBus,
 		db,
