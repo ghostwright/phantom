@@ -270,6 +270,28 @@ describe("buildAgentRuntimeEnv: Murph runtime", () => {
 		expect(env.ANTHROPIC_API_KEY).toBe("");
 	});
 
+	test("falls back Murph OpenAI judge aliases to the configured concrete model", () => {
+		process.env.OPENAI_API_KEY = "openai-secret";
+		const config = makeConfig({ type: "openai" }, { agent_runtime: "murph", model: "gpt-5.5" });
+		const judgeModel = resolveAgentRuntimeModel(config, "claude-haiku-4-5");
+		const env = buildAgentRuntimeEnv(config, judgeModel);
+
+		expect(judgeModel).toBe("gpt-5.5");
+		expect(env.MURPH_PROVIDER).toBe("openai");
+		expect(env.MURPH_MODEL).toBe("gpt-5.5");
+		expect(env.MURPH_OPENAI_MODEL).toBe("gpt-5.5");
+		expect(env.OPENAI_API_KEY).toBe("openai-secret");
+	});
+
+	test("keeps explicit Murph model mappings ahead of concrete-model fallback", () => {
+		const config = makeConfig(
+			{ type: "openai", model_mappings: { haiku: "gpt-5.5-mini" } },
+			{ agent_runtime: "murph", model: "gpt-5.5" },
+		);
+
+		expect(resolveAgentRuntimeModel(config, "claude-haiku-4-5")).toBe("gpt-5.5-mini");
+	});
+
 	test("emits native Z.AI route env with no Anthropic base URL", () => {
 		process.env.ZAI_API_KEY = "zai-secret";
 		process.env.ANTHROPIC_BASE_URL = "https://stale.example";

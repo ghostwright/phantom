@@ -200,7 +200,14 @@ export function resolveAgentRuntimeModel(config: PhantomConfig, requestedModel: 
 	if (!mappedTier) {
 		return requestedModel;
 	}
-	return config.provider.model_mappings?.[mappedTier] ?? requestedModel;
+	const explicitMapping = config.provider.model_mappings?.[mappedTier];
+	if (explicitMapping) {
+		return explicitMapping;
+	}
+	if (config.provider.type !== "anthropic" && !tierForRequestedModel(config.model)) {
+		return config.model;
+	}
+	return requestedModel;
 }
 
 export function buildMurphProviderEnv(

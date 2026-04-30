@@ -84,6 +84,7 @@ OPENAI_API_KEY=sk-...
 ```
 
 Phantom passes `gpt-5.5` as the concrete SDK model and sets native Murph route env such as `MURPH_PROVIDER=openai`, `MURPH_MODEL=gpt-5.5`, and `MURPH_OPENAI_MODEL=gpt-5.5`.
+Judge calls use the same concrete model unless you add `model_mappings` for cheaper tier-specific routes.
 
 ### Murph with Z.AI / GLM
 
