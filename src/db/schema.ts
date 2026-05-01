@@ -410,4 +410,23 @@ export const MIGRATIONS: string[] = [
 	`CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_run_timelines_assistant
 		ON chat_run_timelines(assistant_message_id)
 		WHERE assistant_message_id IS NOT NULL`,
+
+	// Phase 12 idempotency fix for the LOW bug at CLAUDE.md:284:
+	// "Onboarding re-fires on restart when evolution generation is 0".
+	// Today the firstboot path checks isFirstRun(configDir) which reads
+	// phantom-config/meta/version.json; that file's `version` stays at 0
+	// until the FIRST evolution generation lands, which can be days later.
+	// Every process restart in that window re-fires the intro DM. The new
+	// flag is set in the same SQLite transaction as markOnboardingStarted
+	// once the intro DM has gone out, so a restart that happens before the
+	// first evolution lands no longer re-introduces the agent. Pre-existing
+	// installs (where the agent is already past intro but the flag was
+	// never set) are handled by the inserter only setting intro_sent_at on
+	// transitions FROM "no row at all" TO "row written"; we never overwrite
+	// completed onboarding records.
+	`CREATE TABLE IF NOT EXISTS firstboot_state (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		intro_sent_at TEXT,
+		research_outcome TEXT
+	)`,
 ];

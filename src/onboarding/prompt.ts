@@ -1,3 +1,4 @@
+import type { OwnerResearchResult } from "../agent/research/types.ts";
 import type { RoleTemplate } from "../roles/types.ts";
 import type { OwnerProfile } from "./profiler.ts";
 
@@ -33,17 +34,53 @@ function buildOwnerContext(profile: OwnerProfile): string {
 }
 
 /**
+ * Phase 12: Build the public-research section for the system prompt.
+ * The agent reads what we learned about the owner from public sources
+ * BEFORE the first conversation. We mark the source kind on each line
+ * so the agent can talk about it honestly ("I noticed on your GitHub
+ * that...") instead of presenting public bullets as deep knowledge.
+ * Returns the empty string when research is null or yielded no
+ * bullets, so the assembler skips the section instead of emitting an
+ * empty stub.
+ */
+export function buildResearchContext(research: OwnerResearchResult | null | undefined): string {
+	if (!research || !research.bullets || research.bullets.length === 0) return "";
+
+	const lines: string[] = [];
+	lines.push("## What I Learned About Them (Public Sources)");
+	lines.push("");
+	lines.push(
+		"The following bullets come from public sources only (GitHub, personal site, LinkedIn public profile). Reference them naturally if it helps; never present them as deep knowledge of the user. Verify with the user when you act on any of this.",
+	);
+	lines.push("");
+	for (let i = 0; i < research.bullets.length; i++) {
+		const bullet = research.bullets[i];
+		const source = research.sources[i];
+		const tag = source ? ` [${source.kind}]` : "";
+		lines.push(`- ${bullet}${tag}`);
+	}
+	return lines.join("\n");
+}
+
+/**
  * Build the system prompt section injected when the agent is onboarding.
  * Role-agnostic: the agent follows the user's lead instead of running
  * through a predefined checklist. Cardinal Rule applies here too.
  */
-export function buildOnboardingPrompt(_role: RoleTemplate, phantomName: string, ownerProfile?: OwnerProfile): string {
+export function buildOnboardingPrompt(
+	_role: RoleTemplate,
+	phantomName: string,
+	ownerProfile?: OwnerProfile,
+	research?: OwnerResearchResult | null,
+): string {
 	const ownerSection = ownerProfile ? `\n\n${buildOwnerContext(ownerProfile)}` : "";
+	const researchBlock = buildResearchContext(research);
+	const researchSection = researchBlock ? `\n\n${researchBlock}` : "";
 	const ownerName = ownerProfile?.name ?? "your user";
 
 	return `## Onboarding Mode
 
-This is your first real conversation with ${ownerName}. You are ${phantomName}.${ownerSection}
+This is your first real conversation with ${ownerName}. You are ${phantomName}.${ownerSection}${researchSection}
 
 Your goal: understand their work well enough to be immediately useful.
 Not "onboard them through a checklist." Understand their work.

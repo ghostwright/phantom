@@ -870,7 +870,12 @@ async function main(): Promise<void> {
 		});
 	});
 
-	// Post onboarding intro after channels are connected
+	// Post onboarding intro after channels are connected. Phase 12 added
+	// firstboot-ledger idempotency inside startOnboarding so a process
+	// restart while phantom-config/meta/version.json is still at version
+	// 0 no longer re-fires the intro DM. The isFirstRun guard here stays
+	// (cheap pre-check that avoids loading the slack client) but the
+	// authoritative idempotency check is the SQLite firstboot_state row.
 	if (isFirstRun(configDir) && activeRole && slackChannel) {
 		const ownerUserId = channelsConfig?.slack?.owner_user_id;
 		const defaultChannel = channelsConfig?.slack?.default_channel_id;
@@ -888,19 +893,46 @@ async function main(): Promise<void> {
 
 		if (target) {
 			const slackClient = slackChannel.getClient();
-			const profile = await startOnboarding(slackChannel, target, config.name, activeRole, db, slackClient);
 
-			// Inject owner profile into onboarding prompt for personalized agent conversation
-			if (profile && needsOnboarding) {
-				const personalizedPrompt = buildOnboardingPrompt(activeRole, config.name, profile);
-				runtime.setOnboardingPrompt(personalizedPrompt);
-			}
+			// Phase 12 research inputs from env. PHANTOM_OWNER_RESEARCH_ENABLED
+			// is the operator escape hatch (set to "false" to disable). The
+			// research subroutine is otherwise on by default whenever an
+			// owner email is present.
+			const researchEnabled = (process.env.PHANTOM_OWNER_RESEARCH_ENABLED ?? "").trim().toLowerCase() !== "false";
+			const ownerEmail = (process.env.PHANTOM_OWNER_EMAIL ?? "").trim();
+			const ownerName = (process.env.PHANTOM_OWNER_NAME ?? "").trim();
+			const ownerLinkedinUrl = (process.env.PHANTOM_OWNER_LINKEDIN_URL ?? "").trim();
 
-			// Also post to channel if owner DM was sent and channel is configured
-			if (target.type === "dm" && defaultChannel) {
-				const channelIntro = `Hey team, I'm ${config.name}. I just joined as a ${activeRole.name} co-worker. I'll be working with ${profile?.name ?? "the team"} - feel free to @mention me if you need anything.`;
-				await slackChannel.postToChannel(defaultChannel, channelIntro);
-				console.log(`[onboarding] Also posted introduction to channel ${defaultChannel}`);
+			const result = await startOnboarding(slackChannel, target, config.name, activeRole, db, slackClient, {
+				ownerEmail: ownerEmail || undefined,
+				ownerName: ownerName || undefined,
+				ownerLinkedinUrl: ownerLinkedinUrl || undefined,
+				researchEnabled,
+			});
+
+			if (result.skipped) {
+				console.log("[onboarding] firstboot ledger says intro already sent; not re-firing");
+			} else {
+				// Inject owner profile + research bullets into onboarding
+				// prompt for personalized agent conversation. Both are
+				// optional; the prompt builder gates each section so a
+				// missing value silently disappears.
+				if ((result.profile || result.research?.bullets) && needsOnboarding) {
+					const personalizedPrompt = buildOnboardingPrompt(
+						activeRole,
+						config.name,
+						result.profile ?? undefined,
+						result.research,
+					);
+					runtime.setOnboardingPrompt(personalizedPrompt);
+				}
+
+				// Also post to channel if owner DM was sent and channel is configured
+				if (target.type === "dm" && defaultChannel) {
+					const channelIntro = `Hey team, I'm ${config.name}. I just joined as a ${activeRole.name} co-worker. I'll be working with ${result.profile?.name ?? "the team"} - feel free to @mention me if you need anything.`;
+					await slackChannel.postToChannel(defaultChannel, channelIntro);
+					console.log(`[onboarding] Also posted introduction to channel ${defaultChannel}`);
+				}
 			}
 		} else {
 			console.warn("[onboarding] No owner, default user, or channel configured, skipping intro message");
