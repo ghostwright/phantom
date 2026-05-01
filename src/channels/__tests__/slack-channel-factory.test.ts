@@ -251,6 +251,43 @@ describe("createSlackChannel", () => {
 		expect(ch).toBeInstanceOf(SlackHttpChannel);
 	});
 
+	test("transport=http forwards introductionLedger to the SlackHttpChannel", async () => {
+		// H3 fix regression guard: the SQLite-backed intro-DM ledger must
+		// reach the channel constructor so connect() can short-circuit on
+		// a process restart and stamp /health=onboarding-complete on a
+		// successful send. A future refactor that drops the forward
+		// breaks this test loud; without it, a tenant whose first DM
+		// failed would silently re-fire (or never fire) on restart.
+		const idFetcher = { get: () => Promise.resolve(HTTP_IDENTITY) };
+		const secFetcher = makeSecretFetcher();
+		let isCalled = 0;
+		let markCalled = 0;
+		const ledger = {
+			isIntroSent: () => {
+				isCalled++;
+				return true;
+			},
+			markIntroSent: () => {
+				markCalled++;
+			},
+		};
+		const ch = await createSlackChannel({
+			transport: "http",
+			channelsConfig: null,
+			identityFetcher: idFetcher,
+			secretsFetcher: secFetcher,
+			introductionLedger: ledger,
+		});
+		// Calling connect() exercises the ledger path. The mocked Bolt
+		// client (loaded by this test's @slack/bolt mock) makes auth.test
+		// resolve immediately; isIntroSent() === true short-circuits the
+		// intro DM so we know the ledger reached the channel.
+		expect(ch).toBeInstanceOf(SlackHttpChannel);
+		await (ch as InstanceType<typeof SlackHttpChannel>).connect();
+		expect(isCalled).toBeGreaterThanOrEqual(1);
+		expect(markCalled).toBe(0);
+	});
+
 	test("makeSecretFetcher fails-loud when production asks for an unknown name", async () => {
 		// This is the audit Finding 1 regression guard. If the production code
 		// in slack-channel-factory.ts ever drifts to ask for a different name

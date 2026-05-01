@@ -6,7 +6,7 @@
 import { DEFAULT_METADATA_BASE_URL, MetadataIdentityFetcher, type SlackIdentity } from "../config/identity-fetcher.ts";
 import { MetadataSecretFetcher } from "../config/metadata-fetcher.ts";
 import type { ChannelsConfig } from "../config/schemas.ts";
-import { SlackHttpChannel } from "./slack-http-receiver.ts";
+import { type IntroductionLedger, SlackHttpChannel } from "./slack-http-receiver.ts";
 import type { SlackMetricsEmitter } from "./slack-metrics.ts";
 import type { SlackTransport } from "./slack-transport.ts";
 import { SlackChannel } from "./slack.ts";
@@ -68,6 +68,15 @@ export type CreateSlackChannelInput = {
 	 * follow-up generalizes the surface (Phase 17).
 	 */
 	metrics?: SlackMetricsEmitter;
+	/**
+	 * Persistent intro-DM ledger forwarded to the HTTP receiver. The
+	 * receiver consults it before firing the synthetic first DM so a
+	 * process restart does not re-DM the installer, and stamps it on a
+	 * successful send so /health reports onboarding complete. Socket
+	 * Mode does not use this surface (its onboarding lives in
+	 * `src/onboarding/flow.ts`).
+	 */
+	introductionLedger?: IntroductionLedger;
 };
 
 /**
@@ -125,6 +134,7 @@ export async function createSlackChannel(input: CreateSlackChannelInput): Promis
 			teamId: identity.slack.teamId,
 			installerUserId: identity.slack.installerUserId,
 			teamName: identity.slack.teamName,
+			introductionLedger: input.introductionLedger,
 		});
 	}
 

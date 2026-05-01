@@ -83,6 +83,7 @@ mock.module("@slack/bolt", () => ({
 
 // Import the channel AFTER the module mock so the constructor uses our doubles.
 const { SlackHttpChannel } = await import("../slack-http-receiver.ts");
+type IntroductionLedger = import("../slack-http-receiver.ts").IntroductionLedger;
 
 const SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const TEAM_ID = "T9TK3CUKW";
@@ -775,6 +776,142 @@ describe("synthetic first DM on connect", () => {
 		const calls = mockPostMessage.mock.calls as unknown as Array<[{ channel?: string }]>;
 		const introCalls = calls.filter((c) => c[0].channel === "D_DM_OPEN").length;
 		expect(introCalls).toBe(2);
+	});
+});
+
+// ----- introductionLedger (persistent intro-DM idempotency) ----------------
+//
+// H3 root-cause fix: the in-memory `firstDmSent` flag lost its state on
+// every process restart, so a tenant whose first intro DM failed (or
+// silently never fired) had no record of the attempt. Phantom Cloud
+// production also lacked any signal in `/health` that the intro had
+// happened: `onboarding` stayed at "pending" because `markOnboardingStarted`
+// only ran from the Socket Mode `startOnboarding` path which is gated on a
+// `channels.yaml` that is never baked in HTTP-mode rootfs.
+//
+// The ledger surface fixes both legs in one place. Production wires it
+// against the SQLite `onboarding_state` table; these tests use a tiny
+// in-memory recorder that pins the contract:
+//   1. isIntroSent() === true short-circuits before any Slack call.
+//   2. markIntroSent() fires only AFTER a successful sendIntroductionDm.
+//   3. A throwing markIntroSent does not derail connect().
+
+describe("introductionLedger persistent idempotency", () => {
+	type LedgerStub = {
+		state: { sent: boolean };
+		isCalled: { isIntroSent: number; markIntroSent: number };
+		isIntroSent: () => boolean;
+		markIntroSent: () => void;
+	};
+	function makeLedger(initial: boolean): LedgerStub {
+		const state = { sent: initial };
+		const isCalled = { isIntroSent: 0, markIntroSent: 0 };
+		return {
+			state,
+			isCalled,
+			isIntroSent: () => {
+				isCalled.isIntroSent++;
+				return state.sent;
+			},
+			markIntroSent: () => {
+				isCalled.markIntroSent++;
+				state.sent = true;
+			},
+		};
+	}
+
+	test("skips intro DM when ledger already records intro_sent (process restart case)", async () => {
+		const ledger = makeLedger(true);
+		const channel = new SlackHttpChannel({ ...baseConfig, introductionLedger: ledger });
+		await channel.connect();
+		const calls = mockPostMessage.mock.calls as unknown as Array<[{ channel?: string }]>;
+		const introCalls = calls.filter((c) => c[0].channel === "D_DM_OPEN").length;
+		expect(introCalls).toBe(0);
+		expect(ledger.isCalled.isIntroSent).toBeGreaterThanOrEqual(1);
+		expect(ledger.isCalled.markIntroSent).toBe(0);
+	});
+
+	test("fires intro DM and stamps ledger on a successful send (first boot)", async () => {
+		const ledger = makeLedger(false);
+		const channel = new SlackHttpChannel({ ...baseConfig, introductionLedger: ledger });
+		await channel.connect();
+		const calls = mockPostMessage.mock.calls as unknown as Array<[{ channel?: string }]>;
+		const introCalls = calls.filter((c) => c[0].channel === "D_DM_OPEN").length;
+		expect(introCalls).toBe(1);
+		expect(ledger.isCalled.markIntroSent).toBe(1);
+		expect(ledger.state.sent).toBe(true);
+	});
+
+	test("does NOT stamp ledger when sendIntroductionDm fails (transient Slack error preserves retry budget)", async () => {
+		// Slack rate-limit on chat.postMessage. The DM never reaches the
+		// user; the ledger must stay clear so a process restart retries.
+		mockPostMessage.mockImplementation(() => Promise.reject(new Error("ratelimited")));
+		const ledger = makeLedger(false);
+		const channel = new SlackHttpChannel({ ...baseConfig, introductionLedger: ledger });
+		await channel.connect();
+		expect(channel.getConnectionState()).toBe("connected");
+		expect(ledger.state.sent).toBe(false);
+		expect(ledger.isCalled.markIntroSent).toBe(0);
+		mockPostMessage.mockImplementation(() => Promise.resolve({ ts: "1234567890.123456" }));
+	});
+
+	test("does NOT stamp ledger when chat.postMessage returns no ts (ledger preserves retry across restart)", async () => {
+		mockPostMessage.mockImplementationOnce(() => Promise.resolve({ ts: "" } as { ts: string }));
+		const ledger = makeLedger(false);
+		const channel = new SlackHttpChannel({ ...baseConfig, introductionLedger: ledger });
+		await channel.connect();
+		expect(ledger.state.sent).toBe(false);
+		expect(ledger.isCalled.markIntroSent).toBe(0);
+	});
+
+	test("ledger stamp survives reconnect: a subsequent connect() does not re-DM", async () => {
+		const ledger = makeLedger(false);
+		const channel = new SlackHttpChannel({ ...baseConfig, introductionLedger: ledger });
+		await channel.connect();
+		await channel.disconnect();
+		mockPostMessage.mockClear();
+		await channel.connect();
+		const calls = mockPostMessage.mock.calls as unknown as Array<[{ channel?: string }]>;
+		const introCalls = calls.filter((c) => c[0].channel === "D_DM_OPEN").length;
+		expect(introCalls).toBe(0);
+	});
+
+	test("a throwing markIntroSent does not derail connect() (defense in depth)", async () => {
+		const ledger: IntroductionLedger = {
+			isIntroSent: () => false,
+			markIntroSent: () => {
+				throw new Error("disk full");
+			},
+		};
+		const warns: string[] = [];
+		const original = console.warn;
+		console.warn = (...args: unknown[]) => {
+			warns.push(args.map(String).join(" "));
+		};
+		try {
+			const channel = new SlackHttpChannel({ ...baseConfig, introductionLedger: ledger });
+			await expect(channel.connect()).resolves.toBeUndefined();
+			expect(channel.getConnectionState()).toBe("connected");
+		} finally {
+			console.warn = original;
+		}
+		const all = warns.join("\n");
+		expect(all).toContain("markIntroSent failed");
+		expect(all).toContain("disk full");
+	});
+
+	test("without a ledger (single-tenant dev) the in-memory firstDmSent fallback is used", async () => {
+		// No introductionLedger on baseConfig -> reconnect should still
+		// short-circuit via the in-memory flag. This pins the back-compat
+		// surface for self-hosted Socket Mode and unit-test fixtures.
+		const channel = new SlackHttpChannel(baseConfig);
+		await channel.connect();
+		await channel.disconnect();
+		mockPostMessage.mockClear();
+		await channel.connect();
+		const calls = mockPostMessage.mock.calls as unknown as Array<[{ channel?: string }]>;
+		const introCalls = calls.filter((c) => c[0].channel === "D_DM_OPEN").length;
+		expect(introCalls).toBe(0);
 	});
 });
 

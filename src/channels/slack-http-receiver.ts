@@ -43,12 +43,42 @@ import { redactTokens } from "./slack-http-utils.ts";
 import { sendIntroductionDm } from "./slack-introduction.ts";
 import type { Channel, ChannelCapabilities, InboundMessage, OutboundMessage, SentMessage } from "./types.ts";
 
+/**
+ * Persistent introduction ledger surface. The HTTP receiver consults
+ * `isIntroSent` before firing the synthetic first DM and calls
+ * `markIntroSent` only AFTER a successful Slack send. The wiring lives
+ * in `index.ts` against the SQLite `onboarding_state` table; this
+ * indirection keeps the channel free of a direct SQLite handle so the
+ * unit tests do not have to spin up a database.
+ *
+ * Two outcomes the ledger pins:
+ *   1. `/health.onboarding` flips from "pending" to "complete" after the
+ *      first successful intro DM, mirroring the Socket Mode flow.
+ *   2. A process restart never re-fires the intro DM once it has gone
+ *      out (the in-memory `firstDmSent` flag was lost on restart and
+ *      could re-DM the user; SQLite is now authoritative).
+ *
+ * Both callbacks are optional: when omitted (single-tenant dev / tests),
+ * the channel falls back to the in-memory `firstDmSent` flag with the
+ * same semantics it had before the ledger was introduced.
+ */
+export type IntroductionLedger = {
+	isIntroSent(): boolean;
+	markIntroSent(): void;
+};
+
 export type SlackHttpChannelConfig = {
 	botToken: string;
 	gatewaySigningSecret: string;
 	teamId: string;
 	installerUserId: string;
 	teamName: string;
+	/**
+	 * Persistent intro-DM ledger. Production wires this against
+	 * `onboarding_state` so the /health endpoint reports onboarding
+	 * complete and a process restart does not re-DM the installer.
+	 */
+	introductionLedger?: IntroductionLedger;
 };
 
 type ConnectionState = "disconnected" | "connecting" | "connected" | "error";
@@ -79,11 +109,12 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 	private connectionState: ConnectionState = "disconnected";
 	private botUserId: string | null = null;
 	private phantomName = "Phantom";
-	// Instance-level guard against re-introducing the agent after a
-	// transient disconnect plus reconnect. A process restart resets the
-	// flag intentionally: a fresh user-visible DM beats a silent UX
-	// failure when the operator has had to restart the channel.
+	// In-memory fallback when no persistent ledger is wired (tests,
+	// single-tenant dev). Production reads/writes the SQLite ledger
+	// passed in via `introductionLedger`; once the ledger is set it
+	// is the authoritative source and this flag is unused.
 	private firstDmSent = false;
+	private readonly introductionLedger: IntroductionLedger | null;
 
 	constructor(config: SlackHttpChannelConfig) {
 		if (!config.botToken) throw new Error("SlackHttpChannel: botToken is required");
@@ -94,6 +125,7 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 		this.installerUserId = config.installerUserId;
 		this.teamName = config.teamName;
 		this.gatewaySigningSecret = config.gatewaySigningSecret;
+		this.introductionLedger = config.introductionLedger ?? null;
 
 		// Bolt's `App` constructor calls `receiver.init(app)` synchronously
 		// to wire the App reference; we reuse that App for processEvent
@@ -201,17 +233,43 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 		}
 
 		// Synthetic first DM. Fire after the channel state flips to connected
-		// so the user can reply immediately; gate on firstDmSent so a
-		// reconnect-after-drop does not re-introduce.
-		if (!this.firstDmSent && this.installerUserId) {
-			const result = await sendIntroductionDm({
-				phantomName: this.phantomName,
-				teamName: this.teamName,
-				installerUserId: this.installerUserId,
-				sendDm: (userId, text) => this.sendDm(userId, text),
-			});
-			if (result.sent) {
-				this.firstDmSent = true;
+		// so the user can reply immediately. Idempotency:
+		//   - production wires `introductionLedger` against the SQLite
+		//     onboarding_state table; a true ledger means the DM has
+		//     already gone out (in this process or a prior restart) and
+		//     we skip without retrying. The ledger is also what /health
+		//     reads to flip onboarding from "pending" to "complete".
+		//   - without a ledger (tests, single-tenant dev) we fall back
+		//     to the in-memory `firstDmSent` flag; a restart re-fires.
+		if (!this.installerUserId) {
+			return;
+		}
+		if (this.introductionLedger?.isIntroSent() === true) {
+			console.log(`[${LOG_TAG}] introduction ledger already records intro_sent; skipping intro DM`);
+			return;
+		}
+		if (this.introductionLedger === null && this.firstDmSent) {
+			return;
+		}
+		const result = await sendIntroductionDm({
+			phantomName: this.phantomName,
+			teamName: this.teamName,
+			installerUserId: this.installerUserId,
+			sendDm: (userId, text) => this.sendDm(userId, text),
+		});
+		if (result.sent) {
+			this.firstDmSent = true;
+			// The ledger is stamped only AFTER a successful Slack send so
+			// a transient Slack failure leaves the row clear and the next
+			// process start retries. This mirrors the Phase 12
+			// firstboot_state pattern in the Socket Mode flow.
+			if (this.introductionLedger !== null) {
+				try {
+					this.introductionLedger.markIntroSent();
+				} catch (err: unknown) {
+					const msg = err instanceof Error ? err.message : String(err);
+					console.warn(`[${LOG_TAG}] introduction ledger markIntroSent failed: ${msg}`);
+				}
 			}
 		}
 	}
