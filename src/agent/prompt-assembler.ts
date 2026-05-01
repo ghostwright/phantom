@@ -8,6 +8,7 @@ import { buildDashboardAwarenessLines } from "./prompt-blocks/dashboard-awarenes
 import { buildEvolvedSections } from "./prompt-blocks/evolved.ts";
 import { buildInstructions } from "./prompt-blocks/instructions.ts";
 import { buildSecurity } from "./prompt-blocks/security.ts";
+import { buildTenantSelfKnowledge } from "./prompt-blocks/tenant-self-knowledge.ts";
 import { buildUIGuidanceLines } from "./prompt-blocks/ui-guidance.ts";
 import { buildWorkingMemory } from "./prompt-blocks/working-memory.ts";
 
@@ -24,6 +25,17 @@ export function assemblePrompt(
 
 	// 1. Identity - who you are
 	sections.push(buildIdentity(config));
+
+	// 1b. Tenant self-knowledge overlay (Phase 9, mission v1 step 4).
+	// Reads PHANTOM_TENANT_SLUG, PHANTOM_OWNER_EMAIL/NAME, PHANTOM_DOMAIN,
+	// PHANTOM_DASHBOARD_URL, PHANTOM_AGENT_RUNTIME, PHANTOM_MODEL, plus the
+	// PHANTOM_GRANTED_INTEGRATIONS and PHANTOM_CHANNEL_ALLOWLIST hooks for
+	// later phases. Returns the empty string in single-tenant or laptop dev
+	// mode where none of these are set; in that case nothing is appended.
+	const selfKnowledge = buildTenantSelfKnowledge();
+	if (selfKnowledge) {
+		sections.push(selfKnowledge);
+	}
 
 	// 2. Environment - what you have access to
 	sections.push(buildEnvironment(config));
