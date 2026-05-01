@@ -208,7 +208,7 @@ export class AgentRuntime {
 					systemPrompt: { type: "preset" as const, preset: "claude_code" as const, append: appendPrompt },
 					persistSession: true,
 					effort: this.config.effort,
-					thinking: getThinkingConfig(this.config.model),
+					thinking: getThinkingConfig(queryModel),
 					...(this.config.max_budget_usd > 0 ? { maxBudgetUsd: this.config.max_budget_usd } : {}),
 					abortController: controller,
 					env: { ...process.env, ...providerEnv },

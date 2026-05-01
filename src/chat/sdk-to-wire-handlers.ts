@@ -41,6 +41,13 @@ function advanceAssistantLifecycle(ctx: TranslationContext, options?: { preserve
 	}
 }
 
+function startContentBlock(ctx: TranslationContext, index: number, blockType: "text" | "thinking" | "tool_use"): void {
+	ctx.blockTypes.set(index, blockType);
+	ctx.seenBlockLengths.delete(index);
+	ctx.blockToolIds.delete(index);
+	ctx.blockToolInputJson.delete(index);
+}
+
 export function handleAssistant(msg: Record<string, unknown>, ctx: TranslationContext): ChatWireFrame[] {
 	const frames: ChatWireFrame[] = [];
 	const message = msg.message as {
@@ -191,7 +198,7 @@ export function handleStreamEvent(msg: Record<string, unknown>, ctx: Translation
 			const blockType = block?.type as string;
 
 			if (blockType === "text") {
-				ctx.blockTypes.set(index, "text");
+				startContentBlock(ctx, index, "text");
 				frames.push({
 					event: "message.text_start",
 					message_id: ctx.messageId,
@@ -199,7 +206,7 @@ export function handleStreamEvent(msg: Record<string, unknown>, ctx: Translation
 					index,
 				});
 			} else if (blockType === "thinking" || blockType === "redacted_thinking") {
-				ctx.blockTypes.set(index, "thinking");
+				startContentBlock(ctx, index, "thinking");
 				frames.push({
 					event: "message.thinking_start",
 					message_id: ctx.messageId,
@@ -208,7 +215,7 @@ export function handleStreamEvent(msg: Record<string, unknown>, ctx: Translation
 					redacted: blockType === "redacted_thinking",
 				});
 			} else if (blockType === "tool_use") {
-				ctx.blockTypes.set(index, "tool_use");
+				startContentBlock(ctx, index, "tool_use");
 				const toolId = (block.id as string) ?? `tool_${index}`;
 				ctx.startedToolIds.add(toolId);
 				ctx.blockToolIds.set(index, toolId);

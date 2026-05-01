@@ -234,6 +234,28 @@ describe("Agent SDK boundary callers", () => {
 		expect(options?.env?.ANTHROPIC_API_KEY).toBe("");
 	});
 
+	test("AgentRuntime main path derives thinking config from the resolved Murph model", async () => {
+		__setAgentSdkQueryForTests((params) => {
+			calls.push(params);
+			return queryFromMessages([initMessage(), assistantMessage("main assistant"), resultMessage("main result")]);
+		});
+
+		const runtime = new AgentRuntime(
+			makeConfig({
+				agent_runtime: "murph",
+				model: "sonnet",
+				provider: { type: "anthropic", model_mappings: { sonnet: "claude-haiku-4-5" } },
+			}),
+			db,
+		);
+
+		await runtime.handleMessage("slack", "C1", "hello");
+		const options = calls[0]?.options;
+
+		expect(options?.model).toBe("claude-haiku-4-5");
+		expect(options?.thinking).toEqual({ type: "enabled", budgetTokens: 8192 });
+	});
+
 	test("chat query path runs through the boundary with chat streaming flags", async () => {
 		const sdkEvents: SDKMessage[] = [];
 		__setAgentSdkQueryForTests((params) => {
@@ -302,6 +324,38 @@ describe("Agent SDK boundary callers", () => {
 		expect(options?.env?.MURPH_GLM_MODEL).toBe("glm-5.1");
 		expect(options?.env?.ZAI_API_KEY).toBe("zai-secret");
 		expect(options?.env?.ANTHROPIC_BASE_URL).toBe("");
+	});
+
+	test("chat query path derives thinking config from the resolved Murph model", async () => {
+		__setAgentSdkQueryForTests((params) => {
+			calls.push(params);
+			return queryFromMessages([initMessage(), assistantMessage("chat assistant"), resultMessage("chat result")]);
+		});
+
+		await executeChatQuery(
+			{
+				config: makeConfig({
+					agent_runtime: "murph",
+					model: "sonnet",
+					provider: { type: "anthropic", model_mappings: { sonnet: "claude-haiku-4-5" } },
+				}),
+				sessionStore: new SessionStore(db),
+				costTracker: new CostTracker(db),
+				memoryContextBuilder: null,
+				evolvedConfig: null,
+				roleTemplate: null,
+				onboardingPrompt: null,
+				mcpServerFactories: null,
+			},
+			"web:chat-session",
+			{ role: "user", content: "hi" },
+			Date.now(),
+			{ signal: new AbortController().signal, onSdkEvent: () => {} },
+		);
+		const options = calls[0]?.options;
+
+		expect(options?.model).toBe("claude-haiku-4-5");
+		expect(options?.thinking).toEqual({ type: "enabled", budgetTokens: 8192 });
 	});
 
 	test("chat query retries stale resume result frames without forwarding the error result", async () => {

@@ -106,7 +106,7 @@ export async function executeChatQuery(
 				},
 				persistSession: true,
 				effort: deps.config.effort,
-				thinking: getThinkingConfig(deps.config.model),
+				thinking: getThinkingConfig(queryModel),
 				includePartialMessages: true,
 				agentProgressSummaries: true,
 				promptSuggestions: true,

@@ -779,6 +779,74 @@ describe("sdk-to-wire translator", () => {
 		}
 	});
 
+	test("content_block_start resets streamed tool input when an index is reused before message stop", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_start",
+					content_block: { type: "tool_use", id: "toolu_first", name: "Read" },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_delta",
+					delta: { type: "input_json_delta", partial_json: '{"file":"a.txt"}' },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		const firstFrames = translateSdkMessage(
+			{ type: "stream_event", event: { type: "content_block_stop", index: 0 }, parent_tool_use_id: null },
+			ctx,
+		);
+		expect(firstFrames[0].event).toBe("message.tool_call_input_end");
+
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_start",
+					content_block: { type: "tool_use", id: "toolu_second", name: "Read" },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		translateSdkMessage(
+			{
+				type: "stream_event",
+				event: {
+					type: "content_block_delta",
+					delta: { type: "input_json_delta", partial_json: '{"file":"b.txt"}' },
+					index: 0,
+				},
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		const secondFrames = translateSdkMessage(
+			{ type: "stream_event", event: { type: "content_block_stop", index: 0 }, parent_tool_use_id: null },
+			ctx,
+		);
+
+		expect(secondFrames[0].event).toBe("message.tool_call_input_end");
+		if (secondFrames[0].event === "message.tool_call_input_end") {
+			expect(secondFrames[0].tool_call_id).toBe("toolu_second");
+			expect(secondFrames[0].input).toEqual({ file: "b.txt" });
+		}
+	});
+
 	test("stream_event + assistant combined: completed streamed tool input is not duplicated", () => {
 		const ctx = makeCtx();
 		translateSdkMessage(
