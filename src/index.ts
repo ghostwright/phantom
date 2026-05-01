@@ -57,7 +57,7 @@ import { MemorySystem } from "./memory/system.ts";
 import { isFirstRun, isOnboardingInProgress } from "./onboarding/detection.ts";
 import { type OnboardingTarget, startOnboarding } from "./onboarding/flow.ts";
 import { buildOnboardingPrompt } from "./onboarding/prompt.ts";
-import { getOnboardingStatus } from "./onboarding/state.ts";
+import { getOnboardingStatus, markOnboardingComplete, markOnboardingStarted } from "./onboarding/state.ts";
 import { createRoleRegistry } from "./roles/registry.ts";
 import type { RoleTemplate } from "./roles/types.ts";
 import { Scheduler } from "./scheduler/service.ts";
@@ -364,11 +364,24 @@ async function main(): Promise<void> {
 	// sees both metric families. Per-emitter registries keep names from
 	// colliding across channels.
 	setMetricsRegistryProvider(() => [slackMetrics.registry, emailMetrics.registry]);
+	// HTTP-mode tenants need a persistent intro-DM ledger so /health
+	// reports onboarding=complete after the first DM lands and a process
+	// restart does not re-DM the installer. We bind it to the SQLite
+	// `onboarding_state` table that the Socket Mode flow already drives.
+	// The factory ignores this surface for the Socket Mode path; it is
+	// only consumed by SlackHttpChannel.connect().
 	const slackChannel: SlackTransport | null = await createSlackChannel({
 		transport: slackTransport,
 		channelsConfig,
 		metadataBaseUrl: process.env.METADATA_BASE_URL,
 		metrics: slackMetrics,
+		introductionLedger: {
+			isIntroSent: () => getOnboardingStatus(db).status === "complete",
+			markIntroSent: () => {
+				markOnboardingStarted(db);
+				markOnboardingComplete(db);
+			},
+		},
 	});
 
 	if (slackChannel) {
