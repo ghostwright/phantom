@@ -96,6 +96,29 @@ describe("server routing", () => {
 		});
 	});
 
+	// Phase 6 PR-3 magic-link callback wiring smoke. The full
+	// handler logic is exercised in src/ui/__tests__/auth-magic.test.ts;
+	// here we just confirm the route is dispatched off the top-level
+	// path (NOT under /ui, since the dashboard 302s the user to a
+	// per-tenant origin and /auth/magic must be reachable without a
+	// cookie for the dashboard 302 to land somewhere sane).
+	describe("GET /auth/magic", () => {
+		test("missing token redirects (route is wired off /)", async () => {
+			const res = await fetch(`${baseUrl}/auth/magic`, { redirect: "manual" });
+			expect(res.status).toBe(302);
+			// Without PHANTOM_DASHBOARD_URL the handler falls back to
+			// /ui/login (architect §6.3 redirectToError fallback).
+			const location = res.headers.get("Location") ?? "";
+			expect(location).toContain("magic_error=invalid_token");
+		});
+
+		test("non-GET returns 405", async () => {
+			const res = await fetch(`${baseUrl}/auth/magic`, { method: "POST", redirect: "manual" });
+			expect(res.status).toBe(405);
+			expect(res.headers.get("Allow")).toBe("GET");
+		});
+	});
+
 	// /public/* is the agent publishing surface: files under public/public/*
 	// on disk are served without auth so Googlebot and unauthenticated
 	// visitors can fetch them. These tests redirect publicDir at a tmp dir
