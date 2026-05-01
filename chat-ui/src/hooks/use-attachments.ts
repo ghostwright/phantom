@@ -23,18 +23,29 @@ export type PendingAttachment = {
 
 export type AttachmentResult = {
 	id: string;
+	client_id?: string;
 	filename: string;
 	mime_type: string;
 	size: number;
 	preview_url: string;
 };
 
+export type UploadFilesResult = {
+	intendedCount: number;
+	acceptedIds: string[];
+	failedCount: number;
+};
+
+export function shouldBlockSendAfterUpload(result: UploadFilesResult): boolean {
+	return result.intendedCount > 0 && result.failedCount > 0;
+}
+
 export function useAttachments(): {
 	files: PendingAttachment[];
 	addFiles: (newFiles: File[]) => void;
 	removeFile: (id: string) => void;
 	clearFiles: () => void;
-	uploadFiles: (sessionId: string) => Promise<string[]>;
+	uploadFiles: (sessionId: string) => Promise<UploadFilesResult>;
 	hasFiles: boolean;
 	isUploading: boolean;
 } {
@@ -103,15 +114,31 @@ export function useAttachments(): {
 	}, []);
 
 	const uploadFiles = useCallback(
-		async (sessionId: string): Promise<string[]> => {
-			const pending = filesRef.current.filter((f) => f.status === "pending");
-			if (pending.length === 0) return [];
+		async (sessionId: string): Promise<UploadFilesResult> => {
+			const current = filesRef.current;
+			const intendedCount = current.length;
+			const alreadyAcceptedIds = current
+				.map((file) => (file.status === "done" ? file.serverId : undefined))
+				.filter((id): id is string => typeof id === "string" && id.length > 0);
+			const pending = current.filter((f) => f.serverId === undefined && (f.status === "pending" || f.status === "error"));
+			if (intendedCount === 0) {
+				return { intendedCount: 0, acceptedIds: [], failedCount: 0 };
+			}
+			if (pending.length === 0) {
+				return {
+					intendedCount,
+					acceptedIds: alreadyAcceptedIds,
+					failedCount: intendedCount - alreadyAcceptedIds.length,
+				};
+			}
 
-			setFiles((prev) => prev.map((f) => (f.status === "pending" ? { ...f, status: "uploading" as const } : f)));
+			const pendingIds = new Set(pending.map((file) => file.id));
+			setFiles((prev) => prev.map((f) => (pendingIds.has(f.id) ? { ...f, status: "uploading" as const } : f)));
 
 			const formData = new FormData();
 			for (const p of pending) {
 				formData.append("file", p.file);
+				formData.append("client_id", p.id);
 			}
 
 			try {
@@ -133,12 +160,12 @@ export function useAttachments(): {
 						prev.map((f) => (f.status === "uploading" ? { ...f, status: "error" as const } : f)),
 					);
 					toast.error(errorMsg);
-					return [];
+					return { intendedCount, acceptedIds: alreadyAcceptedIds, failedCount: pending.length };
 				}
 
 				const body = (await res.json()) as {
 					attachments?: AttachmentResult[];
-					rejected?: Array<{ filename: string; reason: string; message: string }>;
+					rejected?: Array<{ client_id?: string; filename: string; reason: string; message: string }>;
 				};
 
 				if (body.rejected) {
@@ -147,19 +174,40 @@ export function useAttachments(): {
 					}
 				}
 
-				const serverIds = (body.attachments ?? []).map((a) => a.id);
-
-				setFiles((prev) =>
-					prev.map((f) => (f.status === "uploading" ? { ...f, status: "done" as const } : f)),
+				const accepted = body.attachments ?? [];
+				const acceptedByClientId = new Map(
+					accepted
+						.filter((attachment) => typeof attachment.client_id === "string")
+						.map((attachment) => [attachment.client_id as string, attachment.id] as const),
+				);
+				const rejectedIds = new Set(
+					(body.rejected ?? [])
+						.map((rejection) => rejection.client_id)
+						.filter((id): id is string => typeof id === "string" && id.length > 0),
 				);
 
-				return serverIds;
+				setFiles((prev) =>
+					prev.map((f) => {
+						if (!pendingIds.has(f.id)) return f;
+						const serverId = acceptedByClientId.get(f.id);
+						if (serverId) {
+							return { ...f, status: "done" as const, serverId };
+						}
+						return { ...f, status: "error" as const };
+					}),
+				);
+
+				const acceptedIds = [...alreadyAcceptedIds, ...accepted.map((attachment) => attachment.id)];
+				const failedCount = pending.filter(
+					(file) => !acceptedByClientId.has(file.id) || rejectedIds.has(file.id),
+				).length;
+				return { intendedCount, acceptedIds, failedCount };
 			} catch {
 				setFiles((prev) =>
 					prev.map((f) => (f.status === "uploading" ? { ...f, status: "error" as const } : f)),
 				);
 				toast.error("Upload failed. Please try again.");
-				return [];
+				return { intendedCount, acceptedIds: alreadyAcceptedIds, failedCount: pending.length };
 			}
 		},
 		[],

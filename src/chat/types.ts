@@ -140,7 +140,13 @@ export type UserMessageFrame = {
 	event: "user.message";
 	message_id: string;
 	text: string;
-	attachments: Array<{ id: string; filename: string; mime_type: string }>;
+	attachments: Array<{
+		id: string;
+		filename: string;
+		mime_type: string;
+		size_bytes: number | null;
+		preview_url: string;
+	}>;
 	sent_at: string;
 	source_tab_id: string;
 };

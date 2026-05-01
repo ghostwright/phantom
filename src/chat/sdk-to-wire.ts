@@ -211,7 +211,7 @@ function handleResult(msg: Record<string, unknown>, ctx: TranslationContext): Ch
 	const durationMs = (msg.duration_ms as number) ?? 0;
 	const numTurns = (msg.num_turns as number) ?? 1;
 
-	if (ctx.assistantStartEmitted && !ctx.assistantEndEmitted) {
+	if (subtype === "success" && ctx.assistantStartEmitted && !ctx.assistantEndEmitted) {
 		frames.push({
 			event: "message.assistant_end",
 			message_id: ctx.messageId,

@@ -1,7 +1,9 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { MIGRATIONS } from "../../db/schema.ts";
+import { ChatAttachmentStore } from "../attachment-store.ts";
 import { ChatEventLog } from "../event-log.ts";
+import { buildUserTranscriptContent } from "../message-builder.ts";
 import { ChatMessageStore } from "../message-store.ts";
 import { ChatRunTimelineStore } from "../run-timeline.ts";
 import { ChatSessionStore } from "../session-store.ts";
@@ -12,6 +14,7 @@ import { ChatSessionWriter, getActiveWriter } from "../writer.ts";
 let db: Database;
 let sessionStore: ChatSessionStore;
 let messageStore: ChatMessageStore;
+let attachmentStore: ChatAttachmentStore;
 let eventLog: ChatEventLog;
 let timelineStore: ChatRunTimelineStore;
 let streamBus: StreamBus;
@@ -23,6 +26,7 @@ beforeEach(() => {
 	}
 	sessionStore = new ChatSessionStore(db);
 	messageStore = new ChatMessageStore(db);
+	attachmentStore = new ChatAttachmentStore(db);
 	eventLog = new ChatEventLog(db);
 	timelineStore = new ChatRunTimelineStore(db);
 	streamBus = new StreamBus();
@@ -100,6 +104,65 @@ describe("ChatSessionWriter", () => {
 		expect(eventTypes).toContain("session.done");
 	});
 
+	test("commits attachments to the user message and emits metadata", async () => {
+		const session = sessionStore.create();
+		const frames: ChatWireFrame[] = [];
+		streamBus.subscribe(session.id, (f) => frames.push(f));
+		const attachmentId = attachmentStore.create({
+			sessionId: session.id,
+			kind: "image",
+			filename: "diagram.png",
+			mimeType: "image/png",
+			sizeBytes: 12,
+			storagePath: "/tmp/diagram.png",
+		});
+		const attachments = [
+			{
+				id: attachmentId,
+				filename: "diagram.png",
+				mime_type: "image/png",
+				size_bytes: 12,
+				preview_url: `/chat/attachments/${attachmentId}/preview`,
+			},
+		];
+
+		const writer = new ChatSessionWriter({
+			sessionId: session.id,
+			runtime: mockRuntime(),
+			eventLog,
+			messageStore,
+			attachmentStore,
+			sessionStore,
+			streamBus,
+		});
+		writer.claim();
+		const sdkMessage = {
+			role: "user" as const,
+			content: [
+				{
+					type: "image",
+					source: { type: "base64", media_type: "image/png", data: "RAW_BASE64_PAYLOAD" },
+				},
+				{ type: "text", text: "describe this" },
+			],
+		} as Parameters<ChatSessionWriter["run"]>[0];
+
+		await writer.run(sdkMessage, "tab1", "describe this", {
+			attachments,
+			transcriptContent: buildUserTranscriptContent("describe this", attachments),
+		});
+
+		const userFrame = frames.find((frame) => frame.event === "user.message");
+		expect(userFrame?.event).toBe("user.message");
+		if (userFrame?.event !== "user.message") return;
+		expect(userFrame.attachments).toEqual(attachments);
+
+		const userRow = messageStore.getById(userFrame.message_id);
+		expect(userRow?.content_json).toBe(JSON.stringify(buildUserTranscriptContent("describe this", attachments)));
+		expect(userRow?.content_json).not.toContain("RAW_BASE64_PAYLOAD");
+		expect(attachmentStore.getById(attachmentId)?.message_id).toBe(userFrame.message_id);
+	});
+
 	test("writer sets isActive during run", async () => {
 		const session = sessionStore.create();
 		let wasActive = false;
@@ -163,6 +226,51 @@ describe("ChatSessionWriter", () => {
 
 		const eventTypes = frames.map((f) => f.event);
 		expect(eventTypes).toContain("session.error");
+	});
+
+	test("non-success SDK result does not commit a successful assistant message", async () => {
+		const session = sessionStore.create();
+		const frames: ChatWireFrame[] = [];
+		streamBus.subscribe(session.id, (f) => frames.push(f));
+
+		const writer = new ChatSessionWriter({
+			sessionId: session.id,
+			runtime: mockRuntime({
+				runForChat: async (_key, _message, opts) => {
+					opts.onSdkEvent({
+						type: "result",
+						subtype: "error_during_execution",
+						errors: ["Provider failed"],
+						total_cost_usd: 0.02,
+						usage: { input_tokens: 10, output_tokens: 0 },
+						duration_ms: 15,
+						num_turns: 1,
+					});
+					return {
+						text: "",
+						sessionId: "sdk-1",
+						cost: { totalUsd: 0.02, inputTokens: 10, outputTokens: 0, modelUsage: {} },
+						durationMs: 15,
+					};
+				},
+			}),
+			eventLog,
+			messageStore,
+			sessionStore,
+			timelineStore,
+			streamBus,
+		});
+		writer.claim();
+
+		await writer.run({ role: "user", content: "fail" }, "t1", "fail");
+
+		const messages = messageStore.getBySession(session.id);
+		expect(messages.map((message) => message.role)).toEqual(["user"]);
+		expect(frames.some((frame) => frame.event === "session.error")).toBe(true);
+		expect(frames.some((frame) => frame.event === "session.done")).toBe(false);
+		const timelines = timelineStore.getDetailsBySession(session.id);
+		expect(timelines[0]?.status).toBe("error");
+		expect(timelines[0]?.assistant_message_id).toBeNull();
 	});
 
 	test("multi-subscriber fan-out delivers to all", async () => {

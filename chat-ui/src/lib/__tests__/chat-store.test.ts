@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { shouldBlockSendAfterUpload } from "../../hooks/use-attachments";
 import { ACTIVE_RUN_MESSAGE_ID } from "../chat-activity";
+import { getAssistantTextBlocks } from "../chat-message-content";
 import { beginRunActivity, createChatStore, dispatchFrame } from "../chat-store";
 
 function send(store: ReturnType<typeof createChatStore>, event: string, data: Record<string, unknown>): void {
@@ -126,6 +128,134 @@ describe("chat-store reducer: text block lifecycle", () => {
 		});
 
 		expect(store.getState().thinkingBlocks.get("tk_0_0")?.isStreaming).toBe(false);
+	});
+
+	it("preserves multiple assistant text blocks for rendering", () => {
+		const store = createChatStore();
+		send(store, "message.assistant_start", { message_id: "a1" });
+		send(store, "message.text_start", {
+			message_id: "a1",
+			text_block_id: "tb_0_0",
+			index: 0,
+		});
+		send(store, "message.text_delta", {
+			text_block_id: "tb_0_0",
+			delta: "Before the tool.",
+		});
+		send(store, "message.text_end", { text_block_id: "tb_0_0" });
+		send(store, "message.text_start", {
+			message_id: "a1",
+			text_block_id: "tb_0_2",
+			index: 2,
+		});
+		send(store, "message.text_delta", {
+			text_block_id: "tb_0_2",
+			delta: "After the tool.",
+		});
+		send(store, "message.text_end", { text_block_id: "tb_0_2" });
+
+		const assistant = store.getState().messages[0];
+		expect(assistant?.content.filter((block) => block.type === "text")).toHaveLength(2);
+		if (assistant) {
+			expect(getAssistantTextBlocks(assistant)).toEqual(["Before the tool.", "After the tool."]);
+		}
+	});
+
+	it("session.error marks a previously ended assistant row as error", () => {
+		const store = createChatStore();
+		send(store, "message.assistant_start", { message_id: "a1" });
+		send(store, "message.text_start", {
+			message_id: "a1",
+			text_block_id: "tb_0_0",
+			index: 0,
+		});
+		send(store, "message.text_delta", {
+			text_block_id: "tb_0_0",
+			delta: "Partial answer",
+		});
+		send(store, "message.assistant_end", {
+			message_id: "a1",
+			interrupted: false,
+		});
+		expect(store.getState().messages[0]?.status).toBe("committed");
+
+		send(store, "session.error", {
+			session_id: "s1",
+			message_id: "a1",
+			subtype: "error_during_execution",
+			recoverable: false,
+			errors: ["Provider failed"],
+			cost_usd: 0,
+			duration_ms: 10,
+		});
+
+		expect(store.getState().messages[0]?.status).toBe("error");
+	});
+});
+
+describe("chat-store reducer: user attachments", () => {
+	it("preserves attachment metadata from user.message frames", () => {
+		const store = createChatStore();
+		send(store, "user.message", {
+			message_id: "u1",
+			text: "Review this.",
+			attachments: [
+				{
+					id: "att-1",
+					filename: "brief.pdf",
+					mime_type: "application/pdf",
+					size_bytes: 1234,
+					preview_url: "/chat/attachments/att-1/preview",
+				},
+			],
+			sent_at: "2026-04-30T00:00:00.000Z",
+			source_tab_id: "tab-1",
+		});
+
+		const user = store.getState().messages[0];
+		expect(user?.attachments).toEqual([
+			{
+				id: "att-1",
+				filename: "brief.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 1234,
+				previewUrl: "/chat/attachments/att-1/preview",
+			},
+		]);
+	});
+
+	it("replayed user.message attachments are idempotent", () => {
+		const store = createChatStore();
+		const frame = {
+			message_id: "u1",
+			text: "Review this.",
+			attachments: [
+				{
+					id: "att-1",
+					filename: "brief.pdf",
+					mime_type: "application/pdf",
+					size_bytes: 1234,
+					preview_url: "/chat/attachments/att-1/preview",
+				},
+			],
+			sent_at: "2026-04-30T00:00:00.000Z",
+			source_tab_id: "tab-1",
+		};
+		replay(store, "user.message", frame);
+		replay(store, "user.message", frame);
+
+		const user = store.getState().messages[0];
+		expect(user?.attachments).toHaveLength(1);
+		expect(user?.attachments?.[0]?.id).toBe("att-1");
+	});
+});
+
+describe("attachment upload send gate", () => {
+	it("distinguishes no files from failed intended uploads", () => {
+		expect(shouldBlockSendAfterUpload({ intendedCount: 0, acceptedIds: [], failedCount: 0 })).toBe(false);
+		expect(shouldBlockSendAfterUpload({ intendedCount: 1, acceptedIds: [], failedCount: 1 })).toBe(true);
+		expect(shouldBlockSendAfterUpload({ intendedCount: 2, acceptedIds: ["att-1"], failedCount: 1 })).toBe(true);
+		expect(shouldBlockSendAfterUpload({ intendedCount: 1, acceptedIds: ["att-1"], failedCount: 0 })).toBe(false);
 	});
 });
 

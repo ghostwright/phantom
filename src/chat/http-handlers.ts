@@ -1,11 +1,8 @@
-// Session-specific and streaming route handlers for the chat HTTP API.
-// Split from http.ts to keep both files under 300 lines.
-
 import type { SDKUserMessage } from "../agent/agent-sdk.ts";
 
 type MessageParam = SDKUserMessage["message"];
 import type { ChatHandlerDeps } from "./http.ts";
-import { buildUserMessageParam } from "./message-builder.ts";
+import { type BuiltUserMessage, ChatAttachmentResolutionError, buildUserMessage } from "./message-builder.ts";
 import {
 	CHAT_SSE_HEADERS,
 	CHAT_SSE_RETRY_MS,
@@ -84,28 +81,35 @@ export async function handleStream(req: Request, deps: ChatHandlerDeps): Promise
 	} catch {
 		return Response.json({ error: "Invalid JSON" }, { status: 400 });
 	}
-
 	if (!body.session_id || !body.text) {
 		return Response.json({ error: "session_id and text are required" }, { status: 400 });
 	}
-
 	const existingWriter = getActiveWriter(body.session_id);
 	if (existingWriter?.isActive) {
 		return Response.json({ error: "Session busy" }, { status: 409 });
 	}
-
 	const session = deps.sessionStore.get(body.session_id);
-	if (!session) {
-		return Response.json({ error: "Session not found" }, { status: 404 });
-	}
-
+	if (!session) return Response.json({ error: "Session not found" }, { status: 404 });
 	const tabId = body.tab_id ?? "default";
 	const attachmentIds = body.attachment_ids ?? [];
-	let message: MessageParam;
+	let message: MessageParam = { role: "user", content: body.text };
+	let writerOptions: Pick<BuiltUserMessage, "attachments" | "transcriptContent"> | undefined;
 	if (attachmentIds.length > 0) {
-		message = await buildUserMessageParam(body.text, attachmentIds, deps.attachmentStore);
-	} else {
-		message = { role: "user", content: body.text };
+		try {
+			const builtMessage = await buildUserMessage(body.text, attachmentIds, body.session_id, deps.attachmentStore);
+			message = builtMessage.message;
+			writerOptions = { attachments: builtMessage.attachments, transcriptContent: builtMessage.transcriptContent };
+		} catch (err: unknown) {
+			if (err instanceof ChatAttachmentResolutionError) {
+				return Response.json({ error: err.code, message: err.message }, { status: 400 });
+			}
+			const messageText = err instanceof Error ? err.message : String(err);
+			console.error(`[chat-http] Attachment build failed for session ${body.session_id}: ${messageText}`);
+			return Response.json(
+				{ error: "attachment_read_failed", message: "Could not read one or more attachments." },
+				{ status: 500 },
+			);
+		}
 	}
 
 	const writer = new ChatSessionWriter({
@@ -113,6 +117,7 @@ export async function handleStream(req: Request, deps: ChatHandlerDeps): Promise
 		runtime: deps.runtime,
 		eventLog: deps.eventLog,
 		messageStore: deps.messageStore,
+		attachmentStore: deps.attachmentStore,
 		sessionStore: deps.sessionStore,
 		timelineStore: deps.timelineStore,
 		streamBus: deps.streamBus,
@@ -123,14 +128,12 @@ export async function handleStream(req: Request, deps: ChatHandlerDeps): Promise
 	const sessionId = body.session_id;
 	const stream = createSSEStream(sessionId, deps.streamBus, writer);
 
-	writer.run(message, tabId, body.text).catch((err: unknown) => {
+	writer.run(message, tabId, body.text, writerOptions).catch((err: unknown) => {
 		const msg = err instanceof Error ? err.message : String(err);
 		console.error(`[chat-http] Writer error for session ${sessionId}: ${msg}`);
 	});
 
-	return new Response(stream, {
-		headers: CHAT_SSE_HEADERS,
-	});
+	return new Response(stream, { headers: CHAT_SSE_HEADERS });
 }
 
 export async function handleResume(req: Request, sessionId: string, deps: ChatHandlerDeps): Promise<Response> {
@@ -261,9 +264,7 @@ export async function handleResume(req: Request, sessionId: string, deps: ChatHa
 		},
 	});
 
-	return new Response(stream, {
-		headers: CHAT_SSE_HEADERS,
-	});
+	return new Response(stream, { headers: CHAT_SSE_HEADERS });
 }
 
 export function handleAbort(sessionId: string): Response {

@@ -21,23 +21,104 @@ type ContentBlock = {
 	title?: string;
 };
 
+export type UserAttachmentMetadata = {
+	id: string;
+	filename: string;
+	mime_type: string;
+	size_bytes: number | null;
+	preview_url: string;
+};
+
+export type UserTranscriptContentBlock =
+	| (UserAttachmentMetadata & { type: "attachment" })
+	| { type: "text"; text: string };
+
+export type BuiltUserMessage = {
+	message: MessageParam;
+	attachments: UserAttachmentMetadata[];
+	transcriptContent: string | UserTranscriptContentBlock[];
+};
+
+export type AttachmentResolutionCode = "attachment_not_found" | "attachment_wrong_session" | "attachment_already_sent";
+
+export class ChatAttachmentResolutionError extends Error {
+	readonly code: AttachmentResolutionCode;
+
+	constructor(code: AttachmentResolutionCode) {
+		const message =
+			code === "attachment_already_sent"
+				? "Attachment has already been sent."
+				: "Attachment is not available for this chat.";
+		super(message);
+		this.name = "ChatAttachmentResolutionError";
+		this.code = code;
+	}
+}
+
+export async function buildUserMessage(
+	text: string,
+	attachmentIds: string[],
+	sessionId: string,
+	attachmentStore: ChatAttachmentStore,
+): Promise<BuiltUserMessage> {
+	const attachments = resolveUserMessageAttachments(attachmentIds, attachmentStore, sessionId);
+	const metadata = attachments.map(attachmentToMetadata);
+	const message = await buildMessageParamFromAttachments(text, attachments);
+	return {
+		message,
+		attachments: metadata,
+		transcriptContent: buildUserTranscriptContent(text, metadata),
+	};
+}
+
 export async function buildUserMessageParam(
 	text: string,
 	attachmentIds: string[],
 	attachmentStore: ChatAttachmentStore,
 ): Promise<MessageParam> {
-	if (attachmentIds.length === 0) {
-		return { role: "user", content: text };
-	}
+	const attachments = resolveUserMessageAttachments(attachmentIds, attachmentStore);
+	return buildMessageParamFromAttachments(text, attachments);
+}
 
-	const attachments: ChatAttachment[] = [];
+export function buildUserTranscriptContent(
+	text: string,
+	attachments: UserAttachmentMetadata[],
+): string | UserTranscriptContentBlock[] {
+	if (attachments.length === 0) return text;
+	return [...attachments.map((attachment) => ({ ...attachment, type: "attachment" as const })), { type: "text", text }];
+}
 
-	for (const id of attachmentIds) {
+function resolveUserMessageAttachments(
+	attachmentIds: string[],
+	attachmentStore: ChatAttachmentStore,
+	sessionId?: string,
+): ChatAttachment[] {
+	if (attachmentIds.length === 0) return [];
+
+	return attachmentIds.map((id) => {
 		const att = attachmentStore.getById(id);
-		if (att) attachments.push(att);
-	}
+		if (!att) throw new ChatAttachmentResolutionError("attachment_not_found");
+		if (sessionId && att.session_id !== sessionId) {
+			throw new ChatAttachmentResolutionError("attachment_wrong_session");
+		}
+		if (att.message_id !== null) {
+			throw new ChatAttachmentResolutionError("attachment_already_sent");
+		}
+		return att;
+	});
+}
 
-	// All IDs were invalid - fall back to plain text
+function attachmentToMetadata(att: ChatAttachment): UserAttachmentMetadata {
+	return {
+		id: att.id,
+		filename: att.filename ?? "file",
+		mime_type: att.mime_type ?? "application/octet-stream",
+		size_bytes: att.size_bytes,
+		preview_url: `/chat/attachments/${att.id}/preview`,
+	};
+}
+
+async function buildMessageParamFromAttachments(text: string, attachments: ChatAttachment[]): Promise<MessageParam> {
 	if (attachments.length === 0) {
 		return { role: "user", content: text };
 	}

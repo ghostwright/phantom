@@ -18,10 +18,19 @@ export type ContentBlock = {
 	[key: string]: unknown;
 };
 
+export type ChatAttachmentView = {
+	id: string;
+	filename: string;
+	mimeType: string;
+	sizeBytes: number | null;
+	previewUrl: string;
+};
+
 export type ChatMessage = {
 	id: string;
 	role: "user" | "assistant";
 	content: ContentBlock[];
+	attachments?: ChatAttachmentView[];
 	createdAt: string;
 	status: "committed" | "streaming" | "error";
 	stopReason?: string | null;

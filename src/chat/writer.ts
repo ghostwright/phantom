@@ -2,9 +2,11 @@ import type { SDKUserMessage } from "../agent/agent-sdk.ts";
 
 type MessageParam = SDKUserMessage["message"];
 import type { AgentRuntime } from "../agent/runtime.ts";
+import type { ChatAttachmentStore } from "./attachment-store.ts";
 import { autoRenameSession } from "./auto-rename.ts";
 import { buildChatContinuityContext } from "./continuity-context.ts";
 import type { ChatEventLog } from "./event-log.ts";
+import type { UserAttachmentMetadata, UserTranscriptContentBlock } from "./message-builder.ts";
 import type { ChatMessageStore } from "./message-store.ts";
 import type { NotificationTriggerService } from "./notifications/triggers.ts";
 import type { ChatRunTimelineStore } from "./run-timeline.ts";
@@ -19,10 +21,16 @@ export type ChatSessionWriterDeps = {
 	runtime: AgentRuntime;
 	eventLog: ChatEventLog;
 	messageStore: ChatMessageStore;
+	attachmentStore?: ChatAttachmentStore;
 	sessionStore: ChatSessionStore;
 	timelineStore?: ChatRunTimelineStore;
 	streamBus: StreamBus;
 	notificationTriggers?: NotificationTriggerService;
+};
+
+export type ChatSessionWriterRunOptions = {
+	attachments?: UserAttachmentMetadata[];
+	transcriptContent?: string | UserTranscriptContentBlock[];
 };
 
 // Active writers keyed by sessionId for abort and busy-check lookups
@@ -54,22 +62,35 @@ export class ChatSessionWriter {
 		activeWriters.set(this.deps.sessionId, this);
 	}
 
-	async run(message: MessageParam, tabId: string, userText: string): Promise<void> {
+	async run(
+		message: MessageParam,
+		tabId: string,
+		userText: string,
+		options?: ChatSessionWriterRunOptions,
+	): Promise<void> {
 		if (!this.running) {
 			throw new Error("Writer must be claimed before run()");
 		}
 
 		this.abortController = new AbortController();
+		const attachments = options?.attachments ?? [];
+		if (attachments.length > 0 && !this.deps.attachmentStore) {
+			throw new Error("Attachment store is required to commit chat attachments");
+		}
 
 		const seqCounter = { current: this.deps.eventLog.getMaxSeq(this.deps.sessionId) };
 		const msgSeq = this.deps.messageStore.getMaxSeq(this.deps.sessionId) + 1;
+		const transcriptContent = options?.transcriptContent ?? userText;
 
 		const userMessageId = this.deps.messageStore.commit({
 			sessionId: this.deps.sessionId,
 			seq: msgSeq,
 			role: "user",
-			contentJson: JSON.stringify(typeof message === "string" ? message : message.content),
+			contentJson: JSON.stringify(transcriptContent),
 		});
+		for (const attachment of attachments) {
+			this.deps.attachmentStore?.commitToMessage(attachment.id, userMessageId);
+		}
 		this.deps.sessionStore.incrementMessageCount(this.deps.sessionId);
 		this.deps.sessionStore.setFirstUserMessageAt(this.deps.sessionId);
 
@@ -77,7 +98,7 @@ export class ChatSessionWriter {
 			event: "user.message",
 			message_id: userMessageId,
 			text: userText,
-			attachments: [],
+			attachments,
 			sent_at: new Date().toISOString(),
 			source_tab_id: tabId,
 		};
@@ -98,6 +119,7 @@ export class ChatSessionWriter {
 		const sessionKey = `web:${this.deps.sessionId}`;
 		const startTime = Date.now();
 		let resultText = "";
+		let terminalErrorMessage: string | null = null;
 
 		try {
 			const sessionContext = buildChatContinuityContext({
@@ -110,6 +132,9 @@ export class ChatSessionWriter {
 				onSdkEvent: (sdkMsg: unknown) => {
 					const frames = translateSdkMessage(sdkMsg as Record<string, unknown>, ctx);
 					for (const frame of frames) {
+						if (frame.event === "session.error") {
+							terminalErrorMessage = frame.errors[0] ?? "Run failed.";
+						}
 						const seq = this.emitFrame(frame, seqCounter);
 						if (timeline.apply(frame, seq)) {
 							this.persistTimeline(timeline);
@@ -119,6 +144,19 @@ export class ChatSessionWriter {
 			});
 
 			resultText = response.text;
+
+			if (terminalErrorMessage) {
+				this.deps.sessionStore.updateCost(this.deps.sessionId, response.cost);
+				if (this.deps.notificationTriggers) {
+					this.deps.notificationTriggers
+						.onHardError(this.deps.sessionId, terminalErrorMessage)
+						.catch((triggerErr: unknown) => {
+							const msg = triggerErr instanceof Error ? triggerErr.message : String(triggerErr);
+							console.warn(`[push] trigger failed: ${msg}`);
+						});
+				}
+				return;
+			}
 
 			this.deps.messageStore.commit({
 				id: assistantMessageId,

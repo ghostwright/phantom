@@ -175,8 +175,9 @@ describe("buildUserMessageParam", () => {
 		expect(content[3]?.text).toBe("analyze all");
 	});
 
-	test("ignores non-existent attachment ids", async () => {
-		const msg = await buildUserMessageParam("hello", ["nonexistent-id"], attachmentStore);
-		expect(msg.content).toBe("hello");
+	test("rejects non-existent attachment ids", async () => {
+		await expect(buildUserMessageParam("hello", ["nonexistent-id"], attachmentStore)).rejects.toThrow(
+			"Attachment is not available for this chat.",
+		);
 	});
 });

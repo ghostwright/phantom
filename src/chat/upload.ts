@@ -20,6 +20,7 @@ export type UploadDeps = {
 
 export type AcceptedAttachment = {
 	id: string;
+	client_id?: string;
 	filename: string;
 	mime_type: string;
 	size: number;
@@ -27,6 +28,7 @@ export type AcceptedAttachment = {
 };
 
 export type RejectedAttachment = {
+	client_id?: string;
 	filename: string;
 	reason: string;
 	message: string;
@@ -61,17 +63,23 @@ export async function handleUploadAttachments(req: Request, sessionId: string, d
 	}
 
 	const files = formData.getAll("file").filter((v): v is File => v instanceof File);
+	const clientIds = formData
+		.getAll("client_id")
+		.map((value) => (typeof value === "string" && value.length > 0 ? value : null));
 
 	if (files.length === 0) {
 		return Response.json({ error: "no_files", message: "No files attached." }, { status: 400 });
 	}
 
+	const uploadItems = files.map((file, index) => ({ file, clientId: clientIds[index] ?? null }));
+
 	if (files.length > MAX_FILES_PER_REQUEST) {
 		// Take the first MAX_FILES_PER_REQUEST, reject the rest
-		const toProcess = files.slice(0, MAX_FILES_PER_REQUEST);
-		const overflow = files.slice(MAX_FILES_PER_REQUEST);
-		const overflowRejected = overflow.map((f) => ({
-			filename: f.name,
+		const toProcess = uploadItems.slice(0, MAX_FILES_PER_REQUEST);
+		const overflow = uploadItems.slice(MAX_FILES_PER_REQUEST);
+		const overflowRejected = overflow.map((item) => ({
+			...(item.clientId ? { client_id: item.clientId } : {}),
+			filename: item.file.name,
 			reason: "limit_exceeded",
 			message: `Limit of ${MAX_FILES_PER_REQUEST} files per upload reached.`,
 		}));
@@ -81,25 +89,36 @@ export async function handleUploadAttachments(req: Request, sessionId: string, d
 		return Response.json({ attachments: result.attachments, rejected: result.rejected }, { status });
 	}
 
-	const result = await processFiles(files, sessionId, deps);
+	const result = await processFiles(uploadItems, sessionId, deps);
 	const status = result.rejected.length === 0 ? 200 : result.attachments.length === 0 ? 400 : 207;
 	return Response.json({ attachments: result.attachments, rejected: result.rejected }, { status });
 }
 
+type UploadItem = {
+	file: File;
+	clientId: string | null;
+};
+
 async function processFiles(
-	files: File[],
+	files: UploadItem[],
 	sessionId: string,
 	deps: UploadDeps,
 ): Promise<{ attachments: AcceptedAttachment[]; rejected: RejectedAttachment[] }> {
 	const accepted: AcceptedAttachment[] = [];
 	const rejected: RejectedAttachment[] = [];
 
-	for (const file of files) {
+	for (const item of files) {
+		const { file } = item;
 		const mime = file.type || guessMimeFromName(file.name) || "";
 		const validation = validateFile(mime, file.size, file.name);
 
 		if (!validation.ok) {
-			rejected.push({ filename: file.name, reason: validation.reason, message: validation.message });
+			rejected.push({
+				...(item.clientId ? { client_id: item.clientId } : {}),
+				filename: file.name,
+				reason: validation.reason,
+				message: validation.message,
+			});
 			console.log(`[chat-upload] sessionId=${sessionId} file=${file.name} reason=${validation.reason}`);
 			continue;
 		}
@@ -125,6 +144,7 @@ async function processFiles(
 
 			accepted.push({
 				id,
+				...(item.clientId ? { client_id: item.clientId } : {}),
 				filename: sanitizeFilename(file.name),
 				mime_type: mime,
 				size: file.size,
@@ -135,7 +155,12 @@ async function processFiles(
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
 			console.error(`[chat-upload] write failed for ${file.name}: ${msg}`);
-			rejected.push({ filename: file.name, reason: "storage_failed", message: "Could not save file. Please retry." });
+			rejected.push({
+				...(item.clientId ? { client_id: item.clientId } : {}),
+				filename: file.name,
+				reason: "storage_failed",
+				message: "Could not save file. Please retry.",
+			});
 		}
 	}
 

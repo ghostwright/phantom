@@ -177,6 +177,52 @@ describe("Chat HTTP handlers", () => {
 		expect(body.run_timelines[0]?.summary.status).toBe("working");
 	});
 
+	test("GET /chat/sessions/:id returns durable attachment transcript metadata", async () => {
+		const sessionStore = new ChatSessionStore(db);
+		const messageStore = new ChatMessageStore(db);
+		const attachmentStore = new ChatAttachmentStore(db);
+		const session = sessionStore.create();
+		const attachmentId = attachmentStore.create({
+			id: "att-1",
+			sessionId: session.id,
+			kind: "pdf",
+			filename: "brief.pdf",
+			mimeType: "application/pdf",
+			sizeBytes: 1234,
+			storagePath: "/tmp/brief.pdf",
+		});
+		messageStore.commit({
+			id: "user-1",
+			sessionId: session.id,
+			seq: 1,
+			role: "user",
+			contentJson: JSON.stringify([
+				{
+					type: "attachment",
+					id: attachmentId,
+					filename: "brief.pdf",
+					mime_type: "application/pdf",
+					size_bytes: 1234,
+					preview_url: `/chat/attachments/${attachmentId}/preview`,
+				},
+				{ type: "text", text: "Review this." },
+			]),
+		});
+		attachmentStore.commitToMessage(attachmentId, "user-1");
+
+		const res = await handler(makeAuthReq(`/chat/sessions/${session.id}`));
+		expect(res?.status).toBe(200);
+		const body = (await res?.json()) as { messages: Array<{ content_json: string }> };
+		const content = JSON.parse(body.messages[0]?.content_json ?? "[]") as Array<Record<string, unknown>>;
+		expect(content[0]).toMatchObject({
+			type: "attachment",
+			id: "att-1",
+			filename: "brief.pdf",
+			mime_type: "application/pdf",
+			size_bytes: 1234,
+		});
+	});
+
 	test("GET /chat/sessions/:id returns 404 for missing session", async () => {
 		const res = await handler(makeAuthReq("/chat/sessions/nonexistent"));
 		expect(res?.status).toBe(404);
@@ -333,5 +379,30 @@ describe("Chat HTTP handlers", () => {
 			}),
 		);
 		expect(res?.status).toBe(200);
+	});
+
+	test("POST /chat/stream rejects invalid attachment ids", async () => {
+		const createRes = await handler(
+			makeAuthReq("/chat/sessions", {
+				method: "POST",
+				body: JSON.stringify({}),
+			}),
+		);
+		const created = (await createRes?.json()) as { id: string };
+
+		const res = await handler(
+			makeAuthReq("/chat/stream", {
+				method: "POST",
+				body: JSON.stringify({
+					session_id: created.id,
+					text: "Use the attached file.",
+					attachment_ids: ["missing-attachment"],
+				}),
+			}),
+		);
+
+		expect(res?.status).toBe(400);
+		const body = await res?.json();
+		expect(body.error).toBe("attachment_not_found");
 	});
 });
