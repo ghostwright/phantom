@@ -27,6 +27,7 @@ describe("runMigrations", () => {
 		expect(tables).toContain("secrets");
 		expect(tables).toContain("secret_requests");
 		expect(tables).toContain("chat_run_timelines");
+		expect(tables).toContain("firstboot_state");
 		expect(tables).toContain("_migrations");
 	});
 
@@ -38,8 +39,9 @@ describe("runMigrations", () => {
 		const migrationCount = db.query("SELECT COUNT(*) as count FROM _migrations").get() as { count: number };
 		// Migration history: base 28 + chat channel tables 28-39 (12 entries) +
 		// auth/push 40-43 (4 entries) + scheduler audit 44-45 (2 entries) +
-		// phantom-config audit section column 46 + run timelines 47-50 (4 entries) = 51.
-		expect(migrationCount.count).toBe(51);
+		// phantom-config audit section column 46 + run timelines 47-50 (4 entries) +
+		// Phase 12 firstboot_state 51 = 52.
+		expect(migrationCount.count).toBe(52);
 	});
 
 	test("tracks applied migration indices", () => {
@@ -53,7 +55,7 @@ describe("runMigrations", () => {
 
 		expect(indices).toEqual([
 			0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
-			31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
+			31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
 		]);
 	});
 

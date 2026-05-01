@@ -12,6 +12,7 @@ import type { SchedulerHealthSummary } from "../scheduler/health.ts";
 import { avatarUrlIfPresent, handleAvatarGet } from "../ui/api/identity.ts";
 import { handleAuthMagic } from "../ui/auth-magic.ts";
 import { getPublicDir, handleUiRequest } from "../ui/serve.ts";
+import { readBuildInfo } from "./build-info.ts";
 import { type HealthPayload, renderHealthHtml } from "./health-page.ts";
 
 const VERSION = "0.20.2";
@@ -184,6 +185,39 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 				}
 
 				return Response.json(payload);
+			}
+
+			// Phase 18 PR-6: build-identity surface. Reads /etc/phantom-build-info
+			// at request-time (no in-process cache) and returns the JSON contents
+			// verbatim. Operators reconcile the response's `phantom_sha` against
+			// `phantomctl tenant get`'s `image_tag` to detect drift between what
+			// the host thinks is running and what the in-VM phantom actually
+			// loaded. Unauthenticated, matching the `/health` precedent: the
+			// build SHA is a public-repo value, and per-tenant isolation comes
+			// from the per-tenant URL behind Caddy. 404 when the file is absent
+			// so a misconfigured dev container surfaces a clean error rather
+			// than leaking other process state.
+			if (url.pathname === "/health/build-info" && req.method === "GET") {
+				const result = await readBuildInfo();
+				if (result.kind === "missing") {
+					return Response.json(
+						{
+							error: "build_info_unavailable",
+							message:
+								"phantom build-info file is not present on this filesystem; expected at /etc/phantom-build-info (set PHANTOM_BUILD_INFO_PATH to override)",
+						},
+						{ status: 404, headers: { "Cache-Control": "no-store" } },
+					);
+				}
+				if (result.kind === "malformed") {
+					return Response.json(
+						{ error: "build_info_malformed", message: result.error },
+						{ status: 500, headers: { "Cache-Control": "no-store" } },
+					);
+				}
+				return new Response(result.raw, {
+					headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
+				});
 			}
 
 			// Phase 8a: Prometheus metrics surface. Unauthenticated by design,
