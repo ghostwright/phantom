@@ -127,6 +127,114 @@ describe("assemblePrompt agent memory instructions", () => {
 	});
 });
 
+describe("assemblePrompt tenant self-knowledge overlay", () => {
+	const SELF_KNOWLEDGE_ENV_KEYS = [
+		"PHANTOM_TENANT_SLUG",
+		"PHANTOM_TENANT_ID",
+		"PHANTOM_OWNER_EMAIL",
+		"PHANTOM_OWNER_NAME",
+		"PHANTOM_DOMAIN",
+		"PHANTOM_DASHBOARD_URL",
+		"PHANTOM_AGENT_RUNTIME",
+		"PHANTOM_MODEL",
+		"PHANTOM_GRANTED_INTEGRATIONS",
+		"PHANTOM_CHANNEL_ALLOWLIST",
+	] as const;
+
+	const originalEnv: Record<string, string | undefined> = {};
+
+	beforeEach(() => {
+		// Snapshot every key we plan to touch so we can restore exactly
+		// what the surrounding process saw before we start mutating env.
+		for (const key of SELF_KNOWLEDGE_ENV_KEYS) {
+			originalEnv[key] = process.env[key];
+			delete process.env[key];
+		}
+	});
+
+	afterEach(() => {
+		// Restore. Using the snapshot is more conservative than blanket
+		// delete because the process running the tests may have its own
+		// values for these keys (e.g. a tenant-aware dev shell).
+		for (const key of SELF_KNOWLEDGE_ENV_KEYS) {
+			const original = originalEnv[key];
+			if (original === undefined) {
+				delete process.env[key];
+			} else {
+				process.env[key] = original;
+			}
+		}
+	});
+
+	test("omits the overlay entirely when no tenant env vars are set", () => {
+		const prompt = assemblePrompt(baseConfig);
+		expect(prompt).not.toContain("# Who You Are In This Workspace");
+	});
+
+	test("injects the overlay between Identity and Environment when tenant env is present", () => {
+		process.env.PHANTOM_TENANT_SLUG = "gilded-hearth";
+		process.env.PHANTOM_OWNER_EMAIL = "cheema@example.com";
+		process.env.PHANTOM_OWNER_NAME = "Cheema";
+		process.env.PHANTOM_DOMAIN = "gilded-hearth.phantom.ghostwright.dev";
+		process.env.PHANTOM_DASHBOARD_URL = "https://app.ghostwright.dev";
+		process.env.PHANTOM_AGENT_RUNTIME = "murph";
+		process.env.PHANTOM_MODEL = "claude-sonnet-4-6";
+
+		const prompt = assemblePrompt(baseConfig);
+		const identityIdx = prompt.indexOf("autonomous AI co-worker");
+		const overlayIdx = prompt.indexOf("# Who You Are In This Workspace");
+		const environmentIdx = prompt.indexOf("# Your Environment");
+
+		expect(identityIdx).toBeGreaterThanOrEqual(0);
+		expect(overlayIdx).toBeGreaterThan(identityIdx);
+		expect(environmentIdx).toBeGreaterThan(overlayIdx);
+
+		// The overlay carries the cardinal facts.
+		expect(prompt).toContain(
+			"You are the Phantom assigned to Cheema (cheema@example.com)'s workspace `gilded-hearth`.",
+		);
+		expect(prompt).toContain("Your home URL is https://gilded-hearth.phantom.ghostwright.dev.");
+		expect(prompt).toContain("Your dashboard control surface is https://app.ghostwright.dev.");
+		expect(prompt).toContain("Runtime: murph.");
+		expect(prompt).toContain("Model: claude-sonnet-4-6.");
+	});
+
+	test("renders the overlay with only the slug + dashboard set (defensive shape)", () => {
+		// Intermediate phantomd versions inject only PHANTOM_TENANT_SLUG +
+		// PHANTOM_OWNER_EMAIL today. The overlay must still produce a
+		// useful block in that interim shape so the agent gets self-
+		// knowledge as soon as ANY tenant signal is present.
+		process.env.PHANTOM_TENANT_SLUG = "gilded-hearth";
+		process.env.PHANTOM_OWNER_EMAIL = "cheema@example.com";
+		process.env.PHANTOM_DASHBOARD_URL = "https://ghostwright.dev/phantom/dashboard";
+
+		const prompt = assemblePrompt(baseConfig);
+		expect(prompt).toContain("# Who You Are In This Workspace");
+		expect(prompt).toContain("You are the Phantom assigned to cheema@example.com's workspace `gilded-hearth`.");
+		// Without PHANTOM_DOMAIN the home URL falls back to the wildcard
+		// derivation from the slug.
+		expect(prompt).toContain("Your home URL is https://gilded-hearth.phantom.ghostwright.dev.");
+		expect(prompt).toContain("Your dashboard control surface is https://ghostwright.dev/phantom/dashboard.");
+		// No runtime or model line should appear.
+		expect(prompt).not.toContain("Runtime:");
+		expect(prompt).not.toContain("Model:");
+	});
+
+	test("surfaces granted integrations and channel allowlist when phantomd emits them", () => {
+		// Phase 7 + Phase 8b will start emitting these lists; the overlay
+		// has to render them today so the system prompt does not need a
+		// second round of changes when those phases ship.
+		process.env.PHANTOM_TENANT_SLUG = "gilded-hearth";
+		process.env.PHANTOM_OWNER_EMAIL = "cheema@example.com";
+		process.env.PHANTOM_GRANTED_INTEGRATIONS = "github,linear,notion";
+		process.env.PHANTOM_CHANNEL_ALLOWLIST = "C0123,C0456";
+
+		const prompt = assemblePrompt(baseConfig);
+		expect(prompt).toContain("You have been granted these integrations: github, linear, notion.");
+		expect(prompt).toContain("Your Slack channel allowlist: C0123, C0456.");
+	});
+});
+
 describe("assemblePrompt UI vocabulary guidance", () => {
 	test("includes phantom-* vocabulary references", () => {
 		const prompt = assemblePrompt(baseConfig);
