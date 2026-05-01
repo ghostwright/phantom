@@ -10,6 +10,7 @@ import type { PhantomMcpServer } from "../mcp/server.ts";
 import type { MemoryHealth } from "../memory/types.ts";
 import type { SchedulerHealthSummary } from "../scheduler/health.ts";
 import { avatarUrlIfPresent, handleAvatarGet } from "../ui/api/identity.ts";
+import { handleAuthMagic } from "../ui/auth-magic.ts";
 import { getPublicDir, handleUiRequest } from "../ui/serve.ts";
 import { type HealthPayload, renderHealthHtml } from "./health-page.ts";
 
@@ -248,6 +249,16 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 			if (url.pathname === "/login/email" && req.method === "POST") {
 				const publicUrl = config.public_url ?? `http://localhost:${config.port}`;
 				return handleEmailLogin(req, publicUrl, config.name, config.domain ?? "ghostwright.dev");
+			}
+
+			// Phase 6 PR-3 magic-link callback. The dashboard 302s the
+			// user's browser to /auth/magic?token=<x>; we validate
+			// server-side via the metadata gateway hop, mint a
+			// phantom_session cookie, and 302 to /chat. Every error
+			// path lands the user back on the dashboard with a
+			// ?magic_error= code (architect §6.3 + §8).
+			if (url.pathname === "/auth/magic") {
+				return handleAuthMagic(req);
 			}
 
 			// Public PWA/SW-scoped mirror of the operator avatar. Service
