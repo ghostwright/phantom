@@ -134,9 +134,12 @@ src/
     tools.ts            # phantom_create_page, phantom_generate_login
     login-page.ts       # Login page HTML
   core/
-    server.ts           # Bun.serve() HTTP server, /health, /metrics, /trigger, /webhook, /ui
+    server.ts           # Bun.serve() HTTP server, /health, /health/build-info, /metrics, /trigger, /webhook, /ui
+    build-info.ts       # Reads /etc/phantom-build-info at request-time (Phase 18 PR-6)
   db/
-    schema.ts           # SQLite migrations (7 total)
+    schema.ts           # SQLite migrations (51 total; additive + idempotent contract)
+    migration-safety.ts # CI gate that walks schema.ts (Phase 18 PR-6)
+    check-migrations.ts # Entry point for the migration-safety gate
     connection.ts       # Database connection
 config/                 # YAML configs (phantom.yaml, channels.yaml, mcp.yaml, roles/)
 phantom-config/         # Evolved agent config (constitution, persona, domain knowledge)
@@ -273,6 +276,20 @@ Cross-repo invariants (byte-equality with neighbouring repos):
 - Status mapping (200 -> success, 404 -> expired/consumed/unknown, 400 -> bad shape, 403 -> cross-tenant, 429 -> rate limit, 5xx -> validator unavailable) mirrors the phantomd proxy at `magic_link_proxy.go::handleMagicLinkValidate`.
 
 Tests: `src/ui/__tests__/auth-magic.test.ts` (45 cases) covers happy path, every failure mode, every plaintext-leak guard, the full rate-limit semantics, the cross-tenant + owner-email gates, the open-redirect defense, and refresh survival. The route-wiring smoke is at `src/core/__tests__/server.test.ts::"GET /auth/magic"`.
+
+## Build identity (Phase 18 PR-6)
+
+Every phantom-rootfs image carries `/etc/phantom-build-info`, a small JSON file recording which phantom commit, which requested ref, when the rootfs was built, and adjacent provenance (full schema in `phantom-rootfs/Dockerfile` section 10b). The in-VM phantom exposes the file's contents at `GET /health/build-info` so an operator can verify what phantom version is actually running in a tenant VM:
+
+```
+curl https://<slug>.phantom.ghostwright.dev/health/build-info
+```
+
+Returns the JSON file verbatim. Schema fields: `schema_version` (currently `1`), `phantom_sha` (40-char hex), `phantom_ref_requested`, `phantom_ref_resolved`, `phantom_built_at`, `rootfs_image_name`, plus `murph_*` and `dockerfile_sha` provenance. Reconcile the response's `phantom_sha` against `phantomctl tenant get`'s `image_tag` field; mismatch indicates an upgrade in flight, a corrupted clone, or the daemon hasn't been restarted after a swap. Returns 404 with `error: "build_info_unavailable"` when the file is absent (a misconfigured dev container; production never sees this). The endpoint is unauthenticated, matching the `/health` precedent: per-tenant isolation comes from the per-tenant URL behind Caddy.
+
+The file is read at request-time and never cached in process memory, so an in-place upgrade that overwrites the file is reflected on the next request. Tests override the path via `PHANTOM_BUILD_INFO_PATH`.
+
+**Migration-safety CI gate.** Phantom tenants survive a snapshot-replace upgrade by rsyncing `/app/data/` (which contains `phantom.sqlite`) from the old ZFS clone to the new clone. Migrations therefore must be **additive** (no `DROP TABLE`, `DROP COLUMN`, `DROP CONSTRAINT`, `DROP INDEX`, no `RENAME`) and **idempotent** (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`). `ALTER TABLE ... ADD COLUMN` is allowed because the runner's `_migrations` index gates re-execution. The gate runs in CI on every PR via `bun run src/db/check-migrations.ts`, fails closed on any violation, and rejects the PR. The full architectural argument lives in the Phase 18 architect doc §5.2.
 
 ## Key Design Decisions
 
