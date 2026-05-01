@@ -1,4 +1,5 @@
 import type { ToolCallState } from "@/lib/chat-types";
+import { initialToolDisclosureState, reconcileToolDisclosureState, toggleToolDisclosure } from "@/lib/tool-disclosure";
 import { cn } from "@/lib/utils";
 import { AlertCircle, Check, ChevronDown, FileText, Loader2, Shield, Terminal, XCircle } from "lucide-react";
 import { useEffect, useId, useState } from "react";
@@ -161,22 +162,20 @@ export function ToolCallCard({ tool }: { tool: ToolCallState }) {
 	const inputDetails = toolInputDetails(tool);
 	const output = tool.output ? redactSensitiveText(truncate(tool.output, TOOL_OUTPUT_DISPLAY_LIMIT)) : "";
 
-	const autoExpand = tool.state === "error" || tool.state === "blocked";
-	const [isOpen, setIsOpen] = useState(autoExpand);
+	const [disclosure, setDisclosure] = useState(() => initialToolDisclosureState(tool.state));
 
 	useEffect(() => {
-		if (tool.state === "error" || tool.state === "blocked") {
-			setIsOpen(true);
-		}
+		setDisclosure((current) => reconcileToolDisclosureState(current, tool.state));
 	}, [tool.state]);
 
+	const isOpen = disclosure.isOpen;
 	const hasBody = Boolean(output || tool.error || tool.blockReason || inputDetails);
 
 	return (
 		<div className={cn("my-2 overflow-hidden rounded border bg-card transition-colors", style.border)}>
 			<button
 				type="button"
-				onClick={() => hasBody && setIsOpen(!isOpen)}
+				onClick={() => hasBody && setDisclosure((current) => toggleToolDisclosure(current))}
 				className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-sm"
 				disabled={!hasBody}
 				aria-expanded={hasBody ? isOpen : undefined}
