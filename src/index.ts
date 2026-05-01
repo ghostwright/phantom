@@ -40,6 +40,8 @@ import {
 } from "./core/server.ts";
 import { closeDatabase, getDatabase } from "./db/connection.ts";
 import { runMigrations } from "./db/migrate.ts";
+import { EnvKeyFetcher, ResendKeyFetcher } from "./email/key-fetcher.ts";
+import { EmailMetrics } from "./email/metrics.ts";
 import { createEmailToolServer } from "./email/tool.ts";
 import { EvolutionCadence, loadCadenceConfig } from "./evolution/cadence.ts";
 import { EvolutionEngine } from "./evolution/engine.ts";
@@ -222,6 +224,7 @@ async function main(): Promise<void> {
 
 	let mcpServer: PhantomMcpServer | null = null;
 	let scheduler: Scheduler | null = null;
+	const emailMetrics = new EmailMetrics();
 	try {
 		mcpServer = new PhantomMcpServer({
 			config,
@@ -248,6 +251,28 @@ async function main(): Promise<void> {
 		// This prevents "Already connected to a transport" crashes when the scheduler
 		// fires a query while a previous session's transport hasn't fully cleaned up.
 		const secretsBaseUrl = config.public_url ?? `http://localhost:${config.port}`;
+
+		// Phase 10 PR 10-3: the EmailTool wires up when the tenant has an
+		// owner email. In Phantom Cloud production, phantomd's firstboot
+		// stamps PHANTOM_OWNER_EMAIL into /etc/default/phantom; in local
+		// dev / OSS the operator sets it directly. Without an owner we have
+		// no recipient-policy basis, so we skip the tool rather than ship
+		// an open-relay default.
+		//
+		// Key source: prefer the metadata gateway (production) when
+		// METADATA_BASE_URL is set OR PHANTOM_TENANT_ID indicates a real
+		// tenant; otherwise fall back to the env-backed fetcher for local
+		// dev. The gateway-backed fetcher caches for 15 minutes so a
+		// fleet-wide key rotation is picked up without process restart.
+		const ownerEmail = (process.env.PHANTOM_OWNER_EMAIL ?? "").trim();
+		const tenantId = (process.env.PHANTOM_TENANT_ID ?? "").trim() || config.name;
+		const agentId = (process.env.PHANTOM_AGENT_ID ?? "").trim() || tenantId;
+		const useGateway = Boolean(process.env.METADATA_BASE_URL || process.env.PHANTOM_TENANT_ID);
+		const emailKeyFetcher = useGateway
+			? new ResendKeyFetcher({ baseUrl: process.env.METADATA_BASE_URL })
+			: new EnvKeyFetcher();
+		const emailEnabled = ownerEmail.length > 0 && (useGateway || Boolean(process.env.RESEND_API_KEY));
+
 		runtime.setMcpServerFactories({
 			"phantom-dynamic-tools": () => createInProcessToolServer(registry),
 			"phantom-scheduler": () => createSchedulerToolServer(scheduler as Scheduler),
@@ -259,18 +284,25 @@ async function main(): Promise<void> {
 			"phantom-secrets": () => createSecretToolServer({ db, baseUrl: secretsBaseUrl }),
 			"phantom-preview": () => createPreviewToolServer(config.port),
 			"phantom-browser": () => createBrowserToolServer(() => getOrCreatePreviewContext()),
-			...(process.env.RESEND_API_KEY
+			...(emailEnabled
 				? {
 						"phantom-email": () =>
 							createEmailToolServer({
 								agentName: config.name,
 								domain: config.domain ?? "ghostwright.dev",
-								dailyLimit: Number(process.env.PHANTOM_EMAIL_DAILY_LIMIT) || 50,
+								dailyLimit:
+									Number(process.env.PHANTOM_EMAIL_DAILY_CAP) || Number(process.env.PHANTOM_EMAIL_DAILY_LIMIT) || 50,
+								tenantId,
+								agentId,
+								ownerEmail,
+								recipientsAllowed: process.env.PHANTOM_EMAIL_RECIPIENTS_ALLOWED,
+								keyFetcher: emailKeyFetcher,
+								metrics: emailMetrics,
 							}),
 					}
 				: {}),
 		});
-		const emailStatus = process.env.RESEND_API_KEY ? " + email" : "";
+		const emailStatus = emailEnabled ? ` + email (${useGateway ? "gateway" : "env"})` : "";
 		console.log(
 			`[mcp] MCP server initialized (dynamic tools + scheduler + reflective + web UI + secrets + preview + browser${emailStatus} wired to agent)`,
 		);
@@ -326,7 +358,12 @@ async function main(): Promise<void> {
 	// matrix; this keeps Prometheus scrape parity across multi-tenant pools
 	// and prevents alert flapping when Phantoms boot/reboot.
 	const slackMetrics = new SlackMetrics();
-	setMetricsRegistryProvider(() => slackMetrics.registry);
+	// Phase 10 PR 10-3: register both Slack and Email registries with
+	// `core/server.ts`. The /metrics route renders each registry's text
+	// exposition concatenated by a single newline so a Prometheus scrape
+	// sees both metric families. Per-emitter registries keep names from
+	// colliding across channels.
+	setMetricsRegistryProvider(() => [slackMetrics.registry, emailMetrics.registry]);
 	const slackChannel: SlackTransport | null = await createSlackChannel({
 		transport: slackTransport,
 		channelsConfig,

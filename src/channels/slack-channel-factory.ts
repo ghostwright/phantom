@@ -21,8 +21,8 @@ export type SlackTransportMode = "socket" | "http";
  * so a drift between this list and the phantomd allowlist breaks tenant
  * boot with no actionable error in the in-VM Phantom logs.
  *
- * The list below is the authoritative phantom-side mirror. Adding a Slack
- * secret to this array implies a matching addition in phantomd's
+ * The list below is the authoritative phantom-side Slack mirror. Adding a
+ * Slack secret to this array implies a matching addition in phantomd's
  * `AllowedSecretNames`; removing one requires that no callsite in this file
  * still fetches it. The mirror is exported (vs. private to this module) so
  * the factory test fixture can pin the same constant against its
@@ -39,6 +39,12 @@ export type SlackTransportMode = "socket" | "http";
  * event. Distinct from the Slack-issued `signing_secret` which lives in
  * phantom-slack-events' TOML config and never traverses the metadata
  * gateway.
+ *
+ * Phase 10 PR 10-3 (Resend, dated 2026-05-01): the broader cross-channel
+ * mirror (Slack plus Email plus future channels) lives in
+ * `src/config/secret-names.ts::AllowedSecretNamesMirror`. This file keeps
+ * the Slack-scoped subset as the authoritative list its own callsites
+ * fetch; new email-side names land in the broader mirror, not here.
  */
 export const AllowedSecretNamesMirror = Object.freeze([
 	"slack_bot_token",
