@@ -214,11 +214,12 @@ export class ChatSessionStore {
 		return ids.length;
 	}
 
-	setAutoTitle(id: string, title: string): void {
-		this.db.run(
+	setAutoTitle(id: string, title: string): boolean {
+		const result = this.db.run(
 			`UPDATE chat_sessions SET title = ?, updated_at = datetime('now')
 			 WHERE id = ? AND title IS NULL AND title_is_manual = 0`,
 			[title, id],
 		);
+		return result.changes > 0;
 	}
 }

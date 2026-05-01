@@ -12,7 +12,7 @@ export async function autoRenameSession(
 	sessionId: string,
 	userMessage: string,
 	assistantMessage: string,
-): Promise<void> {
+): Promise<string | null> {
 	try {
 		const result = await runtime.judgeQuery({
 			systemPrompt: 'Generate a concise 3-5 word title for this conversation. Return JSON: {"title": "..."}.',
@@ -21,12 +21,17 @@ export async function autoRenameSession(
 			omitPreset: true,
 		});
 
-		if (result.data.title) {
-			sessionStore.setAutoTitle(sessionId, result.data.title);
-			console.log(`[chat] Auto-renamed session ${sessionId}: "${result.data.title}"`);
+		const title = result.data.title.trim();
+		if (title) {
+			const changed = sessionStore.setAutoTitle(sessionId, title);
+			if (changed) {
+				console.log(`[chat] Auto-renamed session ${sessionId}: "${title}"`);
+				return title;
+			}
 		}
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
 		console.warn(`[chat] Auto-rename failed for session ${sessionId}: ${msg}`);
 	}
+	return null;
 }

@@ -76,10 +76,11 @@ export class ChatEventLog {
 	}
 
 	getLatestRecoveryRelevantSeq(sessionId: string): number {
+		const placeholders = CHAT_POST_TERMINAL_NON_RECOVERY_EVENT_TYPES.map(() => "?").join(", ");
 		const row = this.db
 			.query(
 				`SELECT MAX(seq) as max_seq FROM chat_stream_events
-				 WHERE session_id = ? AND event_type NOT IN (?)`,
+				 WHERE session_id = ? AND event_type NOT IN (${placeholders})`,
 			)
 			.get(sessionId, ...CHAT_POST_TERMINAL_NON_RECOVERY_EVENT_TYPES) as { max_seq: number | null } | null;
 		return row?.max_seq ?? 0;

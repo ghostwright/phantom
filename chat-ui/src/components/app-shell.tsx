@@ -15,7 +15,7 @@ import { SidebarPanel } from "./sidebar-panel";
 export function AppShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const { sessionId } = useParams<{ sessionId: string }>();
-  const { sessions, isLoading, createSession, deleteSession, updateSession } =
+  const { sessions, isLoading, refresh, createSession, deleteSession, updateSession } =
     useSessions();
   const { toggleTheme } = useTheme();
   const isMobile = useIsMobile();
@@ -31,6 +31,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     title: string | null;
   } | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+
+  useEffect(() => {
+    if (sessionId) refresh();
+  }, [sessionId, refresh]);
 
   // Update the browser tab title once we know the agent name. Picks up
   // cached name immediately on reload and refreshes when fresh data lands.

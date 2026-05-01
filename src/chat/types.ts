@@ -48,6 +48,13 @@ export type SessionCreatedFrame = {
 	seq: number;
 };
 
+export type SessionTitleUpdatedFrame = {
+	event: "session.title_updated";
+	session_id: string;
+	title: string;
+	updated_at: string;
+};
+
 export type SessionResumedFrame = {
 	event: "session.resumed";
 	session_id: string;
