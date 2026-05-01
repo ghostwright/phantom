@@ -9,6 +9,7 @@
     "start": "bun run src/index.ts",
     "dev": "bun run --watch src/index.ts",
     "phantom": "bun run src/cli/main.ts",
+    "build:chat-ui": "cd chat-ui && bun run build && rm -rf ../public/chat && cp -R dist ../public/chat",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
     "typecheck": "tsc --noEmit",
