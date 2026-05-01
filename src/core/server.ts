@@ -34,12 +34,18 @@ type SchedulerHealthProvider = () => SchedulerHealthSummary | null;
  * `contentType` for the response header). Keeping the surface minimal
  * means future emitters (Telegram, email) can plug in without taking a
  * direct dependency on prom-client at this layer.
+ *
+ * Phase 10 PR 10-3: the provider may return ONE registry or MANY. The
+ * `/metrics` route renders each in order separated by a single newline so
+ * scrapers see a concatenated text exposition. Per-emitter registries keep
+ * channel metric names self-contained (a future Telegram registry cannot
+ * collide with Slack or Email).
  */
 type MetricsRegistryLike = {
 	metrics(): Promise<string>;
 	contentType: string;
 };
-type MetricsRegistryProvider = () => MetricsRegistryLike | null;
+type MetricsRegistryProvider = () => MetricsRegistryLike | MetricsRegistryLike[] | null;
 type TriggerDeps = {
 	runtime: AgentRuntime;
 	slackChannel?: SlackTransport;
@@ -186,17 +192,25 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 			// per-route auth. Returns 503 when no registry is wired (the
 			// process started without a metrics provider).
 			if (url.pathname === "/metrics" && req.method === "GET") {
-				const registry = metricsRegistryProvider?.();
-				if (!registry) {
+				const provided = metricsRegistryProvider?.();
+				if (!provided) {
 					return new Response("metrics registry not configured", {
 						status: 503,
 						headers: { "Content-Type": "text/plain; charset=utf-8" },
 					});
 				}
-				const body = await registry.metrics();
+				const registries = Array.isArray(provided) ? provided : [provided];
+				if (registries.length === 0) {
+					return new Response("metrics registry not configured", {
+						status: 503,
+						headers: { "Content-Type": "text/plain; charset=utf-8" },
+					});
+				}
+				const dumps = await Promise.all(registries.map((r) => r.metrics()));
+				const body = dumps.join("\n");
 				return new Response(body, {
 					headers: {
-						"Content-Type": registry.contentType,
+						"Content-Type": registries[0].contentType,
 						"Cache-Control": "no-store",
 					},
 				});

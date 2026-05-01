@@ -166,10 +166,57 @@ Metric families exposed today (Slack Socket Mode lifecycle):
 - `phantom_slack_socket_reconnects_total` (counter). Bolt's auto-reconnect is on by default; this measures "the network wobbled". Alert at sustained >5/min.
 - `phantom_slack_socket_connection_seconds` (histogram). Lifetime of a single Socket Mode connection from connect to disconnect. p99 should hold above 1 hour.
 - `phantom_slack_event_dispatch_seconds{event_type=...}` (histogram). End-to-end Bolt middleware time. Slack's ack deadline is 3 seconds; alert on p99 > 2.5s.
+- `phantom_email_send_total{outcome, purpose}` (counter; Phase 10 PR 10-3). One increment per `phantom_send_email` invocation regardless of whether the send reached Resend. Outcome label is one of `ok`, `recipient_denied`, `rate_limited_local`, `key_unavailable`, `rate_limited_resend`, `validation_error`, `service_down`, `auth_failed`. Purpose is the caller-supplied tag (sanitized to ASCII letters/numbers/underscores/dashes; oversized or invalid becomes `unknown`).
 
-The metrics module owns a private `prom-client` Registry (no global registry pollution). Adding more channels (Telegram, email) means adding a sibling registry and merging at request time in `core/server.ts`. Future cross-channel metrics generalize via Phase 17 polish.
+Each emitter owns its own private `prom-client` Registry (no global registry pollution). The provider in `core/server.ts` returns the array of registries (`[slackMetrics.registry, emailMetrics.registry]`) and `/metrics` renders each text exposition concatenated by a single newline. Adding more channels (Telegram, webhook) means appending one more registry to the provider's return; nothing else changes.
 
-Cross-repo invariant: `slack-channel-factory.ts` exports a frozen `AllowedSecretNamesMirror` array (`slack_bot_token`, `slack_app_token`, `slack_gateway_signing_secret`). The same names MUST appear in phantomd's `internal/secrets/types.go` `AllowedSecretNames` map. Drift breaks tenant boot with HTTP 404 (the gateway maps `ErrInvalidName` to 404 to defeat name enumeration). The factory test pins the mirror against its `SECRET_RESPONSES` test fixture; phantomd's `TestIsAllowedName_AcceptsSlackAppToken` (and the existing `*_AcceptsSlackGatewaySigningSecret`) pin the symmetric assertion.
+Cross-repo invariant: `src/config/secret-names.ts` exports a frozen `AllowedSecretNamesMirror` array (`slack_bot_token`, `slack_app_token`, `slack_gateway_signing_secret`, `resend_api_key`) plus the wire-stable constant `RESEND_API_KEY_SECRET_NAME = "resend_api_key"`. The same names MUST appear in phantomd's `internal/secrets/types.go` `AllowedSecretNames` map. Drift breaks tenant boot with HTTP 404 (the gateway maps `ErrInvalidName` to 404 to defeat name enumeration). The Slack subset is also exported from `src/channels/slack-channel-factory.ts` for the Slack callsites; phantomd's `TestIsAllowedName_AcceptsResendApiKey` and `_AcceptsSlackAppToken` (plus the existing `_AcceptsSlackGatewaySigningSecret`) pin the symmetric assertions.
+
+## Email (Phase 10 PR 10-3)
+
+The `phantom_send_email` MCP tool wraps Resend's `/emails` endpoint with a metadata-gateway key fetch, recipient policy gate, tenant-salted idempotency, and Prometheus attribution. The architect doc is `phantom-cloud-deploy/local/2026-05-01-phase10-resend-architect.md` (canonical contract: §6 EmailTool surface, §6.8 seven `error_kind` values, §7 cost attribution, §9.6 tenant-salted idempotency).
+
+**Key fetch.** `src/email/key-fetcher.ts` exposes `ResendKeyFetcher` (gateway-backed, 15-minute cache; `GET http://169.254.169.254/v1/secrets/resend_api_key`) and `EnvKeyFetcher` (env-backed for local dev / OSS Docker without a gateway). The wire-stable secret name is the constant `RESEND_API_KEY_SECRET_NAME` from `src/config/secret-names.ts`. The fetcher invalidates its cache on a Resend 401 so a subsequent retry refetches the rotated key.
+
+**Env-var contract** (set by phantomd firstboot in production; set directly by the operator in local dev):
+
+- `PHANTOM_OWNER_EMAIL`: required when the tool is enabled. Without it the policy parser throws and the tool stays unwired (no open-relay default).
+- `PHANTOM_TENANT_ID`: required for cost-attribution tags + the salted idempotency key. Falls back to `config.name` in local dev.
+- `PHANTOM_AGENT_ID` (optional): defaults to `PHANTOM_TENANT_ID` when missing.
+- `PHANTOM_EMAIL_RECIPIENTS_ALLOWED` (optional): policy mode. Accepted values:
+  - unset / empty / `owner` -> only `PHANTOM_OWNER_EMAIL` is allowed.
+  - `unrestricted` (or the literal `*` for back-compat) -> any recipient is allowed; explicit operator opt-in.
+  - comma-separated email list -> owner plus listed addresses are allowed.
+  - `workspace` is reserved for v1.5+ and explicitly rejected today.
+- `PHANTOM_EMAIL_DAILY_CAP` (optional, default 50): per-day local soft cap. Aliased as `PHANTOM_EMAIL_DAILY_LIMIT` for back-compat.
+- `METADATA_BASE_URL` (optional): override the metadata gateway origin. Presence of this env OR `PHANTOM_TENANT_ID` selects the gateway-backed fetcher; otherwise the env-backed fetcher is used.
+
+**The seven `error_kind` values** returned to the agent in the JSON envelope `{error: <message>, error_kind: <kind>}` (architect §6.8): `recipient_denied`, `rate_limited_local`, `key_unavailable`, `rate_limited_resend`, `validation_error`, `service_down`, `auth_failed`. The local cap and recipient policy are enforced before any Resend POST; the Resend SDK errors are mapped onto the four service-side kinds.
+
+**Tags + idempotency.** Every accepted Resend POST carries `[{name: "tenant_id"}, {name: "agent_id"}, {name: "purpose"}]`. The idempotency key is `sha256("${PHANTOM_TENANT_ID}:${normalizedTo}:${subject}:${utcDate}").slice(0, 32)` (architect §9.6). The tenant-id salt defends Resend's TEAM-scoped key namespace from cross-tenant collision when multiple tenants share the same operator-side Resend key.
+
+**Cross-repo wire.** Gateway URL: `http://169.254.169.254/v1/secrets/resend_api_key`. Secret name string: `"resend_api_key"`, mirrored byte-for-byte against phantomd `internal/secrets/types.go::AllowedSecretNames` (Phase 10 PR 10-1). Drift surfaces as HTTP 404 from the gateway, which the EmailTool surfaces as `error_kind = "key_unavailable"` to the agent.
+
+## Tenant self-knowledge overlay (Phase 9)
+
+The agent's system prompt carries a per-tenant identity block injected by `src/agent/prompt-blocks/tenant-self-knowledge.ts`. The assembler (`src/agent/prompt-assembler.ts`) slots it as section 1b, between Identity and Environment, so the agent reads its own facts before the environment description. The overlay is purely additive and degrades to the empty string in single-tenant dev mode (no env vars set).
+
+Env vars consumed (all non-secret tenant identifiers):
+
+- `PHANTOM_TENANT_SLUG`: short identifier, also the wildcard subdomain. Source: phantomd firstboot via `internal/firstboot/firstboot.go:270`.
+- `PHANTOM_TENANT_ID`: read but currently not surfaced on its own; reserved for future debugging context.
+- `PHANTOM_OWNER_EMAIL`: tenant owner email. Source: phantomd firstboot via `internal/firstboot/firstboot.go:273`.
+- `PHANTOM_OWNER_NAME`: optional human name. Source: phantomd firstboot, queued addition (per phantomd CLAUDE.md "What's queued").
+- `PHANTOM_DOMAIN`: full per-tenant origin, e.g. `gilded-hearth.phantom.ghostwright.dev`. Source: phantomd firstboot, queued addition. Falls back to `<slug>.phantom.ghostwright.dev` when missing.
+- `PHANTOM_DASHBOARD_URL`: the operator's control surface URL. Source: `phantom-rootfs/systemd/phantom.service` Environment= line.
+- `PHANTOM_AGENT_RUNTIME`: `anthropic` or `murph`. Source: `phantom.service` (Phase 0 hardcode) or tenant.env (Phase 1 wizard).
+- `PHANTOM_MODEL`: model id. Source: tenant.env when operator picked a non-default; rootfs phantom.yaml default otherwise.
+- `PHANTOM_GRANTED_INTEGRATIONS`: comma-separated list of granted integrations (Phase 7 hook; silent today).
+- `PHANTOM_CHANNEL_ALLOWLIST`: comma-separated Slack channel ids (Phase 8b hook; silent today).
+
+The tenant.env C7 invariant (consumed once at firstboot, then deleted) does NOT affect the overlay: phantom-firstboot stamps these values into `/etc/default/phantom`, which `phantom.service` sources via `EnvironmentFile=`, so they survive in `process.env` for the lifetime of the agent process.
+
+The overlay never carries provider keys, OAuth tokens, or secrets. Every var is a non-secret identifier or label.
 
 ## Tenant self-knowledge overlay (Phase 9)
 
