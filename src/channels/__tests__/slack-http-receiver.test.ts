@@ -66,8 +66,19 @@ const MockApp = mock((opts: { receiver?: { init?: (app: unknown) => void } }) =>
 	return app;
 });
 
+// Phase 8a: SlackChannel (Socket Mode) now imports SocketModeReceiver from
+// @slack/bolt. Even though this test exercises only the HTTP receiver, the
+// module-mock layer is process-scoped under bun: a partial mock here
+// shadows the real export for any other test file that loads slack.ts
+// later. We mock SocketModeReceiver as a no-op constructor so the cross-
+// suite loader stays consistent.
+const mockSocketModeReceiver = mock(() => ({
+	client: { on: () => {} },
+}));
+
 mock.module("@slack/bolt", () => ({
 	App: MockApp,
+	SocketModeReceiver: mockSocketModeReceiver,
 }));
 
 // Import the channel AFTER the module mock so the constructor uses our doubles.

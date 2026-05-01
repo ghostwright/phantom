@@ -1,4 +1,4 @@
-import { App, type LogLevel } from "@slack/bolt";
+import { App, type LogLevel, SocketModeReceiver } from "@slack/bolt";
 import type { SlackBlock } from "./feedback.ts";
 import { registerSlackActions } from "./slack-actions.ts";
 import {
@@ -12,6 +12,7 @@ import {
 	egressUpdateMessage,
 	egressUpdateWithFeedback,
 } from "./slack-egress.ts";
+import { NoopSlackMetrics, type SlackMetricsEmitter } from "./slack-metrics.ts";
 import type { Channel, ChannelCapabilities, InboundMessage, OutboundMessage, SentMessage } from "./types.ts";
 
 export type SlackChannelConfig = {
@@ -20,9 +21,27 @@ export type SlackChannelConfig = {
 	defaultChannelId?: string;
 	ownerUserId?: string;
 	transport?: "socket";
+	/**
+	 * Optional Phase 8a metrics emitter. When omitted, a `NoopSlackMetrics`
+	 * is used so the lifecycle hooks fire the same way in test paths that
+	 * don't care about Prometheus output. Production wires the shared
+	 * `SlackMetrics` instance from `core/server.ts`.
+	 */
+	metrics?: SlackMetricsEmitter;
 };
 
 type ConnectionState = "disconnected" | "connecting" | "connected" | "error";
+
+/**
+ * Minimal shape of the underlying `@slack/socket-mode` `SocketModeClient`
+ * we hook for lifecycle metrics. Bolt's `SocketModeReceiver.client` is
+ * publicly typed (`receivers/SocketModeReceiver.d.ts:55`), but we depend
+ * only on the EventEmitter interface here so test mocks do not need to
+ * carry the full SDK surface.
+ */
+type SocketModeClientLike = {
+	on(event: string, listener: (...args: unknown[]) => void): unknown;
+};
 
 type ReactionHandler = (event: {
 	reaction: string;
@@ -45,6 +64,7 @@ export class SlackChannel implements Channel {
 	};
 
 	private app: App;
+	private receiver: SocketModeReceiver;
 	private messageHandler: ((message: InboundMessage) => Promise<void>) | null = null;
 	private reactionHandler: ReactionHandler | null = null;
 	private connectionState: ConnectionState = "disconnected";
@@ -52,19 +72,109 @@ export class SlackChannel implements Channel {
 	private ownerUserId: string | null;
 	private phantomName: string;
 	private rejectedUsers = new Set<string>();
+	private readonly metrics: SlackMetricsEmitter;
+	/**
+	 * Wall-clock millis when the most recent `connected` event fired. Used to
+	 * observe `phantom_slack_socket_connection_seconds` on the next
+	 * `disconnected` event. Null when no connection is currently up.
+	 */
+	private connectedAtMs: number | null = null;
 
 	constructor(config: SlackChannelConfig) {
 		if (config.transport && config.transport !== "socket") {
 			throw new Error("SlackChannel only supports Socket Mode. Use SlackHttpChannel for HTTP receiver mode.");
 		}
-		this.app = new App({
-			token: config.botToken,
-			socketMode: true,
+		// Construct the receiver explicitly (vs. `socketMode: true` shorthand)
+		// so we can hook the underlying `SocketModeClient` lifecycle events for
+		// the Phase 8a metrics surface. The receiver type publicly exposes
+		// `client: SocketModeClient` (Bolt 4.6 SocketModeReceiver.d.ts:55), so
+		// the cast below is type-safe at the package boundary; we narrow to a
+		// minimal `SocketModeClientLike` to keep test mocks cheap.
+		this.receiver = new SocketModeReceiver({
 			appToken: config.appToken,
 			logLevel: "ERROR" as LogLevel,
 		});
+		this.app = new App({
+			token: config.botToken,
+			receiver: this.receiver,
+			logLevel: "ERROR" as LogLevel,
+		});
+		this.metrics = config.metrics ?? new NoopSlackMetrics();
 		this.ownerUserId = config.ownerUserId ?? null;
 		this.phantomName = "Phantom";
+
+		// Initialize the gauge to `disconnected` so a Prometheus scrape that
+		// lands before `connect()` returns sees a complete time series matrix.
+		this.metrics.recordState("disconnected");
+
+		this.attachLifecycleHooks();
+		this.attachDispatchTimer();
+	}
+
+	/**
+	 * Subscribe the metrics emitter to every lifecycle event the underlying
+	 * `SocketModeClient` emits. The state enum is verbatim from
+	 * `@slack/socket-mode/dist/src/SocketModeClient.js` (the State enum).
+	 * `unable_to_socket_mode_start` is NOT an emitted event in the current
+	 * SDK; that path surfaces as a thrown `UnrecoverableSocketModeStartError`
+	 * from `start()` which we map to the `error` state in `connect()`.
+	 */
+	private attachLifecycleHooks(): void {
+		const client = this.receiver.client as unknown as SocketModeClientLike;
+
+		client.on("connecting", () => {
+			this.metrics.recordState("connecting");
+		});
+		client.on("authenticated", () => {
+			this.metrics.recordState("authenticated");
+		});
+		client.on("connected", () => {
+			this.connectedAtMs = Date.now();
+			this.metrics.recordState("connected");
+		});
+		client.on("reconnecting", () => {
+			this.metrics.recordReconnect();
+			this.metrics.recordState("reconnecting");
+			// Reconnect implies the prior connection just dropped; observe its
+			// lifetime if we have one in flight.
+			this.observeConnectionLifetime();
+		});
+		client.on("disconnecting", () => {
+			this.metrics.recordState("disconnecting");
+		});
+		client.on("disconnected", () => {
+			this.metrics.recordState("disconnected");
+			this.observeConnectionLifetime();
+		});
+	}
+
+	/**
+	 * Wraps Bolt's global middleware to time end-to-end event dispatch. The
+	 * `next()` await returns when the matching listener (or the absence of
+	 * one) has finished, including any async work the user's handler does.
+	 * Captures the high-level event type from `body.event.type` when
+	 * available; falls back to the envelope `body.type` for slash commands
+	 * and interactive payloads, then to `unknown` for shapes Bolt did not
+	 * route to a discriminated handler.
+	 */
+	private attachDispatchTimer(): void {
+		this.app.use(async ({ body, next }) => {
+			const startMs = Date.now();
+			const eventType = extractEventType(body);
+			try {
+				await next();
+			} finally {
+				const seconds = (Date.now() - startMs) / 1000;
+				this.metrics.observeEventDispatch(eventType, seconds);
+			}
+		});
+	}
+
+	private observeConnectionLifetime(): void {
+		if (this.connectedAtMs == null) return;
+		const seconds = (Date.now() - this.connectedAtMs) / 1000;
+		this.metrics.observeConnectionDuration(seconds);
+		this.connectedAtMs = null;
 	}
 
 	setPhantomName(name: string): void {
@@ -126,6 +236,12 @@ export class SlackChannel implements Channel {
 			console.log("[slack] Socket Mode connected");
 		} catch (err: unknown) {
 			this.connectionState = "error";
+			// `app.start()` throws `UnrecoverableSocketModeStartError` for the
+			// auth-revoked / invalid-app-token / connections:write-missing
+			// failure cases. Mark the gauge so the fleet view reflects the
+			// down tenant even though no `disconnected` event ever fired
+			// (the SocketModeClient never made it past handshake).
+			this.metrics.recordState("error");
 			const msg = err instanceof Error ? err.message : String(err);
 			console.error(`[slack] Failed to connect: ${msg}`);
 			throw err;
@@ -326,4 +442,29 @@ export class SlackChannel implements Channel {
 
 function buildConversationId(channel: string, threadTs: string): string {
 	return `slack:${channel}:${threadTs}`;
+}
+
+/**
+ * Pull a stable, low-cardinality string out of Bolt's middleware `body` so
+ * the `event_type` label on `phantom_slack_event_dispatch_seconds` does
+ * not blow up cardinality. Order:
+ *   1. `body.event.type` (the event-API envelope, e.g. `app_mention`,
+ *      `message`, `reaction_added`).
+ *   2. `body.type` (slash-commands carry `command`, interactivity carries
+ *      `block_actions` / `view_submission`).
+ *   3. `unknown` fallback so a payload Bolt has not classified still gets
+ *      a series.
+ */
+export function extractEventType(body: unknown): string {
+	if (!body || typeof body !== "object") return "unknown";
+	const b = body as Record<string, unknown>;
+	const event = b.event;
+	if (event && typeof event === "object") {
+		const ev = event as Record<string, unknown>;
+		const t = ev.type;
+		if (typeof t === "string" && t.length > 0) return t;
+	}
+	const top = b.type;
+	if (typeof top === "string" && top.length > 0) return top;
+	return "unknown";
 }

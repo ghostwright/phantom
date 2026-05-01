@@ -12,8 +12,31 @@ const mockReactionsRemove = mock(() => Promise.resolve({ ok: true }));
 const mockConversationsOpen = mock(() => Promise.resolve({ channel: { id: "D_REJECT_DM" } }));
 
 type EventHandler = (...args: unknown[]) => Promise<void>;
+type SocketEventHandler = (...args: unknown[]) => void;
 const eventHandlers = new Map<string, EventHandler>();
 const actionHandlers = new Map<string, EventHandler>();
+type AppMiddleware = (args: { body: unknown; next: () => Promise<void> }) => Promise<void>;
+const middlewares: AppMiddleware[] = [];
+
+// Per-test capture of the SocketModeReceiver lifecycle listeners. The
+// SlackChannel constructor attaches these via `receiver.client.on(...)`.
+// Tests assert against this map directly to verify metric emission.
+const socketClientListeners = new Map<string, SocketEventHandler[]>();
+
+// Resettable per beforeEach so listeners do not leak across cases.
+function resetSocketListeners(): void {
+	socketClientListeners.clear();
+}
+
+const MockSocketModeReceiver = mock(() => ({
+	client: {
+		on: (event: string, listener: SocketEventHandler) => {
+			const list = socketClientListeners.get(event) ?? [];
+			list.push(listener);
+			socketClientListeners.set(event, list);
+		},
+	},
+}));
 
 const MockApp = mock(() => ({
 	start: mockStart,
@@ -24,6 +47,9 @@ const MockApp = mock(() => ({
 	action: (pattern: string | RegExp, handler: EventHandler) => {
 		const key = pattern instanceof RegExp ? pattern.source : pattern;
 		actionHandlers.set(key, handler);
+	},
+	use: (m: AppMiddleware) => {
+		middlewares.push(m);
 	},
 	client: {
 		auth: { test: mockAuthTest },
@@ -44,6 +70,7 @@ const MockApp = mock(() => ({
 // Replace the import with our mock
 mock.module("@slack/bolt", () => ({
 	App: MockApp,
+	SocketModeReceiver: MockSocketModeReceiver,
 }));
 
 const testConfig: SlackChannelConfig = {
@@ -60,6 +87,8 @@ describe("SlackChannel", () => {
 	beforeEach(() => {
 		eventHandlers.clear();
 		actionHandlers.clear();
+		middlewares.length = 0;
+		resetSocketListeners();
 		mockStart.mockClear();
 		mockStop.mockClear();
 		mockAuthTest.mockClear();
@@ -414,6 +443,8 @@ describe("SlackChannel owner access control", () => {
 	beforeEach(() => {
 		eventHandlers.clear();
 		actionHandlers.clear();
+		middlewares.length = 0;
+		resetSocketListeners();
 		mockStart.mockClear();
 		mockStop.mockClear();
 		mockAuthTest.mockClear();

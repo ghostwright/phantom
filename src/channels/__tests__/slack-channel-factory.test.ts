@@ -7,6 +7,7 @@ import type { ChannelsConfig } from "../../config/schemas.ts";
 const mockApp = mock(() => ({
 	event: () => {},
 	action: () => {},
+	use: () => {},
 	client: {
 		auth: { test: () => Promise.resolve({ user_id: "U_BOT" }) },
 		chat: { postMessage: () => Promise.resolve({ ts: "1.0" }), update: () => Promise.resolve({ ok: true }) },
@@ -21,12 +22,23 @@ const mockReceiver = {
 	stop: () => Promise.resolve(),
 };
 
+// Phase 8a: Socket Mode receiver mock. The constructor returns an object
+// whose `client.on(...)` is a no-op for routing tests; lifecycle metric
+// behaviour is exercised in slack-metrics.test.ts and the SlackChannel
+// suite, not here.
+const mockSocketModeReceiver = mock(() => ({
+	client: { on: () => {} },
+}));
+
 mock.module("@slack/bolt", () => ({
 	App: mockApp,
 	ExpressReceiver: mock(() => mockReceiver),
+	SocketModeReceiver: mockSocketModeReceiver,
 }));
 
-const { createSlackChannel, readSlackTransportFromEnv } = await import("../slack-channel-factory.ts");
+const { createSlackChannel, readSlackTransportFromEnv, AllowedSecretNamesMirror } = await import(
+	"../slack-channel-factory.ts"
+);
 const { SlackChannel } = await import("../slack.ts");
 const { SlackHttpChannel } = await import("../slack-http-receiver.ts");
 
@@ -48,16 +60,23 @@ const HTTP_IDENTITY = {
 	},
 };
 
-// Cross-repo invariant (audit Finding 1, dated 2026-04-25): the names
-// "slack_bot_token" and "slack_gateway_signing_secret" must appear in
-// phantomd's internal/secrets/types.go AllowedSecretNames map. Any drift
-// between phantom and phantomd breaks SLACK_TRANSPORT=http boot with HTTP
-// 404. This map is the SINGLE source of truth for the http-mode tests
+// Cross-repo invariant: the names below must appear in phantomd's
+// internal/secrets/types.go AllowedSecretNames map. Any drift between
+// phantom and phantomd breaks tenant boot with HTTP 404 (the gateway maps
+// ErrInvalidName to 404 to avoid name enumeration).
+//
+// Audit Finding 1 (2026-04-25) added slack_bot_token + slack_gateway_signing_secret.
+// Phase 8a (R7 dated 2026-04-30) added slack_app_token for Socket Mode
+// self-installed agent #2+ tenants. The phantomd side ships in PR #28
+// (TestIsAllowedName_AcceptsSlackAppToken pins the symmetric assertion).
+//
+// This fixture is the SINGLE source of truth for the http-mode tests
 // below; makeSecretFetcher() throws fail-loud on any name not listed
 // here, so a future production-side rename that misses one repo will
 // fail this test suite immediately instead of silently shipping a 404.
 const SECRET_RESPONSES: Record<string, string> = {
 	slack_bot_token: "xoxb-from-metadata",
+	slack_app_token: "xapp-1-from-metadata",
 	slack_gateway_signing_secret: "0123456789abcdef".repeat(4),
 };
 
@@ -243,5 +262,39 @@ describe("createSlackChannel", () => {
 			/unexpected secret name in test: slack_signing_secret/,
 		);
 		await expect(fetcher.get("totally_made_up")).rejects.toThrow(/AllowedSecretNames/);
+	});
+});
+
+// Phase 8a (R7 2026-04-30): pin the cross-repo invariant for the new
+// slack_app_token entry. AllowedSecretNamesMirror is the phantom-side
+// authoritative list; phantomd's TestIsAllowedName_AcceptsSlackAppToken is
+// the matching assertion in the symmetric position. If a future contributor
+// removes the entry on either side without the matching edit, both test
+// suites fail-loud.
+describe("AllowedSecretNamesMirror", () => {
+	test("includes slack_bot_token", () => {
+		expect(AllowedSecretNamesMirror).toContain("slack_bot_token");
+	});
+
+	test("includes slack_app_token (Phase 8a Socket Mode)", () => {
+		expect(AllowedSecretNamesMirror).toContain("slack_app_token");
+	});
+
+	test("includes slack_gateway_signing_secret (audit F1, HTTP receiver)", () => {
+		expect(AllowedSecretNamesMirror).toContain("slack_gateway_signing_secret");
+	});
+
+	test("matches the SECRET_RESPONSES test fixture set", () => {
+		// SECRET_RESPONSES is the test fixture for makeSecretFetcher; its
+		// keys must equal AllowedSecretNamesMirror. A drift here means the
+		// production code can fetch a name the test fixture rejects (or
+		// vice versa), and the audit-F1 fail-loud guard breaks down.
+		const fixtureKeys = Object.keys(SECRET_RESPONSES).sort();
+		const mirror = [...AllowedSecretNamesMirror].sort();
+		expect(fixtureKeys).toEqual(mirror);
+	});
+
+	test("entries are frozen (Object.freeze) so a runtime mutation is loud", () => {
+		expect(Object.isFrozen(AllowedSecretNamesMirror)).toBe(true);
 	});
 });
