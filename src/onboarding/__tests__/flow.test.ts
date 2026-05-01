@@ -2,9 +2,9 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { runMigrations } from "../../db/migrate.ts";
 import type { RoleTemplate } from "../../roles/types.ts";
-import { type OnboardingTarget, startOnboarding } from "../flow.ts";
+import { type OnboardingTarget, appendResearchSection, startOnboarding } from "../flow.ts";
 import type { SlackProfileClient } from "../profiler.ts";
-import { getOnboardingStatus } from "../state.ts";
+import { getFirstbootState, getOnboardingStatus, isIntroSent } from "../state.ts";
 
 const mockRole: RoleTemplate = {
 	id: "swe",
@@ -200,12 +200,13 @@ describe("startOnboarding with profiling", () => {
 		const client = createMockSlackClient();
 		const target: OnboardingTarget = { type: "dm", userId: "U0A9P3CC5EE" };
 
-		const profile = await startOnboarding(slack as never, target, "Scout", mockRole, db, client);
+		const result = await startOnboarding(slack as never, target, "Scout", mockRole, db, client);
 
-		expect(profile).not.toBeNull();
-		expect(profile?.name).toBe("Cheema");
-		expect(profile?.title).toBe("Founder");
-		expect(profile?.teamName).toBe("Ghostwright");
+		expect(result.profile).not.toBeNull();
+		expect(result.profile?.name).toBe("Cheema");
+		expect(result.profile?.title).toBe("Founder");
+		expect(result.profile?.teamName).toBe("Ghostwright");
+		expect(result.skipped).toBe(false);
 	});
 
 	test("falls back to generic intro when profiling fails", async () => {
@@ -221,12 +222,11 @@ describe("startOnboarding with profiling", () => {
 		};
 		const target: OnboardingTarget = { type: "dm", userId: "U04XYZ789" };
 
-		const profile = await startOnboarding(slack as never, target, "Scout", mockRole, db, failingClient);
+		const result = await startOnboarding(slack as never, target, "Scout", mockRole, db, failingClient);
 
 		const text = slack.sendDm.mock.calls[0][1] as string;
-		// Generic fallback when profile has no real data
 		expect(text).toContain("Hey there. I'm Scout");
-		expect(profile).toBeNull();
+		expect(result.profile).toBeNull();
 	});
 
 	test("does not profile for channel targets", async () => {
@@ -239,12 +239,221 @@ describe("startOnboarding with profiling", () => {
 		expect(client.users.info).not.toHaveBeenCalled();
 	});
 
-	test("returns null when target is channel", async () => {
+	test("returns null profile when target is channel", async () => {
 		const slack = createMockSlack();
 		const target: OnboardingTarget = { type: "channel", channelId: "C04ABC123" };
 
-		const profile = await startOnboarding(slack as never, target, "Scout", mockRole, db);
+		const result = await startOnboarding(slack as never, target, "Scout", mockRole, db);
 
-		expect(profile).toBeNull();
+		expect(result.profile).toBeNull();
+	});
+});
+
+describe("appendResearchSection", () => {
+	test("returns the original message when research is null", () => {
+		expect(appendResearchSection("hi", null)).toBe("hi");
+	});
+
+	test("returns the original message when bullets is null", () => {
+		expect(appendResearchSection("hi", { bullets: null, sources: [], outcome: "empty" })).toBe("hi");
+	});
+
+	test("appends bullets when present", () => {
+		const out = appendResearchSection("hi", {
+			bullets: ["First bullet.", "Second bullet."],
+			sources: [
+				{ kind: "github", url: "https://github.com/x" },
+				{ kind: "personal_site", url: "https://x.com" },
+			],
+			outcome: "ok",
+		});
+		expect(out).toContain("hi");
+		expect(out).toContain("What I learned about you so far");
+		expect(out).toContain("- First bullet.");
+		expect(out).toContain("- Second bullet.");
+	});
+});
+
+describe("Phase 12 idempotency in startOnboarding", () => {
+	let db: Database;
+
+	beforeEach(() => {
+		db = new Database(":memory:");
+		db.run("PRAGMA journal_mode = WAL");
+		db.run("PRAGMA foreign_keys = ON");
+		runMigrations(db);
+	});
+
+	afterEach(() => {
+		db.close();
+	});
+
+	test("first call sends the DM and stamps the firstboot ledger", async () => {
+		const slack = createMockSlack();
+		const target: OnboardingTarget = { type: "dm", userId: "U001" };
+
+		const result = await startOnboarding(slack as never, target, "Scout", mockRole, db, undefined, {
+			researchEnabled: false,
+		});
+
+		expect(result.skipped).toBe(false);
+		expect(slack.sendDm).toHaveBeenCalledTimes(1);
+		expect(isIntroSent(db)).toBe(true);
+	});
+
+	test("second call skips entirely when ledger says intro_sent_at is set", async () => {
+		const slack = createMockSlack();
+		const target: OnboardingTarget = { type: "dm", userId: "U001" };
+
+		await startOnboarding(slack as never, target, "Scout", mockRole, db, undefined, { researchEnabled: false });
+		const callsAfterFirst = slack.sendDm.mock.calls.length;
+
+		const second = await startOnboarding(slack as never, target, "Scout", mockRole, db, undefined, {
+			researchEnabled: false,
+		});
+
+		expect(second.skipped).toBe(true);
+		expect(slack.sendDm.mock.calls.length).toBe(callsAfterFirst);
+	});
+
+	test("ledger records the research outcome", async () => {
+		const slack = createMockSlack();
+		const target: OnboardingTarget = { type: "channel", channelId: "C001" };
+
+		await startOnboarding(slack as never, target, "Scout", mockRole, db, undefined, {
+			ownerEmail: "matt@acme.com",
+			enrichImpl: async () => ({
+				bullets: ["b1"],
+				sources: [{ kind: "github", url: "https://github.com/matt" }],
+				outcome: "ok",
+			}),
+		});
+
+		expect(getFirstbootState(db).research_outcome).toBe("ok");
+	});
+
+	test("does not stamp ledger when sendDm throws (so a retry can happen)", async () => {
+		const slack = {
+			sendDm: mock(() => Promise.reject(new Error("slack down"))),
+			postToChannel: mock(() => Promise.resolve("1.0")),
+		};
+		const target: OnboardingTarget = { type: "dm", userId: "U001" };
+
+		await expect(
+			startOnboarding(slack as never, target, "Scout", mockRole, db, undefined, { researchEnabled: false }),
+		).rejects.toThrow("slack down");
+
+		expect(isIntroSent(db)).toBe(false);
+	});
+});
+
+describe("Phase 12 research integration in startOnboarding", () => {
+	let db: Database;
+
+	beforeEach(() => {
+		db = new Database(":memory:");
+		db.run("PRAGMA journal_mode = WAL");
+		db.run("PRAGMA foreign_keys = ON");
+		runMigrations(db);
+	});
+
+	afterEach(() => {
+		db.close();
+	});
+
+	test("research bullets are appended to the intro DM", async () => {
+		const slack = createMockSlack();
+		const target: OnboardingTarget = { type: "dm", userId: "U001" };
+
+		await startOnboarding(slack as never, target, "Scout", mockRole, db, undefined, {
+			ownerEmail: "matt@acme.com",
+			ownerName: "Matt Example",
+			enrichImpl: async () => ({
+				bullets: ["On GitHub as @matt: building developer tools.", "Their site at acme.com: Acme builds tools."],
+				sources: [
+					{ kind: "github", url: "https://github.com/matt" },
+					{ kind: "personal_site", url: "https://acme.com" },
+				],
+				outcome: "ok",
+			}),
+		});
+
+		const text = slack.sendDm.mock.calls[0][1] as string;
+		expect(text).toContain("What I learned about you so far");
+		expect(text).toContain("@matt");
+		expect(text).toContain("acme.com");
+	});
+
+	test("empty research result does NOT add the section", async () => {
+		const slack = createMockSlack();
+		const target: OnboardingTarget = { type: "dm", userId: "U001" };
+
+		await startOnboarding(slack as never, target, "Scout", mockRole, db, undefined, {
+			ownerEmail: "matt@acme.com",
+			enrichImpl: async () => ({ bullets: null, sources: [], outcome: "empty" }),
+		});
+
+		const text = slack.sendDm.mock.calls[0][1] as string;
+		expect(text).not.toContain("What I learned about you so far");
+	});
+
+	test("network failure during research still sends the intro DM", async () => {
+		const slack = createMockSlack();
+		const target: OnboardingTarget = { type: "channel", channelId: "C001" };
+
+		await startOnboarding(slack as never, target, "Scout", mockRole, db, undefined, {
+			ownerEmail: "matt@acme.com",
+			enrichImpl: async () => {
+				throw new Error("ENETDOWN");
+			},
+		});
+
+		expect(slack.postToChannel).toHaveBeenCalledTimes(1);
+		expect(getFirstbootState(db).research_outcome).toBe("error");
+	});
+
+	test("researchEnabled=false skips research entirely", async () => {
+		const slack = createMockSlack();
+		const target: OnboardingTarget = { type: "dm", userId: "U001" };
+		const enrich = mock(() => Promise.resolve({ bullets: ["b"], sources: [], outcome: "ok" as const }));
+
+		await startOnboarding(slack as never, target, "Scout", mockRole, db, undefined, {
+			ownerEmail: "matt@acme.com",
+			researchEnabled: false,
+			enrichImpl: enrich,
+		});
+
+		expect(enrich).not.toHaveBeenCalled();
+	});
+
+	test("Slack profile name is used as fallback for research input", async () => {
+		const slack = createMockSlack();
+		const client = createMockSlackClient();
+		const target: OnboardingTarget = { type: "dm", userId: "U001" };
+		const enrich = mock(() => Promise.resolve({ bullets: null, sources: [], outcome: "empty" as const })) as never;
+
+		await startOnboarding(slack as never, target, "Scout", mockRole, db, client, {
+			ownerEmail: "matt@acme.com",
+			enrichImpl: enrich as never,
+		});
+
+		const seen = (enrich as unknown as { mock: { calls: Array<[{ name?: string }]> } }).mock.calls[0][0].name;
+		expect(seen).toBe("Cheema");
+	});
+
+	test("explicit ownerName beats Slack profile name", async () => {
+		const slack = createMockSlack();
+		const client = createMockSlackClient();
+		const target: OnboardingTarget = { type: "dm", userId: "U001" };
+		const enrich = mock(() => Promise.resolve({ bullets: null, sources: [], outcome: "empty" as const })) as never;
+
+		await startOnboarding(slack as never, target, "Scout", mockRole, db, client, {
+			ownerEmail: "matt@acme.com",
+			ownerName: "Override Name",
+			enrichImpl: enrich as never,
+		});
+
+		const seen = (enrich as unknown as { mock: { calls: Array<[{ name?: string }]> } }).mock.calls[0][0].name;
+		expect(seen).toBe("Override Name");
 	});
 });

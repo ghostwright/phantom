@@ -375,7 +375,7 @@ Verify after every deploy with `docker exec phantom sh -c 'touch /app/public/_w 
 
 ## Known Bugs
 
-1. **Onboarding re-fires on restart (LOW):** When evolution generation is 0, the intro DM sends again on restart. Needs an "intro_sent" flag in SQLite.
+1. ~~**Onboarding re-fires on restart (LOW):**~~ Fixed in Phase 12 (`feat/2026-05-01-phase12-user-research-enrichment`). The firstboot ledger (`firstboot_state` table) now stamps `intro_sent_at` after a successful intro DM, and `startOnboarding` short-circuits with `skipped: true` on every later boot. Process restarts before the first evolution generation no longer re-fire the DM.
 
 ## Key Files to Read First
 

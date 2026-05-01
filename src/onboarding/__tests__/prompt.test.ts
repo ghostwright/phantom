@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import type { OwnerResearchResult } from "../../agent/research/types.ts";
 import type { RoleTemplate } from "../../roles/types.ts";
 import type { OwnerProfile } from "../profiler.ts";
-import { buildOnboardingPrompt } from "../prompt.ts";
+import { buildOnboardingPrompt, buildResearchContext } from "../prompt.ts";
 
 const mockRole: RoleTemplate = {
 	id: "swe",
@@ -170,5 +171,83 @@ describe("buildOnboardingPrompt with owner profile", () => {
 		const prompt = buildOnboardingPrompt(mockRole, "Scout", adminProfile);
 		expect(prompt).toContain("workspace admin");
 		expect(prompt).not.toContain("workspace owner");
+	});
+});
+
+describe("buildResearchContext", () => {
+	const research: OwnerResearchResult = {
+		bullets: ["On GitHub as @matt: building tools.", "LinkedIn headline: Senior Engineer."],
+		sources: [
+			{ kind: "github", url: "https://github.com/matt" },
+			{ kind: "linkedin_public", url: "https://www.linkedin.com/in/matt" },
+		],
+		outcome: "ok",
+	};
+
+	test("returns empty string when research is null", () => {
+		expect(buildResearchContext(null)).toBe("");
+	});
+
+	test("returns empty string when bullets is null", () => {
+		expect(buildResearchContext({ bullets: null, sources: [], outcome: "empty" })).toBe("");
+	});
+
+	test("returns empty string when bullets is empty", () => {
+		expect(buildResearchContext({ bullets: [], sources: [], outcome: "ok" })).toBe("");
+	});
+
+	test("emits the public-sources heading when bullets exist", () => {
+		const out = buildResearchContext(research);
+		expect(out).toContain("## What I Learned About Them (Public Sources)");
+	});
+
+	test("includes each bullet with its source kind tag", () => {
+		const out = buildResearchContext(research);
+		expect(out).toContain("- On GitHub as @matt");
+		expect(out).toContain("[github]");
+		expect(out).toContain("[linkedin_public]");
+	});
+
+	test("warns the agent against treating public bullets as deep knowledge", () => {
+		const out = buildResearchContext(research);
+		expect(out).toContain("public sources only");
+		expect(out).toContain("Verify with the user");
+	});
+});
+
+describe("buildOnboardingPrompt with research", () => {
+	const minimalResearch: OwnerResearchResult = {
+		bullets: ["On GitHub as @matt: building tools."],
+		sources: [{ kind: "github", url: "https://github.com/matt" }],
+		outcome: "ok",
+	};
+
+	test("research section appears when bullets are present", () => {
+		const prompt = buildOnboardingPrompt(mockRole, "Scout", undefined, minimalResearch);
+		expect(prompt).toContain("## What I Learned About Them");
+		expect(prompt).toContain("@matt");
+	});
+
+	test("research section is omitted when research is null", () => {
+		const prompt = buildOnboardingPrompt(mockRole, "Scout", undefined, null);
+		expect(prompt).not.toContain("## What I Learned About Them");
+	});
+
+	test("research and owner profile coexist", () => {
+		const profile: OwnerProfile = {
+			name: "Cheema",
+			title: "Founder",
+			timezone: null,
+			status: null,
+			isAdmin: true,
+			isOwner: true,
+			teamName: "Ghostwright",
+			channels: [],
+		};
+		const prompt = buildOnboardingPrompt(mockRole, "Scout", profile, minimalResearch);
+		expect(prompt).toContain("## Owner Context");
+		expect(prompt).toContain("## What I Learned About Them");
+		// Research section appears AFTER owner context.
+		expect(prompt.indexOf("## What I Learned About Them")).toBeGreaterThan(prompt.indexOf("## Owner Context"));
 	});
 });
