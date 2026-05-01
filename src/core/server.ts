@@ -272,7 +272,7 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 				return new Response("Method not allowed", { status: 405, headers: { Allow: "GET" } });
 			}
 
-			if (url.pathname.startsWith("/chat") && chatHandler) {
+			if (isChatRequestPath(url.pathname) && chatHandler) {
 				const response = await chatHandler(req);
 				if (response) return response;
 			}
@@ -299,6 +299,10 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 
 	console.log(`[phantom] HTTP server listening on port ${config.port}`);
 	return server;
+}
+
+function isChatRequestPath(pathname: string): boolean {
+	return pathname.startsWith("/chat") || pathname === "/s" || pathname.startsWith("/s/") || pathname === "/new";
 }
 
 async function handlePublicRequest(url: URL): Promise<Response> {

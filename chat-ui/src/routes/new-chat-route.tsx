@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { createSession } from "@/lib/client";
+import { CHAT_ROOT_PATH, chatSessionPath } from "@/lib/routes";
 
 export function NewChatRoute() {
   const navigate = useNavigate();
@@ -11,10 +12,10 @@ export function NewChatRoute() {
     didCreate.current = true;
     createSession()
       .then((result) => {
-        navigate(`/s/${result.id}`, { replace: true });
+        navigate(chatSessionPath(result.id), { replace: true });
       })
       .catch(() => {
-        navigate("/", { replace: true });
+        navigate(CHAT_ROOT_PATH, { replace: true });
       });
   }, [navigate]);
 

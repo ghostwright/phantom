@@ -19,7 +19,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return outputArray;
 }
 
-export function useNotifications(): {
+export function useNotifications({ enabled }: { enabled: boolean }): {
   permission: NotificationState["permission"];
   subscribed: boolean;
   subscribe: () => Promise<boolean>;
@@ -37,6 +37,8 @@ export function useNotifications(): {
 
   // Register Service Worker on mount
   useEffect(() => {
+    if (!enabled) return;
+
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
       setState((s) => ({ ...s, permission: "unsupported" }));
       return;
@@ -70,7 +72,7 @@ export function useNotifications(): {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [enabled]);
 
   const subscribe = useCallback(async (): Promise<boolean> => {
     if (!state.swRegistration || !vapidKeyRef.current) return false;

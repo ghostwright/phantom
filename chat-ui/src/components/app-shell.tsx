@@ -7,6 +7,7 @@ import { useKeyboard } from "@/hooks/use-keyboard";
 import { useSessions } from "@/hooks/use-sessions";
 import { useTheme } from "@/hooks/use-theme";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { CHAT_ROOT_PATH, chatSessionPath } from "@/lib/routes";
 import { CommandPalette } from "./command-palette";
 import { DeleteSessionDialog } from "./delete-session-dialog";
 import { KeyboardHelpSheet } from "./keyboard-help-sheet";
@@ -74,12 +75,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const handleNewSession = useCallback(async () => {
     const id = await createSession();
-    navigate(`/s/${id}`);
+    navigate(chatSessionPath(id));
   }, [createSession, navigate]);
 
   const handleSessionClick = useCallback(
     (id: string) => {
-      navigate(`/s/${id}`);
+      navigate(chatSessionPath(id));
       if (isMobile) setSidebarOpen(false);
     },
     [navigate, isMobile],
@@ -105,7 +106,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     deleteSession(deleteTarget.id);
     setDeleteTarget(null);
     if (deleteTarget.id === sessionId) {
-      navigate("/");
+      navigate(CHAT_ROOT_PATH);
     }
   }, [deleteTarget, deleteSession, sessionId, navigate]);
 
@@ -151,7 +152,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </a>
 
       {sidebarOpen && (
-        <div className="w-64 shrink-0 border-r border-border">
+        <div className="w-64 shrink-0 border-r border-border/70">
           <SidebarPanel
             sessions={sessions}
             isLoading={isLoading}
@@ -165,11 +166,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 items-center border-b border-border px-4">
+        <header className="flex h-12 shrink-0 items-center border-b border-border/70 bg-background/95 px-4 backdrop-blur">
           <button
             type="button"
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="mr-3 text-muted-foreground hover:text-foreground"
+            className="mr-3 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground"
             aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
           >
             <PanelLeft className="h-4 w-4" />

@@ -9,6 +9,7 @@ export type BootstrapData = {
 	avatar_url: string | null;
 	memory_count: number;
 	slack_status: string;
+	push_notifications_enabled: boolean;
 	scheduled_jobs_count: number;
 	recent_sessions_count: number;
 	suggestions: string[];

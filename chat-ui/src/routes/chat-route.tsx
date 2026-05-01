@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { EmptyState } from "@/components/empty-state";
 import { ChatInput } from "@/components/chat-input";
 import { createSession } from "@/lib/client";
+import { CHAT_ROOT_PATH, chatSessionPath } from "@/lib/routes";
 
 const PREFILL_MAX = 2000;
 
@@ -35,7 +36,7 @@ export function ChatRoute() {
     const prefill = readPrefill();
     if (prefill === null) return;
     setInitialText(prefill);
-    window.history.replaceState({}, "", "/chat");
+    window.history.replaceState({}, "", CHAT_ROOT_PATH);
   }, []);
 
   const handleCreateAndNavigate = useCallback(
@@ -44,7 +45,7 @@ export function ChatRoute() {
       creatingRef.current = true;
       try {
         const result = await createSession();
-        navigate(`/s/${result.id}`, { state: { initialMessage: text } });
+        navigate(chatSessionPath(result.id), { state: { initialMessage: text } });
       } finally {
         creatingRef.current = false;
       }

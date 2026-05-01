@@ -101,9 +101,9 @@ export function ChatInput({
   const hasAttachments = (attachments?.length ?? 0) > 0;
 
   return (
-    <div className="border-t border-border bg-background px-4 py-3">
+    <div className="border-t border-border/70 bg-background/95 px-4 py-3 backdrop-blur">
       <div className="mx-auto max-w-3xl">
-        <div className="flex flex-col rounded-xl border border-border bg-card">
+        <div className="flex flex-col rounded-xl border border-border/80 bg-card/95 shadow-sm shadow-black/5 transition-colors focus-within:border-primary/45 focus-within:ring-4 focus-within:ring-primary/10">
           {hasAttachments && attachments && onRemoveFile && (
             <div className="pt-2">
               <AttachmentStrip files={attachments} onRemove={onRemoveFile} />
@@ -149,7 +149,7 @@ export function ChatInput({
                 size="icon"
                 onClick={handleSend}
                 disabled={!text.trim() || disabled || isSubmitting}
-                className="h-8 w-8 shrink-0 rounded-lg bg-primary text-primary-content hover:bg-primary/90 disabled:opacity-50"
+                className="h-8 w-8 shrink-0 rounded-lg bg-primary text-primary-content shadow-sm shadow-primary/15 hover:bg-primary/90 disabled:opacity-50"
                 aria-label="Send message"
               >
                 <ArrowUp className="h-4 w-4" />

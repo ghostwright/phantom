@@ -2,9 +2,11 @@
 // "Want a ping when your task is done?" with Enable and Dismiss buttons.
 // Dismiss hides for 24 hours via localStorage.
 
-import { useCallback, useState } from "react";
+import { useBootstrap } from "@/hooks/use-bootstrap";
 import { useNotifications } from "@/hooks/use-notifications";
 import { Button } from "@/ui/button";
+import { BellRing, X } from "lucide-react";
+import { useCallback, useState } from "react";
 
 const DISMISS_KEY = "phantom_notification_banner_dismissed_at";
 const DISMISS_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -25,7 +27,9 @@ export function NotificationBanner({
 }: {
   visible: boolean;
 }) {
-  const { permission, subscribed, subscribe } = useNotifications();
+  const { data } = useBootstrap();
+  const notificationsEnabled = data?.push_notifications_enabled === true;
+  const { permission, subscribed, subscribe } = useNotifications({ enabled: notificationsEnabled });
   const [dismissed, setDismissed] = useState(isDismissed);
   const [enabling, setEnabling] = useState(false);
 
@@ -51,6 +55,7 @@ export function NotificationBanner({
   // permission denied, or browser doesn't support it
   if (
     !visible ||
+    !notificationsEnabled ||
     subscribed ||
     dismissed ||
     permission === "denied" ||
@@ -60,20 +65,30 @@ export function NotificationBanner({
   }
 
   return (
-    <div className="mx-auto mb-3 flex w-full max-w-2xl items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
-      <p className="flex-1 text-sm text-muted-foreground">
-        Want a ping when your task is done?
+    <div className="mx-auto mb-3 flex w-full max-w-2xl items-center gap-2 rounded-lg border border-border/70 bg-card/95 px-3 py-2 shadow-sm shadow-black/5">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground">
+        <BellRing className="h-3.5 w-3.5" />
+      </span>
+      <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+        Notify me when long tasks finish.
       </p>
       <Button
         size="sm"
         variant="default"
         onClick={handleEnable}
         disabled={enabling}
+        className="h-8 shrink-0"
       >
         {enabling ? "Enabling..." : "Enable"}
       </Button>
-      <Button size="sm" variant="ghost" onClick={handleDismiss}>
-        Not now
+      <Button
+        size="icon"
+        variant="ghost"
+        onClick={handleDismiss}
+        className="h-8 w-8 shrink-0"
+        aria-label="Dismiss notification prompt"
+      >
+        <X className="h-3.5 w-3.5" />
       </Button>
     </div>
   );
