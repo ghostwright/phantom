@@ -23,7 +23,7 @@ export function SidebarPanel({
 }) {
   return (
     <div className="flex h-full flex-col bg-sidebar">
-      <div className="flex items-center justify-between border-b border-sidebar-border px-3 py-3">
+      <div className="flex h-12 items-center justify-between border-b border-sidebar-border/70 px-3">
         <span className="text-sm font-semibold text-sidebar-foreground">
           Conversations
         </span>
@@ -32,7 +32,7 @@ export function SidebarPanel({
           size="icon"
           onClick={onNewSession}
           aria-label="New conversation"
-          className="h-7 w-7"
+          className="h-8 w-8 rounded-md"
         >
           <Plus className="h-4 w-4" />
         </Button>

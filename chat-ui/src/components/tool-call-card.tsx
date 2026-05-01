@@ -129,27 +129,67 @@ type StateStyle = {
 	border: string;
 	icon: typeof Terminal;
 	iconClass: string;
-	showSpinner?: boolean;
+	badgeClass: string;
 };
 
 function getStateStyle(state: ToolCallState["state"]): StateStyle {
 	switch (state) {
 		case "pending":
-			return { border: "border-muted", icon: Terminal, iconClass: "animate-pulse text-muted-foreground" };
+			return {
+				border: "border-border/60",
+				icon: Terminal,
+				iconClass: "animate-pulse text-muted-foreground",
+				badgeClass: "border-border bg-muted/55 text-muted-foreground",
+			};
 		case "input_streaming":
-			return { border: "border-primary/50 animate-pulse", icon: Terminal, iconClass: "text-primary" };
+			return {
+				border: "border-primary/35 animate-pulse",
+				icon: Terminal,
+				iconClass: "text-primary",
+				badgeClass: "border-primary/25 bg-primary/10 text-primary",
+			};
 		case "input_complete":
-			return { border: "border-border", icon: Terminal, iconClass: "text-foreground" };
+			return {
+				border: "border-border/70",
+				icon: Terminal,
+				iconClass: "text-foreground",
+				badgeClass: "border-border bg-muted/45 text-muted-foreground",
+			};
 		case "running":
-			return { border: "border-primary/40", icon: Loader2, iconClass: "text-primary animate-spin", showSpinner: true };
+			return {
+				border: "border-primary/35",
+				icon: Loader2,
+				iconClass: "text-primary animate-spin",
+				badgeClass: "border-primary/25 bg-primary/10 text-primary",
+			};
 		case "result":
-			return { border: "border-border", icon: Check, iconClass: "text-success" };
+			return {
+				border: "border-border/70",
+				icon: Check,
+				iconClass: "text-success",
+				badgeClass: "border-success/20 bg-success/10 text-success",
+			};
 		case "error":
-			return { border: "border-error", icon: XCircle, iconClass: "text-error" };
+			return {
+				border: "border-error/70",
+				icon: XCircle,
+				iconClass: "text-error",
+				badgeClass: "border-error/25 bg-error/10 text-error",
+			};
 		case "aborted":
-			return { border: "border-muted", icon: AlertCircle, iconClass: "text-muted-foreground line-through" };
+			return {
+				border: "border-border/60",
+				icon: AlertCircle,
+				iconClass: "text-muted-foreground line-through",
+				badgeClass: "border-border bg-muted/45 text-muted-foreground",
+			};
 		case "blocked":
-			return { border: "border-warning", icon: Shield, iconClass: "text-warning" };
+			return {
+				border: "border-warning/70",
+				icon: Shield,
+				iconClass: "text-warning",
+				badgeClass: "border-warning/25 bg-warning/10 text-warning",
+			};
 	}
 }
 
@@ -170,25 +210,35 @@ export function ToolCallCard({ tool }: { tool: ToolCallState }) {
 
 	const isOpen = disclosure.isOpen;
 	const hasBody = Boolean(output || tool.error || tool.blockReason || inputDetails || tool.fullRef);
+	const detailLabel = isOpen ? "Hide details" : "View details";
 
 	return (
-		<div className={cn("my-2 overflow-hidden rounded border bg-card transition-colors", style.border)}>
+		<div
+			className={cn(
+				"my-1.5 overflow-hidden rounded-lg border bg-card/80 shadow-sm shadow-black/5 transition-colors",
+				style.border,
+			)}
+		>
 			<button
 				type="button"
 				onClick={() => hasBody && setDisclosure((current) => toggleToolDisclosure(current))}
-				className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-sm"
+				className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-muted/35 disabled:hover:bg-transparent"
 				disabled={!hasBody}
 				aria-expanded={hasBody ? isOpen : undefined}
 				aria-controls={hasBody ? bodyId : undefined}
 			>
-				<Icon className={cn("h-4 w-4 shrink-0", style.iconClass)} />
+				<span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border/60 bg-background/70">
+					<Icon className={cn("h-4 w-4", style.iconClass)} />
+				</span>
 				<div className="min-w-0 flex-1 text-left">
 					<div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
 						<span className="font-medium text-foreground">{tool.toolName}</span>
 						{subtitle && <span className="min-w-0 max-w-full truncate text-muted-foreground">{subtitle}</span>}
 					</div>
-					<div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-						<span>{stateLabel(tool)}</span>
+					<div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+						<span className={cn("rounded border px-1.5 py-0.5 font-medium", style.badgeClass)}>
+							{stateLabel(tool)}
+						</span>
 						{tool.durationMs != null && <span>{durationLabel(tool.durationMs)}</span>}
 						{tool.outputTruncated && <span>Output truncated</span>}
 						{tool.fullRef && <span>Full output saved</span>}
@@ -204,21 +254,22 @@ export function ToolCallCard({ tool }: { tool: ToolCallState }) {
 					)}
 					{tool.state === "running" && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
 					{hasBody && (
-						<ChevronDown
-							className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", isOpen && "rotate-180")}
-						/>
+						<span className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-background/70">
+							<span className="hidden sm:inline">{detailLabel}</span>
+							<ChevronDown className={cn("h-3.5 w-3.5 transition-transform", isOpen && "rotate-180")} />
+						</span>
 					)}
 				</div>
 			</button>
 
 			{isOpen && hasBody && (
-				<div id={bodyId} className="space-y-3 border-t border-border bg-muted/25 px-3 py-3">
+				<div id={bodyId} className="space-y-3 border-t border-border/70 bg-muted/20 px-3 py-3">
 					{inputDetails && (
 						<div className="space-y-1">
 							<div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
 								{inputDetails.label}
 							</div>
-							<pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded bg-background px-3 py-2 font-mono text-xs text-foreground">
+							<pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/50 bg-background px-3 py-2 font-mono text-xs text-foreground">
 								{inputDetails.value}
 							</pre>
 						</div>
@@ -230,7 +281,7 @@ export function ToolCallCard({ tool }: { tool: ToolCallState }) {
 							<div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
 								Full output path
 							</div>
-							<div className="rounded bg-background px-3 py-2 font-mono text-xs text-muted-foreground">
+							<div className="rounded-md border border-border/50 bg-background px-3 py-2 font-mono text-xs text-muted-foreground">
 								{redactSensitiveText(tool.fullRef)}
 							</div>
 						</div>
@@ -238,7 +289,7 @@ export function ToolCallCard({ tool }: { tool: ToolCallState }) {
 					{output && (
 						<div className="space-y-1">
 							<div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Output</div>
-							<pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded bg-background px-3 py-2 font-mono text-xs text-foreground">
+							<pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/50 bg-background px-3 py-2 font-mono text-xs text-foreground">
 								{output}
 							</pre>
 						</div>

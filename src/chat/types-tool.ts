@@ -15,6 +15,7 @@ import type {
 	SessionResumedFrame,
 	SessionStatusFrame,
 	SessionSuggestionFrame,
+	SessionTitleUpdatedFrame,
 	SessionTruncatedBacklogFrame,
 	TextDeltaFrame,
 	TextEndFrame,
@@ -124,6 +125,7 @@ export type SubagentEndFrame = {
 
 export type ChatWireFrame =
 	| SessionCreatedFrame
+	| SessionTitleUpdatedFrame
 	| SessionResumedFrame
 	| SessionCaughtUpFrame
 	| SessionDoneFrame

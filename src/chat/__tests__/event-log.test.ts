@@ -68,16 +68,17 @@ describe("ChatEventLog", () => {
 		expect(log.getLatestTerminalSeq("sess-1")).toBe(0);
 	});
 
-	test("getStreamState treats benign post-terminal suggestions as complete", () => {
+	test("getStreamState treats benign post-terminal metadata as complete", () => {
 		log.append("sess-1", null, 1, "message.assistant_start", {});
 		log.append("sess-1", null, 2, "session.done", {});
 		log.append("sess-1", null, 3, "session.suggestion", {});
+		log.append("sess-1", null, 4, "session.title_updated", {});
 
-		expect(log.getMaxSeq("sess-1")).toBe(3);
+		expect(log.getMaxSeq("sess-1")).toBe(4);
 		expect(log.getLatestTerminalSeq("sess-1")).toBe(2);
 		expect(log.getLatestRecoveryRelevantSeq("sess-1")).toBe(2);
 		expect(log.getStreamState("sess-1", false)).toEqual({
-			maxSeq: 3,
+			maxSeq: 4,
 			latestTerminalSeq: 2,
 			writerActive: false,
 			hasIncompleteTail: false,

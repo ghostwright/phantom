@@ -9,6 +9,7 @@ export type BootstrapData = {
 	avatar_url: string | null;
 	memory_count: number;
 	slack_status: string;
+	push_notifications_enabled: boolean;
 	scheduled_jobs_count: number;
 	recent_sessions_count: number;
 	suggestions: string[];
@@ -74,6 +75,15 @@ export type ListSessionsResult = {
 	next_cursor: string | null;
 };
 
+export const SESSIONS_CHANGED_EVENT = "phantom:sessions-changed";
+
+export type SessionsChangedReason = "created" | "updated" | "deleted" | "run-completed";
+
+export function notifySessionsChanged(reason: SessionsChangedReason): void {
+	if (typeof window === "undefined") return;
+	window.dispatchEvent(new CustomEvent(SESSIONS_CHANGED_EVENT, { detail: { reason } }));
+}
+
 async function chatFetch<T>(path: string, options?: RequestInit): Promise<T> {
 	const res = await fetch(path, {
 		credentials: "include",
@@ -101,25 +111,31 @@ export function getSession(id: string): Promise<SessionDetail> {
 	return chatFetch<SessionDetail>(`/chat/sessions/${id}`);
 }
 
-export function createSession(title?: string): Promise<{ id: string; created_at: string }> {
-	return chatFetch("/chat/sessions", {
+export async function createSession(title?: string): Promise<{ id: string; created_at: string }> {
+	const result = await chatFetch<{ id: string; created_at: string }>("/chat/sessions", {
 		method: "POST",
 		body: JSON.stringify(title ? { title } : {}),
 	});
+	notifySessionsChanged("created");
+	return result;
 }
 
-export function updateSession(
+export async function updateSession(
 	id: string,
 	fields: { title?: string; pinned?: boolean; status?: string },
 ): Promise<{ ok: boolean }> {
-	return chatFetch(`/chat/sessions/${id}`, {
+	const result = await chatFetch<{ ok: boolean }>(`/chat/sessions/${id}`, {
 		method: "PATCH",
 		body: JSON.stringify(fields),
 	});
+	notifySessionsChanged("updated");
+	return result;
 }
 
-export function deleteSession(id: string): Promise<{ ok: boolean; undo_until: string }> {
-	return chatFetch(`/chat/sessions/${id}`, { method: "DELETE" });
+export async function deleteSession(id: string): Promise<{ ok: boolean; undo_until: string }> {
+	const result = await chatFetch<{ ok: boolean; undo_until: string }>(`/chat/sessions/${id}`, { method: "DELETE" });
+	notifySessionsChanged("deleted");
+	return result;
 }
 
 export function abortSession(id: string): Promise<void> {

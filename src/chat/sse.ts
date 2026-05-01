@@ -2,12 +2,13 @@ import type { ChatWireFrame } from "./types.ts";
 
 export const CHAT_SSE_RETRY_MS = 5000;
 export const CHAT_SSE_HEARTBEAT_MS = 5000;
+export const CHAT_POST_TERMINAL_GRACE_MS = 30_000;
 export const CHAT_SSE_HEARTBEAT_FRAME = ":ka\n\n";
 export const CHAT_STREAM_ENDED_RECOVERY_MESSAGE =
 	"Stream ended before the session completed. Please resend your message.";
 
 export const CHAT_TERMINAL_EVENT_TYPES = ["session.done", "session.error", "session.aborted"] as const;
-export const CHAT_POST_TERMINAL_NON_RECOVERY_EVENT_TYPES = ["session.suggestion"] as const;
+export const CHAT_POST_TERMINAL_NON_RECOVERY_EVENT_TYPES = ["session.suggestion", "session.title_updated"] as const;
 
 export const CHAT_SSE_HEADERS = {
 	"Content-Type": "text/event-stream",

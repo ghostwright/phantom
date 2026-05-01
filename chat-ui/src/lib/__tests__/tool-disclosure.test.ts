@@ -10,6 +10,16 @@ describe("tool disclosure policy", () => {
 		});
 	});
 
+	it("starts routine tool states collapsed", () => {
+		for (const state of ["pending", "input_streaming", "input_complete", "running"] as const) {
+			expect(initialToolDisclosureState(state)).toMatchObject({
+				isOpen: false,
+				lastToolState: state,
+				userInteracted: false,
+			});
+		}
+	});
+
 	it("starts blocked and errored tools open", () => {
 		expect(initialToolDisclosureState("blocked").isOpen).toBe(true);
 		expect(initialToolDisclosureState("error").isOpen).toBe(true);

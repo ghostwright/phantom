@@ -1,4 +1,5 @@
 import {
+	CHAT_POST_TERMINAL_GRACE_MS,
 	CHAT_SSE_RETRY_MS,
 	closeSseController,
 	createSseCloseScheduler,
@@ -12,11 +13,17 @@ import type { ChatSessionWriter } from "./writer.ts";
 export function createSSEStream(sessionId: string, streamBus: StreamBus, writer: ChatSessionWriter): ReadableStream {
 	let unsub: (() => void) | null = null;
 	let heartbeatCleanup: (() => void) | null = null;
+	let postTerminalTimer: ReturnType<typeof setTimeout> | null = null;
+	let waitingForPostTerminal = false;
 	const cleanupStream = (): void => {
 		unsub?.();
 		unsub = null;
 		heartbeatCleanup?.();
 		heartbeatCleanup = null;
+		if (postTerminalTimer) {
+			clearTimeout(postTerminalTimer);
+			postTerminalTimer = null;
+		}
 	};
 
 	return new ReadableStream({
@@ -38,17 +45,32 @@ export function createSSEStream(sessionId: string, streamBus: StreamBus, writer:
 				heartbeatCleanup?.();
 				heartbeatCleanup = null;
 			}, close);
+			const finishPostTerminal = (): void => {
+				waitingForPostTerminal = false;
+				if (postTerminalTimer) {
+					clearTimeout(postTerminalTimer);
+					postTerminalTimer = null;
+				}
+				closeSoon();
+			};
 
 			write(`retry: ${CHAT_SSE_RETRY_MS}\n\n`);
 
 			unsub = streamBus.subscribe(sessionId, (frame, seq) => {
 				write(formatSSE(frame, seq));
 				if (isTerminalChatEvent(frame.event)) {
-					closeSoon();
+					waitingForPostTerminal = true;
+					if (postTerminalTimer) clearTimeout(postTerminalTimer);
+					postTerminalTimer = setTimeout(finishPostTerminal, CHAT_POST_TERMINAL_GRACE_MS);
+				}
+				if (frame.event === "session.title_updated") {
+					finishPostTerminal();
 				}
 			});
 
-			heartbeatCleanup = startSseHeartbeat(write, () => writer.isActive, { onStop: closeSoon });
+			heartbeatCleanup = startSseHeartbeat(write, () => writer.isActive || waitingForPostTerminal, {
+				onStop: closeSoon,
+			});
 		},
 		cancel() {
 			cleanupStream();

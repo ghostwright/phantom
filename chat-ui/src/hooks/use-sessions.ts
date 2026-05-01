@@ -3,6 +3,7 @@ import {
   createSession as apiCreateSession,
   deleteSession as apiDeleteSession,
   listSessions,
+  SESSIONS_CHANGED_EVENT,
   updateSession as apiUpdateSession,
   type SessionSummary,
 } from "@/lib/client";
@@ -41,6 +42,11 @@ export function useSessions(): UseSessionsReturn {
 
   useEffect(() => {
     refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    window.addEventListener(SESSIONS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(SESSIONS_CHANGED_EVENT, refresh);
   }, [refresh]);
 
   const createSession = useCallback(

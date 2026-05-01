@@ -31,14 +31,15 @@ const router = createBrowserRouter(
     {
       element: <Layout />,
       children: [
-        { index: true, element: <ChatRoute /> },
+        { path: "chat", element: <ChatRoute /> },
+        { path: "chat/s/:sessionId", element: <SessionRoute /> },
+        { path: "chat/new", element: <NewChatRoute /> },
         { path: "s/:sessionId", element: <SessionRoute /> },
         { path: "new", element: <NewChatRoute /> },
         { path: "*", element: <NotFoundRoute /> },
       ],
     },
   ],
-  { basename: "/chat" },
 );
 
 export function App() {
