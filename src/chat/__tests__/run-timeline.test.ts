@@ -224,6 +224,91 @@ describe("DurableRunTimelineBuilder", () => {
 		expect(summary.subagents[0]).toMatchObject({ taskId: "task-1", status: "completed", summary: "Done" });
 	});
 
+	test("persists safe page artifacts without relying on full tool output", () => {
+		const builder = startBuilder();
+		builder.apply(
+			{
+				event: "message.tool_call_start",
+				message_id: "assistant-1",
+				tool_call_id: "tool-page",
+				tool_name: "mcp__phantom-web-ui__phantom_create_page",
+				parent_tool_use_id: null,
+				is_mcp: true,
+				mcp_server: "phantom-web-ui",
+			},
+			2,
+		);
+		builder.apply(
+			{
+				event: "message.tool_call_input_end",
+				tool_call_id: "tool-page",
+				input: { path: "reports/weekly.html", title: "Weekly Report" },
+			},
+			3,
+		);
+		builder.apply(
+			{
+				event: "message.tool_call_result",
+				tool_call_id: "tool-page",
+				tool_name: "mcp__phantom-web-ui__phantom_create_page",
+				status: "success",
+				duration_ms: 120,
+				output: JSON.stringify({
+					created: true,
+					path: "reports/weekly.html",
+					url: "http://127.0.0.1:3112/ui/reports/weekly.html",
+					size: 8842,
+				}),
+			},
+			4,
+		);
+
+		const summary = builder.toUpsertParams().summary;
+		expect(summary.tools[0]?.safeOutputSummary).toBe("Tool produced output.");
+		expect(summary.artifacts).toEqual([
+			{
+				id: "page:http://127.0.0.1:3112/ui/reports/weekly.html",
+				type: "page",
+				title: "Weekly Report",
+				url: "http://127.0.0.1:3112/ui/reports/weekly.html",
+				path: "reports/weekly.html",
+				sizeBytes: 8842,
+				sourceToolName: "phantom_create_page",
+			},
+		]);
+	});
+
+	test("keeps magic login links out of durable artifacts", () => {
+		const builder = startBuilder();
+		builder.apply(
+			{
+				event: "message.tool_call_start",
+				message_id: "assistant-1",
+				tool_call_id: "tool-login",
+				tool_name: "mcp__phantom-web-ui__phantom_generate_login",
+				parent_tool_use_id: null,
+				is_mcp: true,
+				mcp_server: "phantom-web-ui",
+			},
+			2,
+		);
+		builder.apply(
+			{
+				event: "message.tool_call_result",
+				tool_call_id: "tool-login",
+				tool_name: "mcp__phantom-web-ui__phantom_generate_login",
+				status: "success",
+				output: JSON.stringify({
+					magicLink: "http://127.0.0.1:3112/ui/login?magic=secret",
+					expiresIn: "10 minutes",
+				}),
+			},
+			3,
+		);
+
+		expect(builder.toUpsertParams().summary.artifacts).toEqual([]);
+	});
+
 	test("records session done and session error terminal state", () => {
 		const doneBuilder = startBuilder();
 		doneBuilder.apply(

@@ -1,4 +1,5 @@
 import type { ChatEventLog, ChatStreamEvent } from "./event-log.ts";
+import type { ChatRunTimelineStore, DurableRunTimelineArtifactSummary } from "./run-timeline.ts";
 
 const DEFAULT_EVENT_SCAN_LIMIT = 5000;
 const MAX_ARTIFACTS = 8;
@@ -9,6 +10,7 @@ const PAGE_TOOLS = new Set(["phantom_create_page", "phantom_preview_page"]);
 type BuildChatContinuityContextInput = {
 	sessionId: string;
 	eventLog: ChatEventLog;
+	timelineStore?: ChatRunTimelineStore;
 	limit?: number;
 };
 
@@ -21,7 +23,7 @@ type ToolAccumulator = {
 };
 
 type PageArtifact = {
-	seq: number;
+	seq?: number;
 	toolName: string;
 	label: string;
 	url?: string;
@@ -76,7 +78,9 @@ export function buildChatContinuityContext(input: BuildChatContinuityContextInpu
 		tools.set(toolCallId, tool);
 	}
 
-	const artifacts = dedupeArtifacts([...tools.values()].flatMap((tool) => artifactFromTool(tool) ?? []));
+	const timelineArtifacts = artifactsFromTimeline(input.timelineStore, input.sessionId);
+	const eventArtifacts = [...tools.values()].flatMap((tool) => artifactFromTool(tool) ?? []);
+	const artifacts = dedupeArtifacts([...timelineArtifacts, ...eventArtifacts]);
 	const latestCompactions = compactions.slice(-MAX_COMPACTIONS);
 
 	return renderContext({
@@ -118,7 +122,7 @@ function renderContext(input: {
 			if (artifact.url) parts.push(` URL: ${artifact.url}`);
 			if (artifact.path) parts.push(` path: ${artifact.path}`);
 			if (artifact.size !== undefined) parts.push(` size: ${artifact.size} bytes`);
-			parts.push(` via ${artifact.toolName} at stream seq ${artifact.seq}.`);
+			parts.push(` via ${artifact.toolName}${artifact.seq === undefined ? "" : ` at stream seq ${artifact.seq}`}.`);
 			lines.push(parts.join(";"));
 		}
 	}
@@ -153,6 +157,31 @@ function artifactFromTool(tool: ToolAccumulator): PageArtifact | undefined {
 	};
 }
 
+function artifactsFromTimeline(timelineStore: ChatRunTimelineStore | undefined, sessionId: string): PageArtifact[] {
+	if (!timelineStore) return [];
+	return timelineStore
+		.getDetailsBySession(sessionId)
+		.flatMap((timeline) => timeline.summary.artifacts ?? [])
+		.map(timelineArtifactFromSummary)
+		.filter((artifact): artifact is PageArtifact => artifact !== undefined);
+}
+
+function timelineArtifactFromSummary(artifact: DurableRunTimelineArtifactSummary): PageArtifact | undefined {
+	if (artifact.type !== "page") return undefined;
+	const toolName = normalizePageToolName(artifact.sourceToolName);
+	if (!toolName) return undefined;
+	const path = normalizePagePath(artifact.path);
+	const url = normalizePageUrl(artifact.url);
+	if (!url && !path) return undefined;
+	return {
+		toolName,
+		label: truncate(artifact.title, MAX_LABEL_LENGTH),
+		...(url ? { url } : {}),
+		...(path ? { path } : {}),
+		...(artifact.sizeBytes !== undefined ? { size: artifact.sizeBytes } : {}),
+	};
+}
+
 function normalizePageToolName(toolName: string | undefined): string | undefined {
 	if (!toolName) return undefined;
 	for (const pageToolName of PAGE_TOOLS) {
@@ -169,7 +198,7 @@ function dedupeArtifacts(artifacts: PageArtifact[]): PageArtifact[] {
 		const key = artifact.url ?? artifact.path ?? `${artifact.toolName}:${artifact.seq}`;
 		byKey.set(key, artifact);
 	}
-	return [...byKey.values()].sort((left, right) => left.seq - right.seq);
+	return [...byKey.values()].sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0));
 }
 
 function parsePayload(event: ChatStreamEvent): Record<string, unknown> | undefined {

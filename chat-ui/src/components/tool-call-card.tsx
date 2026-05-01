@@ -169,7 +169,7 @@ export function ToolCallCard({ tool }: { tool: ToolCallState }) {
 	}, [tool.state]);
 
 	const isOpen = disclosure.isOpen;
-	const hasBody = Boolean(output || tool.error || tool.blockReason || inputDetails);
+	const hasBody = Boolean(output || tool.error || tool.blockReason || inputDetails || tool.fullRef);
 
 	return (
 		<div className={cn("my-2 overflow-hidden rounded border bg-card transition-colors", style.border)}>

@@ -86,7 +86,11 @@ export function MessageList({
 							/>
 							{message.role === "assistant" && <MessageActions message={message} />}
 							{message.runTimeline && (
-								<RunActivityRow activity={message.runTimeline.activity} toolCalls={message.runTimeline.toolCalls} />
+								<RunActivityRow
+									activity={message.runTimeline.activity}
+									toolCalls={message.runTimeline.toolCalls}
+									artifacts={message.runTimeline.artifacts}
+								/>
 							)}
 						</div>
 					))}

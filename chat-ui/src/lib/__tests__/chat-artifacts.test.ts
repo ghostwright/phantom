@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractToolArtifacts, formatArtifactSize } from "../chat-artifacts";
+import { extractToolArtifacts, formatArtifactSize, mergeArtifactViews } from "../chat-artifacts";
 import type { ToolCallState } from "../chat-types";
 
 function tool(overrides: Partial<ToolCallState>): ToolCallState {
@@ -101,5 +101,20 @@ describe("formatArtifactSize", () => {
 		expect(formatArtifactSize(512)).toBe("512 B");
 		expect(formatArtifactSize(2048)).toBe("2.0 KB");
 		expect(formatArtifactSize(1024 * 1024 * 2.2)).toBe("2.2 MB");
+	});
+});
+
+describe("mergeArtifactViews", () => {
+	it("deduplicates durable and live artifacts by URL", () => {
+		const durable = {
+			id: "page:/ui/profile.html",
+			type: "page" as const,
+			title: "Old",
+			url: "/ui/profile.html",
+			sourceToolName: "phantom_create_page",
+		};
+		const live = { ...durable, title: "Latest" };
+
+		expect(mergeArtifactViews([durable], [live])).toEqual([live]);
 	});
 });

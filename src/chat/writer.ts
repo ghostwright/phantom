@@ -126,6 +126,7 @@ export class ChatSessionWriter {
 				buildChatContinuityContext({
 					sessionId: this.deps.sessionId,
 					eventLog: this.deps.eventLog,
+					timelineStore: this.deps.timelineStore,
 				});
 			const sessionContext = sessionContextProvider();
 			const response = await this.deps.runtime.runForChat(sessionKey, message, {

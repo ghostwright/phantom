@@ -1,5 +1,5 @@
-import type { ChatArtifactView } from "@/lib/chat-artifacts";
 import { formatArtifactSize } from "@/lib/chat-artifacts";
+import type { ChatArtifactView } from "@/lib/chat-types";
 import { cn } from "@/lib/utils";
 import { Copy, ExternalLink, FileText } from "lucide-react";
 

@@ -1,17 +1,7 @@
-import type { ToolCallState } from "./chat-types";
+import type { ChatArtifactView, ToolCallState } from "./chat-types";
 
 const PAGE_TOOL_NAMES = new Set(["phantom_create_page", "phantom_preview_page"]);
 const MAX_TITLE_LENGTH = 90;
-
-export type ChatArtifactView = {
-	id: string;
-	type: "page";
-	title: string;
-	url: string;
-	path?: string;
-	sizeBytes?: number;
-	sourceToolName: string;
-};
 
 export function extractToolArtifacts(toolCalls: ToolCallState[]): ChatArtifactView[] {
 	const artifacts = toolCalls
@@ -21,6 +11,17 @@ export function extractToolArtifacts(toolCalls: ToolCallState[]): ChatArtifactVi
 	for (const artifact of artifacts) {
 		const key = artifact.url || artifact.path || artifact.id;
 		byKey.set(key, artifact);
+	}
+	return [...byKey.values()];
+}
+
+export function mergeArtifactViews(...groups: ChatArtifactView[][]): ChatArtifactView[] {
+	const byKey = new Map<string, ChatArtifactView>();
+	for (const group of groups) {
+		for (const artifact of group) {
+			const key = artifact.url || artifact.path || artifact.id;
+			byKey.set(key, artifact);
+		}
 	}
 	return [...byKey.values()];
 }

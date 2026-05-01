@@ -59,6 +59,16 @@ export type ToolCallState = {
 	blockReason?: string;
 };
 
+export type ChatArtifactView = {
+	id: string;
+	type: "page";
+	title: string;
+	url: string;
+	path?: string;
+	sizeBytes?: number;
+	sourceToolName: string;
+};
+
 export type ThinkingBlockState = {
 	messageId: string;
 	text: string;
@@ -147,6 +157,7 @@ export type DurableRunTimelineSummary = {
 	rateLimit?: RateLimitActivity;
 	mcpServers?: Array<{ name: string; status: string }>;
 	truncatedBacklog?: { olderThanSeq: number; reason: string };
+	artifacts?: ChatArtifactView[];
 	tools: Array<{
 		id: string;
 		name: string;
@@ -171,6 +182,7 @@ export type DurableRunTimelineSummary = {
 export type RunTimelineView = {
 	activity: RunActivityState;
 	toolCalls: ToolCallState[];
+	artifacts?: ChatArtifactView[];
 };
 
 export type ChatState = {

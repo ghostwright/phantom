@@ -1,5 +1,5 @@
-import { extractToolArtifacts } from "@/lib/chat-artifacts";
-import type { RunActivityState, SubagentActivity, ToolCallState } from "@/lib/chat-types";
+import { extractToolArtifacts, mergeArtifactViews } from "@/lib/chat-artifacts";
+import type { ChatArtifactView, RunActivityState, SubagentActivity, ToolCallState } from "@/lib/chat-types";
 import { cn } from "@/lib/utils";
 import { Activity, AlertCircle, CheckCircle2, Clock3, Loader2, Radio, ShieldAlert } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -163,9 +163,11 @@ function subagentMeta(subagent: SubagentActivity): string {
 export function RunActivityRow({
 	activity,
 	toolCalls,
+	artifacts: durableArtifacts = [],
 }: {
 	activity: RunActivityState;
 	toolCalls: ToolCallState[];
+	artifacts?: ChatArtifactView[];
 }) {
 	const { Icon, className } = statusIcon(activity);
 	const now = useLiveNow(activity.isActive);
@@ -173,7 +175,10 @@ export function RunActivityRow({
 	const elapsed = formatElapsed(elapsedAt - Date.parse(activity.startedAt));
 	const facts = useMemo(() => activityFacts(activity, toolCalls), [activity, toolCalls]);
 	const subagents = useMemo(() => sortedSubagents(activity), [activity]);
-	const artifacts = useMemo(() => extractToolArtifacts(toolCalls), [toolCalls]);
+	const artifacts = useMemo(
+		() => mergeArtifactViews(durableArtifacts, extractToolArtifacts(toolCalls)),
+		[durableArtifacts, toolCalls],
+	);
 
 	return (
 		<div className="flex justify-start">

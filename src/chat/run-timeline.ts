@@ -39,6 +39,16 @@ export type DurableRunTimelineErrorSummary = {
 	message: string;
 };
 
+export type DurableRunTimelineArtifactSummary = {
+	id: string;
+	type: "page";
+	title: string;
+	url: string;
+	path?: string;
+	sizeBytes?: number;
+	sourceToolName: string;
+};
+
 export type DurableRunTimelineSummary = {
 	schemaVersion: 1;
 	status: RunTimelineStatus;
@@ -61,6 +71,7 @@ export type DurableRunTimelineSummary = {
 	};
 	mcpServers?: Array<{ name: string; status: string }>;
 	truncatedBacklog?: { olderThanSeq: number; reason: string };
+	artifacts?: DurableRunTimelineArtifactSummary[];
 	tools: DurableRunTimelineToolSummary[];
 	subagents: DurableRunTimelineSubagentSummary[];
 	errors: DurableRunTimelineErrorSummary[];
@@ -129,6 +140,15 @@ const MAX_SUMMARY_TEXT = 240;
 const MAX_OUTPUT_SUMMARY_TEXT = 360;
 const MAX_COLLECTION_ITEMS = 25;
 const MAX_INPUT_PARTS = 3;
+const PAGE_TOOL_NAMES = ["phantom_create_page", "phantom_preview_page"] as const;
+const MAX_ARTIFACT_TITLE = 90;
+
+type PageToolName = (typeof PAGE_TOOL_NAMES)[number];
+
+type PageArtifactInput = {
+	path?: string;
+	title?: string;
+};
 
 function isTerminalToolState(state: RunTimelineToolState): boolean {
 	return state === "result" || state === "error" || state === "blocked" || state === "aborted";
@@ -214,6 +234,7 @@ export class DurableRunTimelineBuilder {
 	private readonly sessionId: string;
 	private readonly userMessageId: string;
 	private assistantMessageId: string | null = null;
+	private readonly artifactInputs = new Map<string, PageArtifactInput>();
 	private summary: DurableRunTimelineSummary;
 
 	private constructor(params: RunTimelineStartParams) {
@@ -227,6 +248,7 @@ export class DurableRunTimelineBuilder {
 			endSeq: null,
 			startedAt: params.startedAt,
 			currentLabel: "Working...",
+			artifacts: [],
 			tools: [],
 			subagents: [],
 			errors: [],
@@ -272,6 +294,7 @@ export class DurableRunTimelineBuilder {
 					tool.state = "running";
 				}
 				tool.safeInputSummary = summarizeToolInput(frame.input);
+				this.captureArtifactInput(tool, frame.tool_call_id, frame.input);
 				this.summary.currentLabel = `Prepared ${tool.name}.`;
 				return true;
 			}
@@ -304,6 +327,7 @@ export class DurableRunTimelineBuilder {
 					safeText(frame.output_preview, MAX_OUTPUT_SUMMARY_TEXT) ?? summarizeToolOutput(frame.status, frame.output);
 				tool.outputTruncated =
 					frame.output_truncated === true || isTruncated(frame.output_preview ?? frame.output, MAX_OUTPUT_SUMMARY_TEXT);
+				this.captureArtifactResult(tool, frame.tool_call_id, frame.output ?? frame.output_preview);
 				this.summary.currentLabel = frame.status === "error" ? `${tool.name} failed.` : `${tool.name} completed.`;
 				return true;
 			}
@@ -453,6 +477,7 @@ export class DurableRunTimelineBuilder {
 			tools: this.summary.tools.map((tool) => ({ ...tool })),
 			subagents: this.summary.subagents.map((subagent) => ({ ...subagent })),
 			errors: this.summary.errors.map((error) => ({ ...error })),
+			artifacts: this.summary.artifacts?.map((artifact) => ({ ...artifact })),
 			mcpServers: this.summary.mcpServers?.map((server) => ({ ...server })),
 		};
 	}
@@ -511,6 +536,57 @@ export class DurableRunTimelineBuilder {
 		}
 		return existing;
 	}
+
+	private captureArtifactInput(tool: DurableRunTimelineToolSummary, toolCallId: string, input: unknown): void {
+		if (!normalizePageToolName(tool.name)) return;
+		const record = recordFromUnknown(input);
+		if (!record) return;
+		const path = normalizePagePath(stringField(record, "path"));
+		const title = stringField(record, "title");
+		if (path || title) {
+			this.artifactInputs.set(toolCallId, {
+				...(path ? { path } : {}),
+				...(title ? { title: truncate(title, MAX_ARTIFACT_TITLE) } : {}),
+			});
+		}
+	}
+
+	private captureArtifactResult(
+		tool: DurableRunTimelineToolSummary,
+		toolCallId: string,
+		output: string | undefined,
+	): void {
+		const sourceToolName = normalizePageToolName(tool.name);
+		if (!sourceToolName || tool.state !== "result") return;
+		const outputRecord = parseJsonRecord(output);
+		const input = this.artifactInputs.get(toolCallId);
+		const path = normalizePagePath(stringField(outputRecord, "path") ?? input?.path);
+		const url =
+			normalizePageUrl(
+				stringField(outputRecord, "url") ??
+					stringField(outputRecord, "publicUrl") ??
+					stringField(outputRecord, "pageUrl") ??
+					urlFromText(output),
+			) ?? urlFromPath(path);
+		if (!url) return;
+		const title = truncate(
+			stringField(outputRecord, "title") ?? input?.title ?? path ?? "Created page",
+			MAX_ARTIFACT_TITLE,
+		);
+		const sizeBytes = numberField(outputRecord, "size");
+		const artifact: DurableRunTimelineArtifactSummary = {
+			id: `page:${url}`,
+			type: "page",
+			title,
+			url,
+			sourceToolName,
+			...(path ? { path } : {}),
+			...(sizeBytes !== undefined ? { sizeBytes } : {}),
+		};
+		const byId = new Map((this.summary.artifacts ?? []).map((current) => [current.id, current]));
+		byId.set(artifact.id, artifact);
+		this.summary.artifacts = [...byId.values()].slice(-MAX_COLLECTION_ITEMS);
+	}
 }
 
 export function runTimelineRowToDetail(row: ChatRunTimelineRow): ChatRunTimelineDetail {
@@ -554,6 +630,7 @@ function parseRunTimelineSummary(summaryJson: string, row: ChatRunTimelineRow): 
 		costUsd: row.cost_usd ?? undefined,
 		inputTokens: row.input_tokens ?? undefined,
 		outputTokens: row.output_tokens ?? undefined,
+		artifacts: [],
 		tools: [],
 		subagents: [],
 		errors: [],
@@ -631,6 +708,80 @@ function summarizeToolOutput(status: "success" | "error", output: string | undef
 	if (status === "error") return "Tool returned an error.";
 	if (typeof output !== "string" || output.length === 0) return undefined;
 	return "Tool produced output.";
+}
+
+function normalizePageToolName(toolName: string | undefined): PageToolName | undefined {
+	if (!toolName) return undefined;
+	for (const pageToolName of PAGE_TOOL_NAMES) {
+		if (toolName === pageToolName || toolName.endsWith(`__${pageToolName}`) || toolName.endsWith(`:${pageToolName}`)) {
+			return pageToolName;
+		}
+	}
+	return undefined;
+}
+
+function parseJsonRecord(value: string | undefined): Record<string, unknown> | undefined {
+	if (!value) return undefined;
+	try {
+		return recordFromUnknown(JSON.parse(value));
+	} catch {
+		return undefined;
+	}
+}
+
+function recordFromUnknown(value: unknown): Record<string, unknown> | undefined {
+	if (!isObject(value)) return undefined;
+	return value;
+}
+
+function stringField(record: Record<string, unknown> | undefined, key: string): string | undefined {
+	const value = record?.[key];
+	if (typeof value !== "string") return undefined;
+	const trimmed = value.trim();
+	return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function numberField(record: Record<string, unknown> | undefined, key: string): number | undefined {
+	const value = record?.[key];
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizePageUrl(value: string | undefined): string | undefined {
+	if (!value) return undefined;
+	const trimmed = stripTrailingPunctuation(value.trim());
+	if (!trimmed.includes("/ui/")) return undefined;
+	if (trimmed.includes("/ui/login") || trimmed.includes("magic=") || hasSensitiveQuery(trimmed)) return undefined;
+	return trimmed;
+}
+
+function normalizePagePath(value: string | undefined): string | undefined {
+	if (!value) return undefined;
+	const cleaned = value.trim().replace(/^\/+/, "").replace(/^ui\//, "");
+	if (!cleaned || cleaned.includes("..") || cleaned.includes("\0") || cleaned.startsWith("login")) return undefined;
+	return cleaned;
+}
+
+function urlFromPath(path: string | undefined): string | undefined {
+	return path ? `/ui/${path}` : undefined;
+}
+
+function urlFromText(value: string | undefined): string | undefined {
+	if (!value) return undefined;
+	const match = value.match(/(?:https?:\/\/[^\s"']*\/ui\/[^\s"']+|\/ui\/[^\s"']+)/);
+	return normalizePageUrl(match?.[0]);
+}
+
+function stripTrailingPunctuation(value: string): string {
+	return value.replace(/[),.;]+$/g, "");
+}
+
+function hasSensitiveQuery(value: string): boolean {
+	return /[?&](?:api[_-]?key|token|secret|password|access_token|code|magic)=/i.test(value);
+}
+
+function truncate(value: string, maxLength: number): string {
+	if (value.length <= maxLength) return value;
+	return `${value.slice(0, maxLength - 3)}...`;
 }
 
 function summarizeCommand(command: string): string | undefined {
