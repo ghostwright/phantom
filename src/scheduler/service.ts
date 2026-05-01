@@ -2,13 +2,19 @@ import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import type { AgentRuntime } from "../agent/runtime.ts";
 import type { SlackTransport } from "../channels/slack-transport.ts";
-import { validateCreateInput } from "./create-validation.ts";
+import { MAX_TASK_BYTES, validateCreateInput } from "./create-validation.ts";
 import { executeJob } from "./executor.ts";
 import { type SchedulerHealthSummary, computeHealthSummary } from "./health.ts";
 import { cleanupOldTerminalJobs, staggerMissedJobs } from "./recovery.ts";
 import { rowToJob } from "./row-mapper.ts";
-import { computeNextRunAt, serializeScheduleValue } from "./schedule.ts";
-import type { JobCreateInput, JobRow, ScheduledJob } from "./types.ts";
+import { computeNextRunAt, serializeScheduleValue, validateSchedule } from "./schedule.ts";
+import {
+	type JobCreateInput,
+	type JobRow,
+	type JobUpdateInput,
+	type ScheduledJob,
+	isValidSlackTarget,
+} from "./types.ts";
 
 // Upper bound on the setTimeout delay we pass when arming the next wake-up.
 // Both Node and Bun use a 32-bit signed integer for the setTimeout delay, so
@@ -122,6 +128,97 @@ export class Scheduler {
 		const created = this.getJob(id);
 		if (!created) throw new Error(`failed to create job: ${id}`);
 		return created;
+	}
+
+	updateJob(id: string, input: JobUpdateInput): ScheduledJob | null {
+		const job = this.getJob(id);
+		if (!job) return null;
+
+		// Validate schedule if changed
+		if (input.schedule) {
+			const scheduleError = validateSchedule(input.schedule);
+			if (scheduleError) {
+				throw new Error(`invalid schedule: ${scheduleError}`);
+			}
+		}
+
+		// Validate delivery if changed
+		if (input.delivery?.channel === "slack" && input.delivery.target) {
+			if (!isValidSlackTarget(input.delivery.target)) {
+				throw new Error(
+					`invalid delivery.target '${input.delivery.target}': must be "owner", a Slack channel id (C...), or a Slack user id (U...)`,
+				);
+			}
+		}
+
+		// Duplicate name detection: skip if unchanged (idempotent rename).
+		if (input.name !== undefined && input.name.toLowerCase() !== job.name.toLowerCase()) {
+			const dupe = this.db.query("SELECT id FROM scheduled_jobs WHERE lower(name) = lower(?)").get(input.name) as {
+				id: string;
+			} | null;
+			if (dupe) {
+				throw new Error(`job with name "${input.name}" already exists (id: ${dupe.id})`);
+			}
+		}
+
+		// Task size cap (mirrors validateCreateInput).
+		if (input.task !== undefined) {
+			const taskBytes = Buffer.byteLength(input.task, "utf8");
+			if (taskBytes > MAX_TASK_BYTES) {
+				throw new Error(`task text is ${taskBytes} bytes, exceeds ${MAX_TASK_BYTES} byte limit`);
+			}
+		}
+
+		// Build dynamic UPDATE statement
+		const updates: string[] = [];
+		const values: (string | number | null)[] = [];
+
+		if (input.name !== undefined) {
+			updates.push("name = ?");
+			values.push(input.name);
+		}
+		if (input.description !== undefined) {
+			updates.push("description = ?");
+			values.push(input.description);
+		}
+		if (input.task !== undefined) {
+			updates.push("task = ?");
+			values.push(input.task);
+		}
+		if (input.enabled !== undefined) {
+			updates.push("enabled = ?");
+			values.push(input.enabled ? 1 : 0);
+		}
+		if (input.schedule) {
+			updates.push("schedule_kind = ?");
+			updates.push("schedule_value = ?");
+			values.push(input.schedule.kind);
+			values.push(serializeScheduleValue(input.schedule));
+			// Recompute next_run_at when schedule changes
+			const nextRun = computeNextRunAt(input.schedule);
+			updates.push("next_run_at = ?");
+			values.push(nextRun ? nextRun.toISOString() : null);
+		}
+		if (input.delivery) {
+			updates.push("delivery_channel = ?");
+			updates.push("delivery_target = ?");
+			values.push(input.delivery.channel);
+			values.push(input.delivery.target);
+		}
+
+		if (updates.length === 0) {
+			// No fields to update, return current job
+			return job;
+		}
+
+		updates.push("updated_at = datetime('now')");
+		values.push(id);
+
+		this.db.run(`UPDATE scheduled_jobs SET ${updates.join(", ")} WHERE id = ?`, values);
+
+		this.armTimer();
+
+		return this.getJob(id);
 	}
 
 	deleteJob(id: string): boolean {

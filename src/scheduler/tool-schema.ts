@@ -29,3 +29,18 @@ export const JobCreateInputSchema = z.object({
 });
 
 export type JobCreateInputParsed = z.infer<typeof JobCreateInputSchema>;
+
+export const JobUpdateInputSchema = z.object({
+	name: z.string().min(1).max(200).optional(),
+	description: z.string().max(1000).optional(),
+	schedule: ScheduleInputSchema.optional(),
+	task: z
+		.string()
+		.min(1)
+		.max(32 * 1024)
+		.optional(),
+	delivery: JobDeliverySchema.optional(),
+	enabled: z.boolean().optional(),
+});
+
+export type JobUpdateInputParsed = z.infer<typeof JobUpdateInputSchema>;

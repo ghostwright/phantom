@@ -72,6 +72,15 @@ export type JobCreateInput = {
 	createdBy?: string;
 };
 
+export type JobUpdateInput = {
+	name?: string;
+	description?: string;
+	schedule?: Schedule;
+	task?: string;
+	delivery?: JobDelivery;
+	enabled?: boolean;
+};
+
 export type JobRow = {
 	id: string;
 	name: string;
