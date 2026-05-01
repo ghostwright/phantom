@@ -161,4 +161,12 @@ describe("assemblePrompt UI vocabulary guidance", () => {
 		const prompt = assemblePrompt(baseConfig);
 		expect(prompt).toContain("public/_examples/");
 	});
+
+	test("distinguishes created page URLs from authentication links", () => {
+		const prompt = assemblePrompt(baseConfig);
+		expect(prompt).toContain("Page URLs and login URLs are different.");
+		expect(prompt).toContain("return the exact /ui/<path> page URL");
+		expect(prompt).toContain("Only call phantom_generate_login");
+		expect(prompt).toContain("Do not substitute");
+	});
 });

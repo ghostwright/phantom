@@ -1,7 +1,13 @@
 // Extracted chat-specific query logic for the runForChat method.
 // Lives outside runtime.ts to keep that file under the 300-line budget.
 
-import { type McpServerConfig, type SDKMessage, type SDKUserMessage, query } from "./agent-sdk.ts";
+import {
+	type AgentSdkQueryOptions,
+	type McpServerConfig,
+	type SDKMessage,
+	type SDKUserMessage,
+	query,
+} from "./agent-sdk.ts";
 
 type MessageParam = SDKUserMessage["message"];
 import { buildAgentRuntimeEnv, resolveAgentRuntimeModel } from "../config/providers.ts";
@@ -14,6 +20,7 @@ import { type AgentCost, type AgentResponse, emptyCost } from "./events.ts";
 import { createDangerousCommandBlocker, createFileTracker } from "./hooks.ts";
 import { extractTextFromMessageParam } from "./message-param-utils.ts";
 import { extractCost, extractTextFromMessage } from "./message-utils.ts";
+import { createMurphContextTransform } from "./murph-context.ts";
 import { permissionOptionsFromConfig } from "./permission-options.ts";
 import { assemblePrompt } from "./prompt-assembler.ts";
 import { isNoConversationFoundResult, sdkResultErrorText } from "./sdk-result-errors.ts";
@@ -36,7 +43,7 @@ export async function executeChatQuery(
 	sessionKey: string,
 	message: MessageParam,
 	startTime: number,
-	options: { signal: AbortSignal; onSdkEvent: (msg: SDKMessage) => void },
+	options: { signal: AbortSignal; onSdkEvent: (msg: SDKMessage) => void; sessionContext?: string },
 ): Promise<AgentResponse> {
 	const parts = sessionKey.split(":");
 	const channelId = parts[0] ?? "web";
@@ -55,6 +62,7 @@ export async function executeChatQuery(
 			/* Memory unavailable */
 		}
 	}
+	const useMurphContextTransform = deps.config.agent_runtime === "murph";
 	const appendPrompt = assemblePrompt(
 		deps.config,
 		memoryContext,
@@ -62,7 +70,9 @@ export async function executeChatQuery(
 		deps.roleTemplate ?? undefined,
 		deps.onboardingPrompt ?? undefined,
 		undefined,
+		useMurphContextTransform ? undefined : options.sessionContext,
 	);
+	const transformContext = useMurphContextTransform ? createMurphContextTransform(options.sessionContext) : undefined;
 	const queryModel = resolveAgentRuntimeModel(deps.config, deps.config.model);
 	const providerEnv = buildAgentRuntimeEnv(deps.config, queryModel);
 
@@ -93,30 +103,32 @@ export async function executeChatQuery(
 					await Promise.all(Object.entries(deps.mcpServerFactories).map(async ([k, f]) => [k, await f()] as const)),
 				)
 			: undefined;
+		const queryOptions: AgentSdkQueryOptions = {
+			model: queryModel,
+			...permissionOptions,
+			settingSources: ["project", "user"],
+			systemPrompt: {
+				type: "preset" as const,
+				preset: "claude_code" as const,
+				append: appendPrompt,
+			},
+			persistSession: true,
+			effort: deps.config.effort,
+			thinking: getThinkingConfig(queryModel),
+			includePartialMessages: true,
+			agentProgressSummaries: true,
+			promptSuggestions: true,
+			...(deps.config.max_budget_usd > 0 ? { maxBudgetUsd: deps.config.max_budget_usd } : {}),
+			abortController: controller,
+			env: { ...process.env, ...providerEnv },
+			hooks: { PreToolUse: [commandBlocker], PostToolUse: [fileTracker.hook] },
+			...(useResume && session?.sdk_session_id ? { resume: session.sdk_session_id } : {}),
+			...(mcpServers ? { mcpServers } : {}),
+			...(transformContext ? { transformContext } : {}),
+		};
 		const queryStream = query({
 			prompt: makePrompt(),
-			options: {
-				model: queryModel,
-				...permissionOptions,
-				settingSources: ["project", "user"],
-				systemPrompt: {
-					type: "preset" as const,
-					preset: "claude_code" as const,
-					append: appendPrompt,
-				},
-				persistSession: true,
-				effort: deps.config.effort,
-				thinking: getThinkingConfig(queryModel),
-				includePartialMessages: true,
-				agentProgressSummaries: true,
-				promptSuggestions: true,
-				...(deps.config.max_budget_usd > 0 ? { maxBudgetUsd: deps.config.max_budget_usd } : {}),
-				abortController: controller,
-				env: { ...process.env, ...providerEnv },
-				hooks: { PreToolUse: [commandBlocker], PostToolUse: [fileTracker.hook] },
-				...(useResume && session?.sdk_session_id ? { resume: session.sdk_session_id } : {}),
-				...(mcpServers ? { mcpServers } : {}),
-			},
+			options: queryOptions,
 		});
 
 		for await (const msg of queryStream) {

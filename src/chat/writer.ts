@@ -3,6 +3,7 @@ import type { SDKUserMessage } from "../agent/agent-sdk.ts";
 type MessageParam = SDKUserMessage["message"];
 import type { AgentRuntime } from "../agent/runtime.ts";
 import { autoRenameSession } from "./auto-rename.ts";
+import { buildChatContinuityContext } from "./continuity-context.ts";
 import type { ChatEventLog } from "./event-log.ts";
 import type { ChatMessageStore } from "./message-store.ts";
 import type { NotificationTriggerService } from "./notifications/triggers.ts";
@@ -99,8 +100,13 @@ export class ChatSessionWriter {
 		let resultText = "";
 
 		try {
+			const sessionContext = buildChatContinuityContext({
+				sessionId: this.deps.sessionId,
+				eventLog: this.deps.eventLog,
+			});
 			const response = await this.deps.runtime.runForChat(sessionKey, message, {
 				signal: this.abortController.signal,
+				sessionContext,
 				onSdkEvent: (sdkMsg: unknown) => {
 					const frames = translateSdkMessage(sdkMsg as Record<string, unknown>, ctx);
 					for (const frame of frames) {

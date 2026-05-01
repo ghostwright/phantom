@@ -45,6 +45,19 @@ export class ChatEventLog {
 			.all(sessionId, afterSeq, maxRows) as ChatStreamEvent[];
 	}
 
+	tail(sessionId: string, limit?: number): ChatStreamEvent[] {
+		const maxRows = limit ?? 5000;
+		const rows = this.db
+			.query(
+				`SELECT * FROM chat_stream_events
+				 WHERE session_id = ?
+				 ORDER BY seq DESC
+				 LIMIT ?`,
+			)
+			.all(sessionId, maxRows) as ChatStreamEvent[];
+		return rows.reverse();
+	}
+
 	getMaxSeq(sessionId: string): number {
 		const row = this.db
 			.query("SELECT MAX(seq) as max_seq FROM chat_stream_events WHERE session_id = ?")

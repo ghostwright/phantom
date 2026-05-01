@@ -18,6 +18,7 @@ export function assemblePrompt(
 	roleTemplate?: RoleTemplate,
 	onboardingPrompt?: string,
 	dataDir?: string,
+	chatRuntimeContext?: string,
 ): string {
 	const sections: string[] = [];
 
@@ -72,6 +73,10 @@ export function assemblePrompt(
 	// 9. Memory context - what you remember (dynamic, changes per query)
 	if (memoryContext) {
 		sections.push(buildMemorySection(memoryContext));
+	}
+
+	if (chatRuntimeContext) {
+		sections.push(buildChatRuntimeContext(chatRuntimeContext));
 	}
 
 	return sections.join("\n\n");
@@ -140,9 +145,14 @@ function buildEnvironment(config: PhantomConfig): string {
 	lines.push("");
 	lines.push("Schedule types: one-shot (at), interval (every N ms), cron (weekdays at 9am).");
 	lines.push("");
-	lines.push("To give a user access to a /ui/ page, call phantom_generate_login to create a magic link");
-	lines.push("and send the link to them via Slack. The link must be sent as plain text without any");
-	lines.push("Markdown wrapping (no asterisks, no bold, no parentheses) so Slack renders it cleanly.");
+	lines.push("Page URLs and login URLs are different.");
+	lines.push("When the user asks for the page, link, profile, report, dashboard, or thing you created,");
+	lines.push("return the exact /ui/<path> page URL from phantom_create_page or phantom_preview_page.");
+	lines.push("Only call phantom_generate_login when the user explicitly asks for access, auth,");
+	lines.push("a login link, a magic link, or says they cannot open a page because login is required.");
+	lines.push("If you share a login link, label it as an authentication link. Do not substitute");
+	lines.push("a login link for a created page URL.");
+	lines.push("Links must be sent as plain text without Markdown wrapping so Slack renders them cleanly.");
 	lines.push("");
 	lines.push(...buildUIGuidanceLines(publicUrl ?? undefined));
 	lines.push("");
@@ -229,6 +239,10 @@ function buildEnvironment(config: PhantomConfig): string {
 
 function buildMemorySection(memoryContext: string): string {
 	return `# Your Memory\n\nPersistent memory from previous sessions. Use this to maintain continuity.\n\n${memoryContext}`;
+}
+
+function buildChatRuntimeContext(chatRuntimeContext: string): string {
+	return `# Current Chat Context\n\n${chatRuntimeContext}`;
 }
 
 function buildFallbackRoleHint(config: PhantomConfig): string {

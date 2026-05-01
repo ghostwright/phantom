@@ -36,7 +36,7 @@ function mockRuntime(overrides?: {
 	runForChat?: (
 		key: string,
 		msg: unknown,
-		opts: { signal: AbortSignal; onSdkEvent: (msg: unknown) => void },
+		opts: { signal: AbortSignal; onSdkEvent: (msg: unknown) => void; sessionContext?: string },
 	) => Promise<{
 		text: string;
 		sessionId: string;
@@ -303,6 +303,73 @@ describe("ChatSessionWriter", () => {
 		expect(timelines[0]?.status).toBe("completed");
 		expect(timelines[0]?.assistant_message_id).not.toBeNull();
 		expect(timelines[0]?.summary.status).toBe("completed");
+	});
+
+	test("passes durable page context into the chat runtime", async () => {
+		const session = sessionStore.create();
+		let capturedContext: string | undefined;
+		eventLog.append(session.id, null, 1, "message.tool_call_start", {
+			event: "message.tool_call_start",
+			tool_call_id: "tool-1",
+			tool_name: "phantom_create_page",
+			message_id: "assistant-1",
+			parent_tool_use_id: null,
+			is_mcp: true,
+		});
+		eventLog.append(session.id, null, 2, "message.tool_call_input_end", {
+			event: "message.tool_call_input_end",
+			tool_call_id: "tool-1",
+			input: {
+				path: "profile.html",
+				title: "Profile Page",
+			},
+		});
+		eventLog.append(session.id, null, 3, "message.tool_call_result", {
+			event: "message.tool_call_result",
+			tool_call_id: "tool-1",
+			tool_name: "phantom_create_page",
+			status: "success",
+			output: JSON.stringify({
+				path: "profile.html",
+				url: "http://127.0.0.1:3112/ui/profile.html",
+			}),
+		});
+
+		const writer = new ChatSessionWriter({
+			sessionId: session.id,
+			runtime: mockRuntime({
+				runForChat: async (_key, _message, opts) => {
+					capturedContext = opts.sessionContext;
+					opts.onSdkEvent({
+						type: "result",
+						subtype: "success",
+						result: "ok",
+						stop_reason: "end_turn",
+						total_cost_usd: 0,
+						usage: {},
+						modelUsage: {},
+						duration_ms: 0,
+						num_turns: 1,
+					});
+					return {
+						text: "ok",
+						sessionId: "sdk-1",
+						cost: { totalUsd: 0, inputTokens: 0, outputTokens: 0, modelUsage: {} },
+						durationMs: 0,
+					};
+				},
+			}),
+			eventLog,
+			messageStore,
+			sessionStore,
+			streamBus,
+		});
+		writer.claim();
+
+		await writer.run({ role: "user", content: "give me the page link" }, "t1", "give me the page link");
+
+		expect(capturedContext).toContain("Profile Page");
+		expect(capturedContext).toContain("http://127.0.0.1:3112/ui/profile.html");
 	});
 
 	test("persists errored run timeline without committing assistant id", async () => {
