@@ -26,6 +26,19 @@ type OnboardingStatusProvider = () => string;
 type WebhookHandler = (req: Request) => Promise<Response>;
 type PeerHealthProvider = () => Record<string, { healthy: boolean; latencyMs: number; error?: string }>;
 type SchedulerHealthProvider = () => SchedulerHealthSummary | null;
+/**
+ * Phase 8a: provider-shape for the Prometheus registry that backs
+ * `/metrics`. The provider returns an object with the prom-client `Registry`
+ * surface we depend on (`metrics()` for the text-format dump,
+ * `contentType` for the response header). Keeping the surface minimal
+ * means future emitters (Telegram, email) can plug in without taking a
+ * direct dependency on prom-client at this layer.
+ */
+type MetricsRegistryLike = {
+	metrics(): Promise<string>;
+	contentType: string;
+};
+type MetricsRegistryProvider = () => MetricsRegistryLike | null;
 type TriggerDeps = {
 	runtime: AgentRuntime;
 	slackChannel?: SlackTransport;
@@ -41,6 +54,7 @@ let onboardingStatusProvider: OnboardingStatusProvider | null = null;
 let webhookHandler: WebhookHandler | null = null;
 let peerHealthProvider: PeerHealthProvider | null = null;
 let schedulerHealthProvider: SchedulerHealthProvider | null = null;
+let metricsRegistryProvider: MetricsRegistryProvider | null = null;
 let triggerDeps: TriggerDeps | null = null;
 let chatHandler: ChatHandler | null = null;
 
@@ -78,6 +92,16 @@ export function setPeerHealthProvider(provider: PeerHealthProvider): void {
 
 export function setSchedulerHealthProvider(provider: SchedulerHealthProvider): void {
 	schedulerHealthProvider = provider;
+}
+
+/**
+ * Phase 8a: register the Prometheus registry that backs `/metrics`. Wired
+ * from `index.ts` boot with the `SlackMetrics.registry`. Returns null from
+ * the provider to disable the route entirely (e.g. tests that do not
+ * exercise the metrics path).
+ */
+export function setMetricsRegistryProvider(provider: MetricsRegistryProvider): void {
+	metricsRegistryProvider = provider;
 }
 
 export function setTriggerDeps(deps: TriggerDeps): void {
@@ -153,6 +177,28 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 				}
 
 				return Response.json(payload);
+			}
+
+			// Phase 8a: Prometheus metrics surface. Unauthenticated by design,
+			// matching the existing `/health` precedent: this server's tenant
+			// isolation comes from the per-tenant URL behind Caddy, not from
+			// per-route auth. Returns 503 when no registry is wired (the
+			// process started without a metrics provider).
+			if (url.pathname === "/metrics" && req.method === "GET") {
+				const registry = metricsRegistryProvider?.();
+				if (!registry) {
+					return new Response("metrics registry not configured", {
+						status: 503,
+						headers: { "Content-Type": "text/plain; charset=utf-8" },
+					});
+				}
+				const body = await registry.metrics();
+				return new Response(body, {
+					headers: {
+						"Content-Type": registry.contentType,
+						"Cache-Control": "no-store",
+					},
+				});
 			}
 
 			if (url.pathname === "/mcp") {

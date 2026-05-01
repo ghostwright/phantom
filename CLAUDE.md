@@ -84,7 +84,9 @@ src/
     email-login.ts      # Magic link email delivery
     notifications/      # Web Push (VAPID keys, subscriptions, triggers)
   channels/
-    slack.ts            # Slack Socket Mode (primary channel, owner access control)
+    slack.ts            # Slack Socket Mode (primary channel, owner access control, lifecycle metrics)
+    slack-metrics.ts    # Phase 8a: prom-client metrics for Socket Mode lifecycle + dispatch
+    slack-channel-factory.ts # Routes between Socket Mode + HTTP receiver; AllowedSecretNamesMirror lives here
     telegram.ts         # Telegram via Telegraf
     email.ts            # IMAP/SMTP via ImapFlow + Nodemailer
     webhook.ts          # HTTP webhooks with HMAC-SHA256
@@ -132,7 +134,7 @@ src/
     tools.ts            # phantom_create_page, phantom_generate_login
     login-page.ts       # Login page HTML
   core/
-    server.ts           # Bun.serve() HTTP server, /health, /trigger, /webhook, /ui
+    server.ts           # Bun.serve() HTTP server, /health, /metrics, /trigger, /webhook, /ui
   db/
     schema.ts           # SQLite migrations (7 total)
     connection.ts       # Database connection
@@ -153,6 +155,21 @@ Message flow: Slack message -> SlackChannel adapter -> ChannelRouter -> SessionM
 After each session: EvolutionEngine runs 6-step reflection pipeline -> 5-gate validation -> approved changes applied to phantom-config/ -> version bumped.
 
 MCP flow: External client -> /mcp endpoint -> bearer auth -> MCP Server -> tool execution (some route through AgentRuntime for full Opus brain).
+
+## Observability
+
+The Bun.serve() HTTP server exposes a Prometheus `/metrics` endpoint (Phase 8a, R7 dated 2026-04-30). Unauthenticated, matching the existing `/health` precedent: per-tenant isolation comes from the per-tenant URL behind Caddy, not per-route auth.
+
+Metric families exposed today (Slack Socket Mode lifecycle):
+
+- `phantom_slack_socket_state{state="connecting|authenticated|connected|reconnecting|disconnecting|disconnected|error"}` (gauge). Exactly one series is 1.0 at any instant; the rest are 0.0. Alerting watches `1 - max_over_time(phantom_slack_socket_state{state="connected"}[1m]) > 0` for "the tenant is offline".
+- `phantom_slack_socket_reconnects_total` (counter). Bolt's auto-reconnect is on by default; this measures "the network wobbled". Alert at sustained >5/min.
+- `phantom_slack_socket_connection_seconds` (histogram). Lifetime of a single Socket Mode connection from connect to disconnect. p99 should hold above 1 hour.
+- `phantom_slack_event_dispatch_seconds{event_type=...}` (histogram). End-to-end Bolt middleware time. Slack's ack deadline is 3 seconds; alert on p99 > 2.5s.
+
+The metrics module owns a private `prom-client` Registry (no global registry pollution). Adding more channels (Telegram, email) means adding a sibling registry and merging at request time in `core/server.ts`. Future cross-channel metrics generalize via Phase 17 polish.
+
+Cross-repo invariant: `slack-channel-factory.ts` exports a frozen `AllowedSecretNamesMirror` array (`slack_bot_token`, `slack_app_token`, `slack_gateway_signing_secret`). The same names MUST appear in phantomd's `internal/secrets/types.go` `AllowedSecretNames` map. Drift breaks tenant boot with HTTP 404 (the gateway maps `ErrInvalidName` to 404 to defeat name enumeration). The factory test pins the mirror against its `SECRET_RESPONSES` test fixture; phantomd's `TestIsAllowedName_AcceptsSlackAppToken` (and the existing `*_AcceptsSlackGatewaySigningSecret`) pin the symmetric assertion.
 
 ## Key Design Decisions
 
