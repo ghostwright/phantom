@@ -21,6 +21,7 @@ import { broadcastNotification } from "./notifications/sender.ts";
 import { isValidPushEndpoint, subscribe, unsubscribe } from "./notifications/subscriptions.ts";
 import type { NotificationTriggerService } from "./notifications/triggers.ts";
 import type { VapidKeyPair } from "./notifications/vapid.ts";
+import type { ChatRunTimelineStore } from "./run-timeline.ts";
 import { handleChatStaticRequest } from "./serve.ts";
 import type { ChatSessionStore } from "./session-store.ts";
 import type { StreamBus } from "./stream-bus.ts";
@@ -31,6 +32,7 @@ export type ChatHandlerDeps = {
 	sessionStore: ChatSessionStore;
 	messageStore: ChatMessageStore;
 	eventLog: ChatEventLog;
+	timelineStore?: ChatRunTimelineStore;
 	attachmentStore: ChatAttachmentStore;
 	streamBus: StreamBus;
 	getBootstrapData?: () => Record<string, unknown>;

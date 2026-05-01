@@ -19,6 +19,7 @@ export type ChatMessage = {
 };
 
 export type ChatMessageCommitParams = {
+	id?: string;
 	sessionId: string;
 	seq: number;
 	role: string;
@@ -48,7 +49,7 @@ export class ChatMessageStore {
 	}
 
 	commit(params: ChatMessageCommitParams): string {
-		const id = crypto.randomUUID();
+		const id = params.id ?? crypto.randomUUID();
 		this.db.run(
 			`INSERT INTO chat_messages (id, session_id, seq, role, content_json, model, input_tokens, output_tokens, cost_usd, stop_reason)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

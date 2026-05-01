@@ -50,16 +50,26 @@ export type ToolCallInputEndFrame = {
 
 export type ToolCallRunningFrame = {
 	event: "message.tool_call_running";
+	message_id?: string;
 	tool_call_id: string;
+	tool_name?: string;
 	elapsed_seconds: number;
+	phase?: "started" | "running" | "partial_output";
+	input_preview?: string;
+	output_preview?: string;
+	output_truncated?: boolean;
+	full_ref?: string;
 };
 
 export type ToolCallResultFrame = {
 	event: "message.tool_call_result";
+	message_id?: string;
 	tool_call_id: string;
+	tool_name?: string;
 	status: "success" | "error";
 	duration_ms?: number;
 	output?: string;
+	output_preview?: string;
 	output_truncated?: boolean;
 	output_full_size?: number;
 	full_ref?: string;
@@ -68,14 +78,18 @@ export type ToolCallResultFrame = {
 
 export type ToolCallBlockedFrame = {
 	event: "message.tool_call_blocked";
+	message_id?: string;
 	tool_call_id: string;
+	tool_name?: string;
 	hook_name: string;
 	reason: string;
 };
 
 export type ToolCallAbortedFrame = {
 	event: "message.tool_call_aborted";
+	message_id?: string;
 	tool_call_id: string;
+	tool_name?: string;
 };
 
 export type SubagentStartFrame = {

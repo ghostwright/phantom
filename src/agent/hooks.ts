@@ -1,4 +1,4 @@
-import type { HookCallbackMatcher, HookInput, HookJSONOutput } from "@anthropic-ai/claude-agent-sdk";
+import type { HookCallbackMatcher, HookInput, HookJSONOutput } from "./agent-sdk.ts";
 
 // Defense-in-depth command blocker. This is NOT a security boundary.
 // These patterns catch common mistakes and obvious destructive commands.

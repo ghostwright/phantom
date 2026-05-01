@@ -1,7 +1,6 @@
-import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
-import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { DynamicToolRegistry } from "../mcp/dynamic-tools.ts";
+import { type McpSdkServerConfigWithInstance, createSdkMcpServer, tool } from "./agent-sdk.ts";
 
 /**
  * Creates an in-process SDK MCP server that exposes dynamic tool management

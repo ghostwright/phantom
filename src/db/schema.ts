@@ -381,4 +381,33 @@ export const MIGRATIONS: string[] = [
 	// matching. Existing rows remain NULL for `section`; they render under a
 	// "legacy" label in the audit drawer.
 	"ALTER TABLE settings_audit_log ADD COLUMN section TEXT",
+
+	`CREATE TABLE IF NOT EXISTS chat_run_timelines (
+		id TEXT PRIMARY KEY,
+		session_id TEXT NOT NULL REFERENCES chat_sessions(id),
+		user_message_id TEXT NOT NULL REFERENCES chat_messages(id),
+		assistant_message_id TEXT REFERENCES chat_messages(id),
+		start_seq INTEGER NOT NULL,
+		end_seq INTEGER,
+		status TEXT NOT NULL,
+		started_at TEXT NOT NULL,
+		completed_at TEXT,
+		current_label TEXT,
+		stop_reason TEXT,
+		duration_ms INTEGER,
+		cost_usd REAL,
+		input_tokens INTEGER,
+		output_tokens INTEGER,
+		summary_json TEXT NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`,
+
+	"CREATE INDEX IF NOT EXISTS idx_chat_run_timelines_session_start ON chat_run_timelines(session_id, start_seq)",
+
+	"CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_run_timelines_user ON chat_run_timelines(user_message_id)",
+
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_run_timelines_assistant
+		ON chat_run_timelines(assistant_message_id)
+		WHERE assistant_message_id IS NOT NULL`,
 ];

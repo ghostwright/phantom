@@ -16,11 +16,10 @@
 // names; the old external-facing names stay for backward compatibility.
 
 import type { Database } from "bun:sqlite";
-import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
-import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { MemorySystem } from "../memory/system.ts";
 import type { RecallOptions } from "../memory/types.ts";
+import { type McpSdkServerConfigWithInstance, createSdkMcpServer, tool } from "./agent-sdk.ts";
 
 type DbRow = Record<string, unknown>;
 

@@ -9,10 +9,44 @@ export type TranslationContext = {
 	turnIndex: number;
 	seenBlockLengths: Map<number, number>;
 	startedToolIds: Set<string>;
+	completedToolInputIds: Set<string>;
 	assistantStartEmitted: boolean;
+	assistantEndEmitted: boolean;
+	awaitingStreamFinalAssistant: boolean;
 	blockTypes: Map<number, "text" | "thinking" | "tool_use">;
 	blockToolIds: Map<number, string>;
+	blockToolInputJson: Map<number, string>;
 };
+
+function parsedJsonInput(json: string): { ok: true; input: unknown } | { ok: false } {
+	if (json.trim().length === 0) {
+		return { ok: true, input: {} };
+	}
+	try {
+		return { ok: true, input: JSON.parse(json) };
+	} catch {
+		return { ok: false };
+	}
+}
+
+function advanceAssistantLifecycle(ctx: TranslationContext, options?: { preserveAssistantEnd?: boolean }): void {
+	ctx.turnIndex += 1;
+	ctx.seenBlockLengths.clear();
+	ctx.blockTypes.clear();
+	ctx.blockToolIds.clear();
+	ctx.blockToolInputJson.clear();
+	ctx.awaitingStreamFinalAssistant = false;
+	if (!options?.preserveAssistantEnd) {
+		ctx.assistantEndEmitted = false;
+	}
+}
+
+function startContentBlock(ctx: TranslationContext, index: number, blockType: "text" | "thinking" | "tool_use"): void {
+	ctx.blockTypes.set(index, blockType);
+	ctx.seenBlockLengths.delete(index);
+	ctx.blockToolIds.delete(index);
+	ctx.blockToolInputJson.delete(index);
+}
 
 export function handleAssistant(msg: Record<string, unknown>, ctx: TranslationContext): ChatWireFrame[] {
 	const frames: ChatWireFrame[] = [];
@@ -21,6 +55,7 @@ export function handleAssistant(msg: Record<string, unknown>, ctx: TranslationCo
 		usage?: { input_tokens?: number; output_tokens?: number };
 	};
 	if (!message?.content) return frames;
+	const reconcilesStoppedStream = ctx.awaitingStreamFinalAssistant;
 
 	const parentToolUseId = (msg.parent_tool_use_id as string | null) ?? null;
 
@@ -100,7 +135,8 @@ export function handleAssistant(msg: Record<string, unknown>, ctx: TranslationCo
 			ctx.seenBlockLengths.set(i, thinkingText.length);
 		} else if (blockType === "tool_use") {
 			const toolId = (block.id as string) ?? `tool_${i}`;
-			if (!ctx.startedToolIds.has(toolId)) {
+			const alreadyStarted = ctx.startedToolIds.has(toolId);
+			if (!alreadyStarted) {
 				ctx.startedToolIds.add(toolId);
 				const toolName = (block.name as string) ?? "unknown";
 				const isMcp = toolName.includes(":") || toolName.startsWith("mcp_");
@@ -113,16 +149,21 @@ export function handleAssistant(msg: Record<string, unknown>, ctx: TranslationCo
 					is_mcp: isMcp,
 					mcp_server: isMcp ? toolName.split(":")[0] : undefined,
 				});
-				if (block.input !== undefined) {
-					frames.push({
-						event: "message.tool_call_input_end",
-						tool_call_id: toolId,
-						input: block.input,
-					});
-					ctx.seenBlockLengths.set(i, JSON.stringify(block.input).length);
-				}
+			}
+			if (block.input !== undefined && !ctx.completedToolInputIds.has(toolId)) {
+				frames.push({
+					event: "message.tool_call_input_end",
+					tool_call_id: toolId,
+					input: block.input,
+				});
+				ctx.completedToolInputIds.add(toolId);
+				ctx.seenBlockLengths.set(i, JSON.stringify(block.input).length);
 			}
 		}
+	}
+
+	if (reconcilesStoppedStream) {
+		advanceAssistantLifecycle(ctx, { preserveAssistantEnd: true });
 	}
 
 	return frames;
@@ -147,12 +188,17 @@ export function handleStreamEvent(msg: Record<string, unknown>, ctx: Translation
 
 	switch (eventType) {
 		case "content_block_start": {
+			if (ctx.awaitingStreamFinalAssistant) {
+				advanceAssistantLifecycle(ctx);
+			} else if (ctx.assistantEndEmitted) {
+				ctx.assistantEndEmitted = false;
+			}
 			const block = event.content_block as Record<string, unknown>;
 			const index = event.index as number;
 			const blockType = block?.type as string;
 
 			if (blockType === "text") {
-				ctx.blockTypes.set(index, "text");
+				startContentBlock(ctx, index, "text");
 				frames.push({
 					event: "message.text_start",
 					message_id: ctx.messageId,
@@ -160,7 +206,7 @@ export function handleStreamEvent(msg: Record<string, unknown>, ctx: Translation
 					index,
 				});
 			} else if (blockType === "thinking" || blockType === "redacted_thinking") {
-				ctx.blockTypes.set(index, "thinking");
+				startContentBlock(ctx, index, "thinking");
 				frames.push({
 					event: "message.thinking_start",
 					message_id: ctx.messageId,
@@ -169,10 +215,11 @@ export function handleStreamEvent(msg: Record<string, unknown>, ctx: Translation
 					redacted: blockType === "redacted_thinking",
 				});
 			} else if (blockType === "tool_use") {
-				ctx.blockTypes.set(index, "tool_use");
+				startContentBlock(ctx, index, "tool_use");
 				const toolId = (block.id as string) ?? `tool_${index}`;
 				ctx.startedToolIds.add(toolId);
 				ctx.blockToolIds.set(index, toolId);
+				ctx.blockToolInputJson.set(index, "");
 				const toolName = (block.name as string) ?? "unknown";
 				const isMcp = toolName.includes(":") || toolName.startsWith("mcp_");
 				frames.push({
@@ -205,10 +252,16 @@ export function handleStreamEvent(msg: Record<string, unknown>, ctx: Translation
 					delta: (delta.thinking as string) ?? "",
 				});
 			} else if (deltaType === "input_json_delta") {
+				const partialJson = (delta.partial_json as string) ?? "";
+				const toolId = ctx.blockToolIds.get(index);
+				if (!toolId) {
+					break;
+				}
+				ctx.blockToolInputJson.set(index, (ctx.blockToolInputJson.get(index) ?? "") + partialJson);
 				frames.push({
 					event: "message.tool_call_input_delta",
-					tool_call_id: ctx.blockToolIds.get(index) ?? `unknown_${index}`,
-					json_delta: (delta.partial_json as string) ?? "",
+					tool_call_id: toolId,
+					json_delta: partialJson,
 				});
 			}
 			break;
@@ -223,19 +276,25 @@ export function handleStreamEvent(msg: Record<string, unknown>, ctx: Translation
 			} else if (stoppedType === "tool_use") {
 				const toolId = ctx.blockToolIds.get(index);
 				if (toolId) {
-					frames.push({ event: "message.tool_call_input_end", tool_call_id: toolId, input: {} });
+					const parsed = parsedJsonInput(ctx.blockToolInputJson.get(index) ?? "");
+					if (parsed.ok) {
+						frames.push({ event: "message.tool_call_input_end", tool_call_id: toolId, input: parsed.input });
+						ctx.completedToolInputIds.add(toolId);
+					}
 				}
 			}
 			break;
 		}
 		case "message_stop": {
-			if (ctx.assistantStartEmitted) {
+			if (ctx.assistantStartEmitted && !ctx.assistantEndEmitted) {
 				frames.push({
 					event: "message.assistant_end",
 					message_id: ctx.messageId,
 					interrupted: false,
 				});
+				ctx.assistantEndEmitted = true;
 			}
+			ctx.awaitingStreamFinalAssistant = true;
 			break;
 		}
 	}

@@ -52,6 +52,61 @@ describe("ChatEventLog", () => {
 		expect(log.getMaxSeq("sess-1")).toBe(10);
 	});
 
+	test("getLatestTerminalSeq returns the newest terminal event seq", () => {
+		log.append("sess-1", null, 1, "message.assistant_start", {});
+		log.append("sess-1", null, 3, "session.error", {});
+		log.append("sess-1", null, 5, "message.text_delta", {});
+		log.append("sess-1", null, 8, "session.aborted", {});
+
+		expect(log.getLatestTerminalSeq("sess-1")).toBe(8);
+	});
+
+	test("getLatestTerminalSeq on empty terminal tail returns 0", () => {
+		log.append("sess-1", null, 1, "message.assistant_start", {});
+		log.append("sess-1", null, 2, "message.text_delta", {});
+
+		expect(log.getLatestTerminalSeq("sess-1")).toBe(0);
+	});
+
+	test("getStreamState treats benign post-terminal suggestions as complete", () => {
+		log.append("sess-1", null, 1, "message.assistant_start", {});
+		log.append("sess-1", null, 2, "session.done", {});
+		log.append("sess-1", null, 3, "session.suggestion", {});
+
+		expect(log.getMaxSeq("sess-1")).toBe(3);
+		expect(log.getLatestTerminalSeq("sess-1")).toBe(2);
+		expect(log.getLatestRecoveryRelevantSeq("sess-1")).toBe(2);
+		expect(log.getStreamState("sess-1", false)).toEqual({
+			maxSeq: 3,
+			latestTerminalSeq: 2,
+			writerActive: false,
+			hasIncompleteTail: false,
+		});
+	});
+
+	test("getStreamState treats recovery-relevant events after terminal as incomplete", () => {
+		log.append("sess-1", null, 1, "message.assistant_start", {});
+		log.append("sess-1", null, 2, "session.done", {});
+		log.append("sess-1", null, 3, "message.text_delta", {});
+
+		expect(log.getStreamState("sess-1", false)).toMatchObject({
+			maxSeq: 3,
+			latestTerminalSeq: 2,
+			hasIncompleteTail: true,
+		});
+	});
+
+	test("getStreamState reports incomplete while writer is active", () => {
+		log.append("sess-1", null, 1, "message.assistant_start", {});
+
+		expect(log.getStreamState("sess-1", true)).toMatchObject({
+			maxSeq: 1,
+			latestTerminalSeq: 0,
+			writerActive: true,
+			hasIncompleteTail: true,
+		});
+	});
+
 	test("sweep removes old events", () => {
 		log.append("sess-1", null, 1, "old", {});
 		db.run("UPDATE chat_stream_events SET created_at = datetime('now', '-25 hours') WHERE seq = 1");

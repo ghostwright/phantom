@@ -1,6 +1,5 @@
-import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
-import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { type McpSdkServerConfigWithInstance, createSdkMcpServer, tool } from "../agent/agent-sdk.ts";
 import type { Scheduler } from "./service.ts";
 import { ScheduleInputSchema } from "./tool-schema.ts";
 import { JobDeliverySchema } from "./types.ts";

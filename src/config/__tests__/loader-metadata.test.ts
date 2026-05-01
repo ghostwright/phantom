@@ -19,25 +19,38 @@ function cleanup(): void {
 
 describe("loadConfig secret_source", () => {
 	const originalFetch = globalThis.fetch;
-	const savedKey = process.env.ANTHROPIC_API_KEY;
-	const savedToken = process.env.ANTHROPIC_AUTH_TOKEN;
+	const trackedEnvKeys = [
+		"ANTHROPIC_API_KEY",
+		"ANTHROPIC_AUTH_TOKEN",
+		"OPENAI_API_KEY",
+		"ZAI_API_KEY",
+		"OPENROUTER_API_KEY",
+		"LITELLM_KEY",
+	] as const;
+	const savedEnv: Record<(typeof trackedEnvKeys)[number], string | undefined> = {
+		ANTHROPIC_API_KEY: undefined,
+		ANTHROPIC_AUTH_TOKEN: undefined,
+		OPENAI_API_KEY: undefined,
+		ZAI_API_KEY: undefined,
+		OPENROUTER_API_KEY: undefined,
+		LITELLM_KEY: undefined,
+	};
 
 	beforeEach(() => {
-		process.env.ANTHROPIC_API_KEY = undefined;
-		process.env.ANTHROPIC_AUTH_TOKEN = undefined;
+		for (const key of trackedEnvKeys) {
+			savedEnv[key] = process.env[key];
+			delete process.env[key];
+		}
 	});
 
 	afterEach(() => {
 		globalThis.fetch = originalFetch;
-		if (savedKey !== undefined) {
-			process.env.ANTHROPIC_API_KEY = savedKey;
-		} else {
-			process.env.ANTHROPIC_API_KEY = undefined;
-		}
-		if (savedToken !== undefined) {
-			process.env.ANTHROPIC_AUTH_TOKEN = savedToken;
-		} else {
-			process.env.ANTHROPIC_AUTH_TOKEN = undefined;
+		for (const key of trackedEnvKeys) {
+			if (savedEnv[key] !== undefined) {
+				process.env[key] = savedEnv[key];
+			} else {
+				delete process.env[key];
+			}
 		}
 		cleanup();
 	});
@@ -74,6 +87,66 @@ secret_source_url: http://gateway.test
 		await loadConfig(path);
 		expect(process.env.ANTHROPIC_API_KEY).toBe(stubBody);
 		expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe(stubBody);
+	});
+
+	test("secret_source: metadata with Murph OpenAI populates only OPENAI_API_KEY", async () => {
+		const stubBody = "openai-provider-token";
+		globalThis.fetch = mock((url: string | Request) => {
+			expect(String(url)).toBe("http://gateway.test/v1/secrets/provider_token");
+			return Promise.resolve(
+				new Response(stubBody, {
+					status: 200,
+					headers: { "X-Phantom-Rotation-Id": "1" },
+				}),
+			);
+		}) as unknown as typeof fetch;
+
+		const path = writeYaml(
+			"metadata-murph-openai.yaml",
+			`
+name: metadata-openai
+agent_runtime: murph
+secret_source: metadata
+secret_source_url: http://gateway.test
+provider:
+  type: openai
+`,
+		);
+		await loadConfig(path);
+		expect(process.env.OPENAI_API_KEY).toBe(stubBody);
+		expect(process.env.ANTHROPIC_API_KEY).toBeUndefined();
+		expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+		expect(process.env.ZAI_API_KEY).toBeUndefined();
+	});
+
+	test("secret_source: metadata with Murph Z.AI populates only ZAI_API_KEY", async () => {
+		const stubBody = "zai-provider-token";
+		globalThis.fetch = mock((url: string | Request) => {
+			expect(String(url)).toBe("http://gateway.test/v1/secrets/provider_token");
+			return Promise.resolve(
+				new Response(stubBody, {
+					status: 200,
+					headers: { "X-Phantom-Rotation-Id": "1" },
+				}),
+			);
+		}) as unknown as typeof fetch;
+
+		const path = writeYaml(
+			"metadata-murph-zai.yaml",
+			`
+name: metadata-zai
+agent_runtime: murph
+secret_source: metadata
+secret_source_url: http://gateway.test
+provider:
+  type: zai
+`,
+		);
+		await loadConfig(path);
+		expect(process.env.ZAI_API_KEY).toBe(stubBody);
+		expect(process.env.ANTHROPIC_API_KEY).toBeUndefined();
+		expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+		expect(process.env.OPENAI_API_KEY).toBeUndefined();
 	});
 
 	test("secret_source: metadata resolves whole-string ${secret:NAME} references in nested config", async () => {

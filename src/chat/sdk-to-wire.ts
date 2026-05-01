@@ -4,7 +4,7 @@
 // sdk-to-wire-handlers.ts to keep both files under 300 lines.
 
 import { type TranslationContext, handleAssistant, handleStreamEvent } from "./sdk-to-wire-handlers.ts";
-import type { ChatWireFrame, StopReason } from "./types.ts";
+import type { ChatWireFrame, StopReason, ToolCallResultFrame, ToolCallRunningFrame } from "./types.ts";
 
 export type { TranslationContext } from "./sdk-to-wire-handlers.ts";
 
@@ -15,9 +15,13 @@ export function createTranslationContext(sessionId: string, messageId: string): 
 		turnIndex: 0,
 		seenBlockLengths: new Map(),
 		startedToolIds: new Set(),
+		completedToolInputIds: new Set(),
 		assistantStartEmitted: false,
+		assistantEndEmitted: false,
+		awaitingStreamFinalAssistant: false,
 		blockTypes: new Map(),
 		blockToolIds: new Map(),
+		blockToolInputJson: new Map(),
 	};
 }
 
@@ -34,9 +38,9 @@ export function translateSdkMessage(msg: Record<string, unknown>, ctx: Translati
 		case "result":
 			return handleResult(msg, ctx);
 		case "user":
-			return [];
+			return handleUser(msg, ctx);
 		case "tool_progress":
-			return handleToolProgress(msg);
+			return handleToolProgress(msg, ctx);
 		case "rate_limit_event":
 			return handleRateLimit(msg);
 		case "prompt_suggestion":
@@ -131,6 +135,74 @@ function handleSystem(msg: Record<string, unknown>, ctx: TranslationContext): Ch
 	return frames;
 }
 
+const TOOL_RESULT_OUTPUT_LIMIT = 12_000;
+const SAFE_TOOL_ERROR_MESSAGE = "Tool returned an error. Details are hidden for safety.";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function safeToolResultText(content: unknown): string | undefined {
+	if (typeof content === "string") return content;
+	if (Array.isArray(content)) {
+		const parts = content
+			.map((item) => {
+				if (typeof item === "string") return item;
+				if (isRecord(item) && typeof item.text === "string") return item.text;
+				return "";
+			})
+			.filter((part) => part.length > 0);
+		return parts.length > 0 ? parts.join("\n") : undefined;
+	}
+	if (isRecord(content) && typeof content.text === "string") return content.text;
+	return undefined;
+}
+
+function truncateToolResultOutput(
+	text: string,
+): Pick<ToolCallResultFrame, "output" | "output_truncated" | "output_full_size"> {
+	if (text.length <= TOOL_RESULT_OUTPUT_LIMIT) return { output: text };
+	return {
+		output: text.slice(0, TOOL_RESULT_OUTPUT_LIMIT),
+		output_truncated: true,
+		output_full_size: text.length,
+	};
+}
+
+function handleUser(msg: Record<string, unknown>, ctx: TranslationContext): ChatWireFrame[] {
+	const message = msg.message;
+	if (!isRecord(message)) return [];
+	const content = message.content;
+	const blocks = Array.isArray(content) ? content : [content];
+	const frames: ChatWireFrame[] = [];
+
+	for (const block of blocks) {
+		if (!isRecord(block) || block.type !== "tool_result") continue;
+		const toolCallId = block.tool_use_id;
+		if (typeof toolCallId !== "string" || toolCallId.length === 0) continue;
+
+		const resultText = safeToolResultText(block.content);
+		const output = resultText ? truncateToolResultOutput(resultText) : {};
+		const isError = block.is_error === true || block.status === "error";
+		const frame: ToolCallResultFrame = {
+			event: "message.tool_call_result",
+			message_id: typeof msg.message_id === "string" ? msg.message_id : ctx.messageId,
+			tool_call_id: toolCallId,
+			status: isError ? "error" : "success",
+			...output,
+		};
+		if (isError) {
+			frame.error = SAFE_TOOL_ERROR_MESSAGE;
+			frame.output = undefined;
+			frame.output_truncated = undefined;
+			frame.output_full_size = undefined;
+		}
+		frames.push(frame);
+	}
+
+	return frames;
+}
+
 function handleResult(msg: Record<string, unknown>, ctx: TranslationContext): ChatWireFrame[] {
 	const frames: ChatWireFrame[] = [];
 	const subtype = msg.subtype as string;
@@ -139,7 +211,7 @@ function handleResult(msg: Record<string, unknown>, ctx: TranslationContext): Ch
 	const durationMs = (msg.duration_ms as number) ?? 0;
 	const numTurns = (msg.num_turns as number) ?? 1;
 
-	if (ctx.assistantStartEmitted) {
+	if (ctx.assistantStartEmitted && !ctx.assistantEndEmitted) {
 		frames.push({
 			event: "message.assistant_end",
 			message_id: ctx.messageId,
@@ -148,8 +220,10 @@ function handleResult(msg: Record<string, unknown>, ctx: TranslationContext): Ch
 				? { input_tokens: usage.input_tokens ?? 0, output_tokens: usage.output_tokens ?? 0 }
 				: undefined,
 		});
-		ctx.assistantStartEmitted = false;
 	}
+	ctx.assistantStartEmitted = false;
+	ctx.assistantEndEmitted = false;
+	ctx.awaitingStreamFinalAssistant = false;
 
 	if (subtype === "success") {
 		const stopReason = ((msg.stop_reason as string) ?? "end_turn") as StopReason;
@@ -179,25 +253,65 @@ function handleResult(msg: Record<string, unknown>, ctx: TranslationContext): Ch
 	return frames;
 }
 
-function handleToolProgress(msg: Record<string, unknown>): ChatWireFrame[] {
-	return [
-		{
-			event: "message.tool_call_running",
-			tool_call_id: (msg.tool_use_id as string) ?? "",
-			elapsed_seconds: (msg.elapsed_time_seconds as number) ?? 0,
-		},
-	];
+function handleToolProgress(msg: Record<string, unknown>, ctx: TranslationContext): ChatWireFrame[] {
+	const elapsedSeconds =
+		typeof msg.elapsed_time_seconds === "number"
+			? msg.elapsed_time_seconds
+			: typeof msg.elapsed_ms === "number"
+				? msg.elapsed_ms / 1000
+				: 0;
+	const phase = typeof msg.phase === "string" ? msg.phase : undefined;
+	const toolCallId = (msg.tool_use_id as string) ?? "";
+	const toolName = typeof msg.tool_name === "string" ? msg.tool_name : undefined;
+	const messageId =
+		typeof msg.message_id === "string" ? msg.message_id : ctx.assistantStartEmitted ? ctx.messageId : undefined;
+	if (phase === "completed" || phase === "failed") {
+		const outputPreview = typeof msg.output_preview === "string" ? msg.output_preview : undefined;
+		const output = outputPreview ? truncateToolResultOutput(outputPreview) : {};
+		const outputTruncated = typeof msg.output_truncated === "boolean" ? msg.output_truncated : output.output_truncated;
+		const frame: ToolCallResultFrame = {
+			event: "message.tool_call_result",
+			...(messageId ? { message_id: messageId } : {}),
+			tool_call_id: toolCallId,
+			...(toolName ? { tool_name: toolName } : {}),
+			status: phase === "failed" ? "error" : "success",
+			duration_ms: typeof msg.duration_ms === "number" ? msg.duration_ms : undefined,
+			output_preview: outputPreview,
+			...output,
+			output_truncated: outputTruncated,
+			full_ref: typeof msg.full_ref === "string" ? msg.full_ref : undefined,
+		};
+		if (phase === "failed") {
+			frame.error =
+				typeof msg.error === "string" ? msg.error : "Tool returned an error. Details are hidden for safety.";
+		}
+		return [frame];
+	}
+	const frame: ToolCallRunningFrame = {
+		event: "message.tool_call_running",
+		...(messageId ? { message_id: messageId } : {}),
+		tool_call_id: toolCallId,
+		...(toolName ? { tool_name: toolName } : {}),
+		elapsed_seconds: elapsedSeconds,
+		phase: phase === "started" || phase === "partial_output" || phase === "running" ? phase : undefined,
+		input_preview: typeof msg.input_preview === "string" ? msg.input_preview : undefined,
+		output_preview: typeof msg.output_preview === "string" ? msg.output_preview : undefined,
+		output_truncated: typeof msg.output_truncated === "boolean" ? msg.output_truncated : undefined,
+		full_ref: typeof msg.full_ref === "string" ? msg.full_ref : undefined,
+	};
+	return [frame];
 }
 
 function handleRateLimit(msg: Record<string, unknown>): ChatWireFrame[] {
-	const info = msg.rate_limit_info as Record<string, unknown> | undefined;
+	const info = (msg.rate_limit_info ?? msg.rate_limit) as Record<string, unknown> | undefined;
 	if (!info) return [];
+	const resetsAt = info.resetsAt;
 	return [
 		{
 			event: "session.rate_limit",
 			status: (info.status as "allowed" | "allowed_warning" | "rejected") ?? "allowed",
 			rate_limit_type: info.rateLimitType as string | undefined,
-			resets_at: info.resetsAt ? new Date(info.resetsAt as number).toISOString() : undefined,
+			resets_at: resetsAt ? new Date(resetsAt as string | number).toISOString() : undefined,
 			utilization: info.utilization as number | undefined,
 		},
 	];
@@ -208,7 +322,7 @@ function handlePromptSuggestion(msg: Record<string, unknown>, ctx: TranslationCo
 		{
 			event: "session.suggestion",
 			session_id: ctx.sessionId,
-			suggestion: (msg.suggestion as string) ?? "",
+			suggestion: ((msg.suggestion ?? msg.prompt) as string) ?? "",
 		},
 	];
 }
