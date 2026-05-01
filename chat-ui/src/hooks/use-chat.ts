@@ -1,6 +1,6 @@
-import { runTimelineSummaryToView } from "@/lib/chat-activity";
 import { parseMessageContentJson } from "@/lib/chat-message-content";
 import { type ChatStore, beginRunActivity, createChatStore, dispatchFrame } from "@/lib/chat-store";
+import { buildTimelineViewMap } from "@/lib/timeline-view";
 import type {
 	ChatMessage,
 	RunActivityState,
@@ -254,15 +254,6 @@ export function useChat(sessionId: string | null): {
 		abort,
 		loadSession,
 	};
-}
-
-function buildTimelineViewMap(detail: SessionDetail): Map<string, RunTimelineView> {
-	const map = new Map<string, RunTimelineView>();
-	for (const timeline of detail.run_timelines ?? []) {
-		const key = timeline.assistant_message_id ?? timeline.user_message_id;
-		map.set(key, runTimelineSummaryToView(timeline.summary));
-	}
-	return map;
 }
 
 function messageRowToChatMessage(row: SessionDetail["messages"][number], runTimeline?: RunTimelineView): ChatMessage {

@@ -126,7 +126,7 @@ export function runTimelineSummaryToView(summary: DurableRunTimelineSummary): Ru
 		mcpServer: tool.mcpServer,
 		blockReason: tool.blockReason,
 	}));
-	return { activity, toolCalls };
+	return { activity, toolCalls, artifacts: summary.artifacts };
 }
 
 function runTimelineStatusToActivityStatus(status: DurableRunTimelineSummary["status"]): RunActivityStatus {

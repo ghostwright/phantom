@@ -276,7 +276,10 @@ async function main(): Promise<void> {
 		runtime.setMcpServerFactories({
 			"phantom-dynamic-tools": () => createInProcessToolServer(registry),
 			"phantom-scheduler": () => createSchedulerToolServer(scheduler as Scheduler),
-			"phantom-reflective": () => createReflectiveToolServer(memory.isReady() ? memory : null, db),
+			"phantom-reflective": (context) =>
+				createReflectiveToolServer(memory.isReady() ? memory : null, db, {
+					currentChatSessionId: context?.chatSessionId,
+				}),
 			"phantom-web-ui": () => createWebUiToolServer(config.public_url, config.name),
 			"phantom-secrets": () => createSecretToolServer({ db, baseUrl: secretsBaseUrl }),
 			"phantom-preview": () => createPreviewToolServer(config.port),

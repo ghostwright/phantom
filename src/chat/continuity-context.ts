@@ -1,4 +1,5 @@
 import type { ChatEventLog, ChatStreamEvent } from "./event-log.ts";
+import type { ChatRunTimelineStore, DurableRunTimelineArtifactSummary } from "./run-timeline.ts";
 
 const DEFAULT_EVENT_SCAN_LIMIT = 5000;
 const MAX_ARTIFACTS = 8;
@@ -9,6 +10,7 @@ const PAGE_TOOLS = new Set(["phantom_create_page", "phantom_preview_page"]);
 type BuildChatContinuityContextInput = {
 	sessionId: string;
 	eventLog: ChatEventLog;
+	timelineStore?: ChatRunTimelineStore;
 	limit?: number;
 };
 
@@ -21,7 +23,7 @@ type ToolAccumulator = {
 };
 
 type PageArtifact = {
-	seq: number;
+	seq?: number;
 	toolName: string;
 	label: string;
 	url?: string;
@@ -76,22 +78,28 @@ export function buildChatContinuityContext(input: BuildChatContinuityContextInpu
 		tools.set(toolCallId, tool);
 	}
 
-	const artifacts = dedupeArtifacts([...tools.values()].flatMap((tool) => artifactFromTool(tool) ?? []));
+	const timelineArtifacts = artifactsFromTimeline(input.timelineStore, input.sessionId);
+	const eventArtifacts = [...tools.values()].flatMap((tool) => artifactFromTool(tool) ?? []);
+	const artifacts = dedupeArtifacts([...timelineArtifacts, ...eventArtifacts]);
 	const latestCompactions = compactions.slice(-MAX_COMPACTIONS);
-	if (artifacts.length === 0 && latestCompactions.length === 0) {
-		return undefined;
-	}
 
 	return renderContext({
+		sessionId: input.sessionId,
 		artifacts: artifacts.slice(-MAX_ARTIFACTS),
 		compactions: latestCompactions,
 	});
 }
 
-function renderContext(input: { artifacts: PageArtifact[]; compactions: CompactCheckpoint[] }): string {
+function renderContext(input: {
+	sessionId: string;
+	artifacts: PageArtifact[];
+	compactions: CompactCheckpoint[];
+}): string {
 	const lines = [
 		"Durable Phantom chat context:",
+		`- Current Phantom chat session id: ${input.sessionId}.`,
 		"- The transcript may have been compacted by Murph. Continue from the latest user message using these host facts when relevant.",
+		"- If an older detail is missing after compaction, call phantom_chat_transcript_search with the current chat session id before asking the user to repeat it.",
 		"- Authentication links from phantom_generate_login are not page artifacts.",
 	];
 
@@ -114,7 +122,7 @@ function renderContext(input: { artifacts: PageArtifact[]; compactions: CompactC
 			if (artifact.url) parts.push(` URL: ${artifact.url}`);
 			if (artifact.path) parts.push(` path: ${artifact.path}`);
 			if (artifact.size !== undefined) parts.push(` size: ${artifact.size} bytes`);
-			parts.push(` via ${artifact.toolName} at stream seq ${artifact.seq}.`);
+			parts.push(` via ${artifact.toolName}${artifact.seq === undefined ? "" : ` at stream seq ${artifact.seq}`}.`);
 			lines.push(parts.join(";"));
 		}
 	}
@@ -123,11 +131,12 @@ function renderContext(input: { artifacts: PageArtifact[]; compactions: CompactC
 }
 
 function artifactFromTool(tool: ToolAccumulator): PageArtifact | undefined {
-	if (!tool.toolName || !PAGE_TOOLS.has(tool.toolName)) return undefined;
+	const toolName = normalizePageToolName(tool.toolName);
+	if (!toolName) return undefined;
 
 	const input = recordFromUnknown(tool.input);
 	const output = parseJsonRecord(tool.output);
-	const path = stringField(output, "path") ?? stringField(input, "path");
+	const path = normalizePagePath(stringField(output, "path") ?? stringField(input, "path"));
 	const url = normalizePageUrl(
 		stringField(output, "url") ??
 			stringField(output, "publicUrl") ??
@@ -140,12 +149,47 @@ function artifactFromTool(tool: ToolAccumulator): PageArtifact | undefined {
 	const size = numberField(output, "size");
 	return {
 		seq: tool.seq,
-		toolName: tool.toolName,
+		toolName,
 		label: truncate(title, MAX_LABEL_LENGTH),
 		...(url ? { url } : {}),
 		...(path ? { path } : {}),
 		...(size !== undefined ? { size } : {}),
 	};
+}
+
+function artifactsFromTimeline(timelineStore: ChatRunTimelineStore | undefined, sessionId: string): PageArtifact[] {
+	if (!timelineStore) return [];
+	return timelineStore
+		.getDetailsBySession(sessionId)
+		.flatMap((timeline) => timeline.summary.artifacts ?? [])
+		.map(timelineArtifactFromSummary)
+		.filter((artifact): artifact is PageArtifact => artifact !== undefined);
+}
+
+function timelineArtifactFromSummary(artifact: DurableRunTimelineArtifactSummary): PageArtifact | undefined {
+	if (artifact.type !== "page") return undefined;
+	const toolName = normalizePageToolName(artifact.sourceToolName);
+	if (!toolName) return undefined;
+	const path = normalizePagePath(artifact.path);
+	const url = normalizePageUrl(artifact.url);
+	if (!url && !path) return undefined;
+	return {
+		toolName,
+		label: truncate(artifact.title, MAX_LABEL_LENGTH),
+		...(url ? { url } : {}),
+		...(path ? { path } : {}),
+		...(artifact.sizeBytes !== undefined ? { size: artifact.sizeBytes } : {}),
+	};
+}
+
+function normalizePageToolName(toolName: string | undefined): string | undefined {
+	if (!toolName) return undefined;
+	for (const pageToolName of PAGE_TOOLS) {
+		if (toolName === pageToolName || toolName.endsWith(`__${pageToolName}`) || toolName.endsWith(`:${pageToolName}`)) {
+			return pageToolName;
+		}
+	}
+	return undefined;
 }
 
 function dedupeArtifacts(artifacts: PageArtifact[]): PageArtifact[] {
@@ -154,7 +198,7 @@ function dedupeArtifacts(artifacts: PageArtifact[]): PageArtifact[] {
 		const key = artifact.url ?? artifact.path ?? `${artifact.toolName}:${artifact.seq}`;
 		byKey.set(key, artifact);
 	}
-	return [...byKey.values()].sort((left, right) => left.seq - right.seq);
+	return [...byKey.values()].sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0));
 }
 
 function parsePayload(event: ChatStreamEvent): Record<string, unknown> | undefined {
@@ -195,16 +239,29 @@ function numberField(record: Record<string, unknown> | undefined, key: string): 
 }
 
 function normalizePageUrl(url: string | undefined): string | undefined {
-	if (!url || !url.includes("/ui/") || url.includes("/ui/login")) {
+	const trimmed = stripTrailingPunctuation(url?.trim() ?? "");
+	if (!trimmed || !trimmed.includes("/ui/") || trimmed.includes("/ui/login") || trimmed.includes("magic=")) {
 		return undefined;
 	}
-	return url;
+	return trimmed;
+}
+
+function normalizePagePath(path: string | undefined): string | undefined {
+	const cleaned = path?.trim().replace(/^\/+/, "").replace(/^ui\//, "");
+	if (!cleaned || cleaned.includes("..") || cleaned.includes("\0") || cleaned.startsWith("login")) {
+		return undefined;
+	}
+	return cleaned;
 }
 
 function urlFromText(text: string | undefined): string | undefined {
 	if (!text) return undefined;
-	const match = text.match(/https?:\/\/[^\s"']+\/ui\/[^\s"']+/);
+	const match = text.match(/https?:\/\/[^\s"']+\/ui\/[^\s"']+|\/ui\/[^\s"']+/);
 	return normalizePageUrl(match?.[0]);
+}
+
+function stripTrailingPunctuation(value: string): string {
+	return value.replace(/[),.;]+$/g, "");
 }
 
 function truncate(value: string, maxLength: number): string {

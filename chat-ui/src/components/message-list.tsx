@@ -4,6 +4,7 @@ import type { ChatMessage, RunActivityState, ThinkingBlockState, ToolCallState }
 import { Button } from "@/ui/button";
 import { ArrowDown } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ThinkingBlockItem } from "./assistant-message";
 import { Message } from "./message";
 import { MessageActions } from "./message-actions";
 import { RunActivityRow } from "./run-activity-row";
@@ -36,10 +37,10 @@ export function MessageList({
 	}, [activeToolCalls]);
 
 	const thinkingByMessage = useMemo(() => {
-		const map = new Map<string, ThinkingBlockState[]>();
-		for (const [, tb] of thinkingBlocks) {
+		const map = new Map<string, ThinkingBlockItem[]>();
+		for (const [id, tb] of thinkingBlocks) {
 			const existing = map.get(tb.messageId) ?? [];
-			existing.push(tb);
+			existing.push({ id, block: tb });
 			map.set(tb.messageId, existing);
 		}
 		return map;
@@ -85,7 +86,11 @@ export function MessageList({
 							/>
 							{message.role === "assistant" && <MessageActions message={message} />}
 							{message.runTimeline && (
-								<RunActivityRow activity={message.runTimeline.activity} toolCalls={message.runTimeline.toolCalls} />
+								<RunActivityRow
+									activity={message.runTimeline.activity}
+									toolCalls={message.runTimeline.toolCalls}
+									artifacts={message.runTimeline.artifacts}
+								/>
 							)}
 						</div>
 					))}

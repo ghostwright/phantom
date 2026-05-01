@@ -24,3 +24,18 @@ jobs:
 
       - name: Test
         run: bun test
+
+      - name: Install Chat UI Dependencies
+        working-directory: chat-ui
+        run: bun install --frozen-lockfile
+
+      - name: Chat UI Typecheck
+        working-directory: chat-ui
+        run: bun run typecheck
+
+      - name: Chat UI Test
+        working-directory: chat-ui
+        run: bun test
+
+      - name: Chat UI Build
+        run: bun run build:chat-ui
