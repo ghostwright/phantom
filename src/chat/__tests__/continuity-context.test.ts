@@ -55,6 +55,8 @@ describe("buildChatContinuityContext", () => {
 
 		const context = buildChatContinuityContext({ sessionId: session.id, eventLog });
 
+		expect(context).toContain(`Current Phantom chat session id: ${session.id}`);
+		expect(context).toContain("phantom_chat_transcript_search");
 		expect(context).toContain("User-visible page artifacts");
 		expect(context).toContain("Muhammad Ahmed Cheema Profile");
 		expect(context).toContain("http://127.0.0.1:3112/ui/muhammad-ahmed-cheema.html");
@@ -105,5 +107,15 @@ describe("buildChatContinuityContext", () => {
 
 		expect(context).toContain("stream seq 13");
 		expect(context).toContain("500,000");
+	});
+
+	test("renders transcript recovery instructions even without artifacts or compaction", () => {
+		const session = sessionStore.create();
+
+		const context = buildChatContinuityContext({ sessionId: session.id, eventLog });
+
+		expect(context).toContain(`Current Phantom chat session id: ${session.id}`);
+		expect(context).toContain("phantom_chat_transcript_search");
+		expect(context).toContain("Authentication links");
 	});
 });

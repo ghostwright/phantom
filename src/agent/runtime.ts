@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { type McpServerConfig, type SDKMessage, type SDKUserMessage, query } from "./agent-sdk.ts";
+import { type SDKMessage, type SDKUserMessage, query } from "./agent-sdk.ts";
 
 type MessageParam = SDKUserMessage["message"];
 import { buildAgentRuntimeEnv, resolveAgentRuntimeModel } from "../config/providers.ts";
@@ -13,6 +13,7 @@ import { type AgentCost, type AgentResponse, emptyCost } from "./events.ts";
 import { createDangerousCommandBlocker, createFileTracker } from "./hooks.ts";
 import { emitPluginInitSnapshot } from "./init-plugin-snapshot.ts";
 import { type JudgeQueryOptions, type JudgeQueryResult, runJudgeQuery } from "./judge-query.ts";
+import type { AgentMcpServerFactory } from "./mcp-server-factory.ts";
 import { wrapMessageContent } from "./message-param-utils.ts";
 import { extractCost, extractTextFromMessage } from "./message-utils.ts";
 import { permissionOptionsFromConfig } from "./permission-options.ts";
@@ -38,7 +39,7 @@ export class AgentRuntime {
 	private roleTemplate: RoleTemplate | null = null;
 	private onboardingPrompt: string | null = null;
 	private lastTrackedFiles: string[] = [];
-	private mcpServerFactories: Record<string, () => McpServerConfig | Promise<McpServerConfig>> | null = null;
+	private mcpServerFactories: Record<string, AgentMcpServerFactory> | null = null;
 
 	constructor(config: PhantomConfig, db: Database) {
 		this.config = config;
@@ -62,7 +63,7 @@ export class AgentRuntime {
 		this.onboardingPrompt = prompt;
 	}
 
-	setMcpServerFactories(factories: Record<string, () => McpServerConfig | Promise<McpServerConfig>>): void {
+	setMcpServerFactories(factories: Record<string, AgentMcpServerFactory>): void {
 		this.mcpServerFactories = factories;
 	}
 
@@ -199,6 +200,7 @@ export class AgentRuntime {
 
 		const runSdkQuery = async (useResume: boolean): Promise<void> => {
 			const permissionOptions = permissionOptionsFromConfig(this.config);
+			const mcpFactoryContext = { sessionKey, channelId, conversationId };
 			const queryStream = query({
 				prompt: text,
 				options: {
@@ -218,7 +220,9 @@ export class AgentRuntime {
 						? {
 								mcpServers: Object.fromEntries(
 									await Promise.all(
-										Object.entries(this.mcpServerFactories).map(async ([k, f]) => [k, await f()] as const),
+										Object.entries(this.mcpServerFactories).map(
+											async ([k, f]) => [k, await f(mcpFactoryContext)] as const,
+										),
 									),
 								),
 							}

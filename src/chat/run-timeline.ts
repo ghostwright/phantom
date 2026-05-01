@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { redactSensitiveText } from "./redaction.ts";
 import type { SessionErrorSubtype, StopReason } from "./types.ts";
 import type { ChatWireFrame } from "./types.ts";
 
@@ -683,29 +684,5 @@ function isSensitiveKey(key: string): boolean {
 }
 
 function redact(value: string): string {
-	let output = value;
-	output = output.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*/g, "[REDACTED_PRIVATE_KEY]");
-	output = output.replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "[REDACTED_AWS_KEY]");
-	output = output.replace(
-		/([?&](?:code|access_token|refresh_token|id_token|client_secret|token|secret|api_key|key)=)[^&\s]+/gi,
-		"$1[REDACTED]",
-	);
-	output = output.replace(/bearer\s+[a-z0-9._~+/=-]+/gi, "Bearer [REDACTED]");
-	output = output.replace(/(authorization\s*[:=]\s*)([^\s,;]+)/gi, "$1[REDACTED]");
-	output = output.replace(/(\bcookie\s*[:=]\s*)([^\n]+)/gi, "$1[REDACTED]");
-	output = output.replace(
-		/(\b(?:x[-_])?[a-z0-9_-]*(?:api[-_]?key|access[-_]?key|private[-_]?key|csrf[-_]?token|xsrf[-_]?token|csrf|xsrf|token|secret|password|auth|credential|session)[a-z0-9_-]*\s*:\s*)([^\s,;]+)/gi,
-		"$1[REDACTED]",
-	);
-	output = output.replace(
-		/([a-z0-9_]*(?:api[_-]?key|access[_-]?key|private[_-]?key|token|secret|password|auth|credential|session|oauth|csrf|xsrf)[a-z0-9_]*\s*=\s*)([^\s&]+)/gi,
-		"$1[REDACTED]",
-	);
-	output = output.replace(
-		/(\b[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH|CREDENTIAL|PRIVATE|SESSION|CODE|CSRF|XSRF)[A-Z0-9_]*\s*=\s*)([^\s&]+)/g,
-		"$1[REDACTED]",
-	);
-	output = output.replace(/\b(sk-[a-z0-9_-]{12,})\b/gi, "[REDACTED_SECRET]");
-	output = output.replace(/\b([a-z0-9+/]{80,}={0,2})\b/gi, "[REDACTED_BLOB]");
-	return output;
+	return redactSensitiveText(value);
 }

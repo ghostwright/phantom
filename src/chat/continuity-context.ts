@@ -78,20 +78,24 @@ export function buildChatContinuityContext(input: BuildChatContinuityContextInpu
 
 	const artifacts = dedupeArtifacts([...tools.values()].flatMap((tool) => artifactFromTool(tool) ?? []));
 	const latestCompactions = compactions.slice(-MAX_COMPACTIONS);
-	if (artifacts.length === 0 && latestCompactions.length === 0) {
-		return undefined;
-	}
 
 	return renderContext({
+		sessionId: input.sessionId,
 		artifacts: artifacts.slice(-MAX_ARTIFACTS),
 		compactions: latestCompactions,
 	});
 }
 
-function renderContext(input: { artifacts: PageArtifact[]; compactions: CompactCheckpoint[] }): string {
+function renderContext(input: {
+	sessionId: string;
+	artifacts: PageArtifact[];
+	compactions: CompactCheckpoint[];
+}): string {
 	const lines = [
 		"Durable Phantom chat context:",
+		`- Current Phantom chat session id: ${input.sessionId}.`,
 		"- The transcript may have been compacted by Murph. Continue from the latest user message using these host facts when relevant.",
+		"- If an older detail is missing after compaction, call phantom_chat_transcript_search with the current chat session id before asking the user to repeat it.",
 		"- Authentication links from phantom_generate_login are not page artifacts.",
 	];
 

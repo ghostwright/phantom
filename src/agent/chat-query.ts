@@ -1,13 +1,7 @@
 // Extracted chat-specific query logic for the runForChat method.
 // Lives outside runtime.ts to keep that file under the 300-line budget.
 
-import {
-	type AgentSdkQueryOptions,
-	type McpServerConfig,
-	type SDKMessage,
-	type SDKUserMessage,
-	query,
-} from "./agent-sdk.ts";
+import { type AgentSdkQueryOptions, type SDKMessage, type SDKUserMessage, query } from "./agent-sdk.ts";
 
 type MessageParam = SDKUserMessage["message"];
 import { buildAgentRuntimeEnv, resolveAgentRuntimeModel } from "../config/providers.ts";
@@ -18,6 +12,7 @@ import type { RoleTemplate } from "../roles/types.ts";
 import type { CostTracker } from "./cost-tracker.ts";
 import { type AgentCost, type AgentResponse, emptyCost } from "./events.ts";
 import { createDangerousCommandBlocker, createFileTracker } from "./hooks.ts";
+import type { AgentMcpServerFactory } from "./mcp-server-factory.ts";
 import { extractTextFromMessageParam } from "./message-param-utils.ts";
 import { extractCost, extractTextFromMessage } from "./message-utils.ts";
 import { createMurphContextTransform } from "./murph-context.ts";
@@ -35,7 +30,7 @@ export type ChatQueryDeps = {
 	evolvedConfig: EvolvedConfig | null;
 	roleTemplate: RoleTemplate | null;
 	onboardingPrompt: string | null;
-	mcpServerFactories: Record<string, () => McpServerConfig | Promise<McpServerConfig>> | null;
+	mcpServerFactories: Record<string, AgentMcpServerFactory> | null;
 };
 
 export async function executeChatQuery(
@@ -98,9 +93,17 @@ export async function executeChatQuery(
 
 	const runSdk = async (useResume: boolean): Promise<void> => {
 		const permissionOptions = permissionOptionsFromConfig(deps.config);
+		const mcpFactoryContext = {
+			sessionKey,
+			channelId,
+			conversationId,
+			...(channelId === "web" && conversationId ? { chatSessionId: conversationId } : {}),
+		};
 		const mcpServers = deps.mcpServerFactories
 			? Object.fromEntries(
-					await Promise.all(Object.entries(deps.mcpServerFactories).map(async ([k, f]) => [k, await f()] as const)),
+					await Promise.all(
+						Object.entries(deps.mcpServerFactories).map(async ([k, f]) => [k, await f(mcpFactoryContext)] as const),
+					),
 				)
 			: undefined;
 		const queryOptions: AgentSdkQueryOptions = {

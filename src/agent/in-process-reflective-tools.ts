@@ -6,17 +6,18 @@
 // clients (phantom_memory_query, phantom_history). Those are served by
 // src/mcp/tools-universal.ts. The Agent SDK subprocess cannot see the external
 // MCP server without going through HTTP, so we expose a thin in-process server
-// with two tools and register it via runtime.setMcpServerFactories() in
+// with reflective tools and register it via runtime.setMcpServerFactories() in
 // src/index.ts.
 //
-// Naming note: we call the tools phantom_memory_search and
-// phantom_list_sessions (matching the SKILL.md allowed-tools field) even
-// though the external server's equivalents are called phantom_memory_query
-// and phantom_history. The builder brief and the skill catalog use the new
-// names; the old external-facing names stay for backward compatibility.
+// Naming note: we call the legacy memory/session aliases phantom_memory_search
+// and phantom_list_sessions (matching the SKILL.md allowed-tools field) even
+// though the external server's equivalents are called phantom_memory_query and
+// phantom_history. The builder brief and the skill catalog use the new names;
+// the old external-facing names stay for backward compatibility.
 
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
+import { searchChatTranscript } from "../chat/transcript-search.ts";
 import type { MemorySystem } from "../memory/system.ts";
 import type { RecallOptions } from "../memory/types.ts";
 import { type McpSdkServerConfigWithInstance, createSdkMcpServer, tool } from "./agent-sdk.ts";
@@ -40,7 +41,15 @@ function daysAgo(n: number): Date {
 	return d;
 }
 
-export function createReflectiveToolServer(memory: MemorySystem | null, db: Database): McpSdkServerConfigWithInstance {
+export type ReflectiveToolServerOptions = {
+	currentChatSessionId?: string;
+};
+
+export function createReflectiveToolServer(
+	memory: MemorySystem | null,
+	db: Database,
+	options: ReflectiveToolServerOptions = {},
+): McpSdkServerConfigWithInstance {
 	const memorySearch = tool(
 		"phantom_memory_search",
 		`Search the agent's persistent memory for past sessions, topics, and facts. Supports semantic search and temporal filtering.
@@ -164,8 +173,52 @@ Each row has session_key, channel_id, conversation_id, status, total_cost_usd, t
 		},
 	);
 
+	const chatTranscriptSearch = tool(
+		"phantom_chat_transcript_search",
+		`Search or list the durable transcript for a Phantom web chat session. Use this after Murph compaction when an older detail from the current chat is missing from provider context.
+
+- session_id: the current Phantom chat session id from the <phantom_chat_context> block.
+- query: optional search text. If omitted, returns recent committed transcript entries.
+- role: "user", "assistant", or "all". Default is "all".
+- before_seq / after_seq: optional transcript sequence window.
+- limit: max results. Default 10, max 50.
+
+Returns compact, cited snippets with seq, role, created_at, status, and attachment metadata. Output is redacted for credentials, magic-login tokens, and large base64 payloads. This is operational transcript recovery, not long-term user memory.`,
+		{
+			session_id: z.string().min(1).describe("Current Phantom chat session id"),
+			query: z.string().optional().describe("Optional search text; omit to list recent transcript entries"),
+			role: z.enum(["user", "assistant", "all"]).optional().default("all"),
+			before_seq: z.number().int().min(1).optional().describe("Only return messages before this transcript seq"),
+			after_seq: z.number().int().min(0).optional().describe("Only return messages after this transcript seq"),
+			limit: z.number().int().min(1).max(50).optional().default(10),
+		},
+		async (input) => {
+			if (!options.currentChatSessionId) {
+				return err("Transcript search is only available inside a bound Phantom web chat run.");
+			}
+			if (input.session_id !== options.currentChatSessionId) {
+				return err("Transcript search is restricted to the current Phantom chat session.");
+			}
+			try {
+				return ok(
+					searchChatTranscript(db, {
+						sessionId: input.session_id,
+						query: input.query,
+						role: input.role,
+						beforeSeq: input.before_seq,
+						afterSeq: input.after_seq,
+						limit: input.limit,
+					}),
+				);
+			} catch (caught: unknown) {
+				const msg = caught instanceof Error ? caught.message : String(caught);
+				return err(`Transcript search failed: ${msg}`);
+			}
+		},
+	);
+
 	return createSdkMcpServer({
 		name: "phantom-reflective",
-		tools: [memorySearch, listSessions],
+		tools: [memorySearch, listSessions, chatTranscriptSearch],
 	});
 }
