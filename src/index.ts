@@ -15,6 +15,7 @@ import { setActionFollowUpHandler } from "./channels/slack-actions.ts";
 import { createSlackChannel, readSlackTransportFromEnv } from "./channels/slack-channel-factory.ts";
 import { SlackHttpChannel } from "./channels/slack-http-receiver.ts";
 import { setSlackHttpChannelProvider } from "./channels/slack-http-routes.ts";
+import { SlackMetrics } from "./channels/slack-metrics.ts";
 import type { SlackTransport } from "./channels/slack-transport.ts";
 import { createStatusReactionController } from "./channels/status-reactions.ts";
 import { TelegramChannel } from "./channels/telegram.ts";
@@ -28,6 +29,7 @@ import {
 	setEvolutionVersionProvider,
 	setMcpServerProvider,
 	setMemoryHealthProvider,
+	setMetricsRegistryProvider,
 	setOnboardingStatusProvider,
 	setPeerHealthProvider,
 	setRoleInfoProvider,
@@ -317,10 +319,19 @@ async function main(): Promise<void> {
 	//     factory throws so a mis-provisioned tenant fails loudly.
 	const channelsConfig = loadChannelsConfig();
 	const slackTransport = readSlackTransportFromEnv();
+	// Phase 8a: a process-global SlackMetrics owns its prom-client Registry.
+	// `core/server.ts` exposes `slackMetrics.registry` at /metrics. We
+	// construct the emitter unconditionally (even when no Slack channel is
+	// configured) so the /metrics endpoint always emits the zero-state
+	// matrix; this keeps Prometheus scrape parity across multi-tenant pools
+	// and prevents alert flapping when Phantoms boot/reboot.
+	const slackMetrics = new SlackMetrics();
+	setMetricsRegistryProvider(() => slackMetrics.registry);
 	const slackChannel: SlackTransport | null = await createSlackChannel({
 		transport: slackTransport,
 		channelsConfig,
 		metadataBaseUrl: process.env.METADATA_BASE_URL,
+		metrics: slackMetrics,
 	});
 
 	if (slackChannel) {
