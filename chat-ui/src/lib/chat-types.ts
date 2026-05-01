@@ -43,6 +43,7 @@ export type ToolCallState = {
 	durationMs?: number;
 	elapsedSeconds?: number;
 	outputTruncated?: boolean;
+	fullRef?: string;
 	isMcp: boolean;
 	mcpServer?: string;
 	blockReason?: string;

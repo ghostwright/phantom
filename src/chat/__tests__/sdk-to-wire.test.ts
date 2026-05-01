@@ -453,6 +453,54 @@ describe("sdk-to-wire translator", () => {
 		}
 	});
 
+	test("tool_progress carries safe preview details while running", () => {
+		const ctx = makeCtx();
+		const frames = translateSdkMessage(
+			{
+				type: "tool_progress",
+				tool_use_id: "tu_1",
+				tool_name: "Bash",
+				elapsed_ms: 500,
+				phase: "partial_output",
+				input_preview: "command: sleep 1",
+				output_preview: "halfway",
+				output_truncated: false,
+				full_ref: "/tmp/out.txt",
+			},
+			ctx,
+		);
+		expect(frames.length).toBe(1);
+		if (frames[0].event === "message.tool_call_running") {
+			expect(frames[0].phase).toBe("partial_output");
+			expect(frames[0].input_preview).toBe("command: sleep 1");
+			expect(frames[0].output_preview).toBe("halfway");
+			expect(frames[0].full_ref).toBe("/tmp/out.txt");
+		}
+	});
+
+	test("completed tool_progress becomes a tool result frame", () => {
+		const ctx = makeCtx();
+		const frames = translateSdkMessage(
+			{
+				type: "tool_progress",
+				tool_use_id: "tu_1",
+				tool_name: "Bash",
+				phase: "completed",
+				duration_ms: 700,
+				output_preview: "done",
+			},
+			ctx,
+		);
+		expect(frames.length).toBe(1);
+		if (frames[0].event === "message.tool_call_result") {
+			expect(frames[0].tool_name).toBe("Bash");
+			expect(frames[0].status).toBe("success");
+			expect(frames[0].duration_ms).toBe(700);
+			expect(frames[0].output).toBe("done");
+			expect(frames[0].output_preview).toBe("done");
+		}
+	});
+
 	test("rate_limit_event -> session.rate_limit", () => {
 		const ctx = makeCtx();
 		const frames = translateSdkMessage(

@@ -1,7 +1,7 @@
 import type { ToolCallState } from "@/lib/chat-types";
 import { cn } from "@/lib/utils";
 import { AlertCircle, Check, ChevronDown, FileText, Loader2, Shield, Terminal, XCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 const TOOL_ICONS: Record<string, typeof Terminal> = {
 	Read: FileText,
@@ -46,12 +46,75 @@ function getToolSubtitle(tool: ToolCallState): string {
 				return tool.toolName === "Tool" ? "" : tool.toolName;
 		}
 	} catch {
+		const summary = tool.inputJson.trim();
+		if (summary) return truncate(summary.replace(/\s+/g, " "), 80);
 		return tool.toolName === "Tool" ? "" : tool.toolName;
 	}
 }
 
 function truncate(text: string, maxLen: number): string {
 	return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
+}
+
+const SECRET_PATTERNS: ReadonlyArray<[RegExp, string]> = [
+	[/\bsk-[A-Za-z0-9_-]{12,}\b/g, "sk-[REDACTED]"],
+	[/\b(api[_-]?key|token|secret|password|authorization|cookie)\b\s*[:=]\s*["']?[^"'\s,}]+/gi, "$1: [REDACTED]"],
+	[/([?&](?:api[_-]?key|token|secret|password|access_token)=)[^&\s]+/gi, "$1[REDACTED]"],
+];
+
+function redactSensitiveText(value: string): string {
+	return SECRET_PATTERNS.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), value);
+}
+
+function stringifyInput(input: unknown): string {
+	if (typeof input === "string") return input;
+	try {
+		return JSON.stringify(input, null, 2);
+	} catch {
+		return String(input);
+	}
+}
+
+function toolInputDetails(tool: ToolCallState): { label: string; value: string } | null {
+	if (tool.input !== undefined) {
+		return { label: "Parameters", value: redactSensitiveText(stringifyInput(tool.input)) };
+	}
+
+	const inputJson = tool.inputJson.trim();
+	if (!inputJson) return null;
+
+	try {
+		return { label: "Parameters", value: redactSensitiveText(JSON.stringify(JSON.parse(inputJson), null, 2)) };
+	} catch {
+		return { label: "Input", value: redactSensitiveText(inputJson) };
+	}
+}
+
+function stateLabel(state: ToolCallState["state"]): string {
+	switch (state) {
+		case "pending":
+			return "Queued";
+		case "input_streaming":
+			return "Preparing";
+		case "input_complete":
+			return "Ready";
+		case "running":
+			return "Running";
+		case "result":
+			return "Completed";
+		case "error":
+			return "Error";
+		case "aborted":
+			return "Stopped";
+		case "blocked":
+			return "Blocked";
+	}
+}
+
+function durationLabel(ms: number): string {
+	if (ms < 1000) return `${Math.round(ms)}ms`;
+	const seconds = ms / 1000;
+	return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`;
 }
 
 type StateStyle = {
@@ -87,6 +150,9 @@ export function ToolCallCard({ tool }: { tool: ToolCallState }) {
 	const Icon = getToolIcon(tool.toolName);
 	const StatusIcon = style.icon;
 	const subtitle = getToolSubtitle(tool);
+	const bodyId = useId();
+	const inputDetails = toolInputDetails(tool);
+	const output = tool.output ? redactSensitiveText(truncate(tool.output, 2000)) : "";
 
 	const autoExpand = tool.state === "error" || tool.state === "blocked";
 	const [isOpen, setIsOpen] = useState(autoExpand);
@@ -97,20 +163,31 @@ export function ToolCallCard({ tool }: { tool: ToolCallState }) {
 		}
 	}, [tool.state]);
 
-	const hasBody = tool.output || tool.error || tool.blockReason || tool.inputJson;
+	const hasBody = Boolean(output || tool.error || tool.blockReason || inputDetails);
 
 	return (
-		<div className={cn("my-2 overflow-hidden rounded-lg border transition-colors", style.border)}>
+		<div className={cn("my-2 overflow-hidden rounded border bg-card transition-colors", style.border)}>
 			<button
 				type="button"
 				onClick={() => hasBody && setIsOpen(!isOpen)}
-				className="flex w-full items-center gap-2 px-3 py-2 text-sm"
+				className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-sm"
 				disabled={!hasBody}
+				aria-expanded={hasBody ? isOpen : undefined}
+				aria-controls={hasBody ? bodyId : undefined}
 			>
 				<Icon className={cn("h-4 w-4 shrink-0", style.iconClass)} />
 				<div className="min-w-0 flex-1 text-left">
-					<span className="font-medium text-foreground">{tool.toolName}</span>
-					{subtitle && <span className="ml-2 truncate text-muted-foreground">{subtitle}</span>}
+					<div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+						<span className="font-medium text-foreground">{tool.toolName}</span>
+						{subtitle && <span className="min-w-0 max-w-full truncate text-muted-foreground">{subtitle}</span>}
+					</div>
+					<div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+						<span>{stateLabel(tool.state)}</span>
+						{tool.durationMs != null && <span>{durationLabel(tool.durationMs)}</span>}
+						{tool.outputTruncated && <span>Output truncated</span>}
+						{tool.fullRef && <span>Full output saved</span>}
+						{tool.isMcp && <span>{tool.mcpServer ? `MCP: ${tool.mcpServer}` : "MCP"}</span>}
+					</div>
 				</div>
 				<div className="flex items-center gap-1">
 					{tool.state === "running" && tool.elapsedSeconds != null && (
@@ -129,13 +206,36 @@ export function ToolCallCard({ tool }: { tool: ToolCallState }) {
 			</button>
 
 			{isOpen && hasBody && (
-				<div className="border-t border-border bg-muted/30 px-3 py-2">
-					{tool.error && <p className="text-sm text-error">{tool.error}</p>}
-					{tool.blockReason && <p className="text-sm text-warning">{tool.blockReason}</p>}
-					{tool.output && (
-						<pre className="max-h-40 overflow-auto font-mono text-xs text-foreground">
-							{truncate(tool.output, 2000)}
-						</pre>
+				<div id={bodyId} className="space-y-3 border-t border-border bg-muted/25 px-3 py-3">
+					{inputDetails && (
+						<div className="space-y-1">
+							<div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+								{inputDetails.label}
+							</div>
+							<pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded bg-background px-3 py-2 font-mono text-xs text-foreground">
+								{inputDetails.value}
+							</pre>
+						</div>
+					)}
+					{tool.error && <p className="text-sm text-error">{redactSensitiveText(tool.error)}</p>}
+					{tool.blockReason && <p className="text-sm text-warning">{redactSensitiveText(tool.blockReason)}</p>}
+					{tool.fullRef && (
+						<div className="space-y-1">
+							<div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+								Full output
+							</div>
+							<div className="rounded bg-background px-3 py-2 font-mono text-xs text-muted-foreground">
+								{redactSensitiveText(tool.fullRef)}
+							</div>
+						</div>
+					)}
+					{output && (
+						<div className="space-y-1">
+							<div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Output</div>
+							<pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded bg-background px-3 py-2 font-mono text-xs text-foreground">
+								{output}
+							</pre>
+						</div>
 					)}
 				</div>
 			)}

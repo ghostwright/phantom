@@ -166,6 +166,27 @@ describe("chat-store reducer: run activity", () => {
 		expect(tool?.elapsedSeconds).toBe(3);
 	});
 
+	it("tool_call_running updates safe previews without completing the tool", () => {
+		const store = createChatStore();
+		beginRunActivity(store);
+		send(store, "message.tool_call_running", {
+			tool_call_id: "tu_preview",
+			tool_name: "Bash",
+			elapsed_seconds: 2,
+			input_preview: "command: sleep 1",
+			output_preview: "working",
+			output_truncated: true,
+			full_ref: "/tmp/tool-output.txt",
+		});
+
+		const tool = store.getState().activeToolCalls.get("tu_preview");
+		expect(tool?.state).toBe("running");
+		expect(tool?.inputJson).toBe("command: sleep 1");
+		expect(tool?.output).toBe("working");
+		expect(tool?.outputTruncated).toBe(true);
+		expect(tool?.fullRef).toBe("/tmp/tool-output.txt");
+	});
+
 	it("orphan tool progress during a new turn does not attach to the prior assistant", () => {
 		const store = createChatStore();
 		send(store, "message.assistant_start", { message_id: "a1" });

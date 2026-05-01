@@ -271,6 +271,16 @@ export class DurableRunTimelineBuilder {
 				tool.name = safeLabel(frame.tool_name ?? tool.name);
 				tool.state = "running";
 				tool.elapsedSeconds = safeNonNegativeNumber(frame.elapsed_seconds);
+				const inputPreview = safeText(frame.input_preview);
+				if (inputPreview) {
+					tool.safeInputSummary = inputPreview;
+				}
+				const outputPreview = safeText(frame.output_preview, MAX_OUTPUT_SUMMARY_TEXT);
+				if (outputPreview) {
+					tool.safeOutputSummary = outputPreview;
+					tool.outputTruncated =
+						frame.output_truncated === true || isTruncated(frame.output_preview, MAX_OUTPUT_SUMMARY_TEXT);
+				}
 				this.summary.currentLabel = `Using ${tool.name}...`;
 				return true;
 			}
@@ -279,8 +289,10 @@ export class DurableRunTimelineBuilder {
 				tool.name = safeLabel(frame.tool_name ?? tool.name);
 				tool.state = frame.status === "error" ? "error" : "result";
 				tool.durationMs = safeNonNegativeNumber(frame.duration_ms);
-				tool.safeOutputSummary = summarizeToolOutput(frame.status, frame.output);
-				tool.outputTruncated = frame.output_truncated === true || isTruncated(frame.output, MAX_OUTPUT_SUMMARY_TEXT);
+				tool.safeOutputSummary =
+					safeText(frame.output_preview, MAX_OUTPUT_SUMMARY_TEXT) ?? summarizeToolOutput(frame.status, frame.output);
+				tool.outputTruncated =
+					frame.output_truncated === true || isTruncated(frame.output_preview ?? frame.output, MAX_OUTPUT_SUMMARY_TEXT);
 				this.summary.currentLabel = frame.status === "error" ? `${tool.name} failed.` : `${tool.name} completed.`;
 				return true;
 			}

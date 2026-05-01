@@ -260,13 +260,44 @@ function handleToolProgress(msg: Record<string, unknown>, ctx: TranslationContex
 			: typeof msg.elapsed_ms === "number"
 				? msg.elapsed_ms / 1000
 				: 0;
+	const phase = typeof msg.phase === "string" ? msg.phase : undefined;
+	const toolCallId = (msg.tool_use_id as string) ?? "";
+	const toolName = typeof msg.tool_name === "string" ? msg.tool_name : undefined;
+	const messageId =
+		typeof msg.message_id === "string" ? msg.message_id : ctx.assistantStartEmitted ? ctx.messageId : undefined;
+	if (phase === "completed" || phase === "failed") {
+		const outputPreview = typeof msg.output_preview === "string" ? msg.output_preview : undefined;
+		const output = outputPreview ? truncateToolResultOutput(outputPreview) : {};
+		const outputTruncated = typeof msg.output_truncated === "boolean" ? msg.output_truncated : output.output_truncated;
+		const frame: ToolCallResultFrame = {
+			event: "message.tool_call_result",
+			...(messageId ? { message_id: messageId } : {}),
+			tool_call_id: toolCallId,
+			...(toolName ? { tool_name: toolName } : {}),
+			status: phase === "failed" ? "error" : "success",
+			duration_ms: typeof msg.duration_ms === "number" ? msg.duration_ms : undefined,
+			output_preview: outputPreview,
+			...output,
+			output_truncated: outputTruncated,
+			full_ref: typeof msg.full_ref === "string" ? msg.full_ref : undefined,
+		};
+		if (phase === "failed") {
+			frame.error =
+				typeof msg.error === "string" ? msg.error : "Tool returned an error. Details are hidden for safety.";
+		}
+		return [frame];
+	}
 	const frame: ToolCallRunningFrame = {
 		event: "message.tool_call_running",
-		message_id:
-			typeof msg.message_id === "string" ? msg.message_id : ctx.assistantStartEmitted ? ctx.messageId : undefined,
-		tool_call_id: (msg.tool_use_id as string) ?? "",
-		tool_name: typeof msg.tool_name === "string" ? msg.tool_name : undefined,
+		...(messageId ? { message_id: messageId } : {}),
+		tool_call_id: toolCallId,
+		...(toolName ? { tool_name: toolName } : {}),
 		elapsed_seconds: elapsedSeconds,
+		phase: phase === "started" || phase === "partial_output" || phase === "running" ? phase : undefined,
+		input_preview: typeof msg.input_preview === "string" ? msg.input_preview : undefined,
+		output_preview: typeof msg.output_preview === "string" ? msg.output_preview : undefined,
+		output_truncated: typeof msg.output_truncated === "boolean" ? msg.output_truncated : undefined,
+		full_ref: typeof msg.full_ref === "string" ? msg.full_ref : undefined,
 	};
 	return [frame];
 }

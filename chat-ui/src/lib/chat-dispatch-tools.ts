@@ -101,6 +101,10 @@ export function dispatchToolRunning(store: ChatStore, data: Record<string, unkno
 			...call,
 			toolName: str(data, "tool_name") ?? call.toolName,
 			state: "running",
+			inputJson: str(data, "input_preview") ?? call.inputJson,
+			output: str(data, "output_preview") ?? call.output,
+			outputTruncated: bool(data, "output_truncated") ?? call.outputTruncated,
+			fullRef: str(data, "full_ref") ?? call.fullRef,
 			elapsedSeconds: num(data, "elapsed_seconds") ?? call.elapsedSeconds,
 		});
 		return { ...s, activeToolCalls: calls };
@@ -117,10 +121,11 @@ export function dispatchToolResult(store: ChatStore, data: Record<string, unknow
 			...call,
 			toolName: str(data, "tool_name") ?? call.toolName,
 			state: str(data, "status") === "error" ? "error" : "result",
-			output: str(data, "output"),
+			output: str(data, "output") ?? str(data, "output_preview"),
 			error: str(data, "error"),
 			durationMs: num(data, "duration_ms"),
 			outputTruncated: bool(data, "output_truncated"),
+			fullRef: str(data, "full_ref") ?? call.fullRef,
 		});
 		return { ...s, activeToolCalls: calls };
 	});

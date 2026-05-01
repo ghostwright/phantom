@@ -54,6 +54,11 @@ export type ToolCallRunningFrame = {
 	tool_call_id: string;
 	tool_name?: string;
 	elapsed_seconds: number;
+	phase?: "started" | "running" | "partial_output";
+	input_preview?: string;
+	output_preview?: string;
+	output_truncated?: boolean;
+	full_ref?: string;
 };
 
 export type ToolCallResultFrame = {
@@ -64,6 +69,7 @@ export type ToolCallResultFrame = {
 	status: "success" | "error";
 	duration_ms?: number;
 	output?: string;
+	output_preview?: string;
 	output_truncated?: boolean;
 	output_full_size?: number;
 	full_ref?: string;
