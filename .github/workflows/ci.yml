@@ -22,6 +22,15 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      # Phase 18 PR-6: enforce the additive + idempotent migration contract on
+      # every PR. Phantom tenants survive a snapshot-replace upgrade by
+      # rsyncing /app/data/ from the old clone to the new clone, so a
+      # destructive migration here would corrupt every live tenant on the
+      # next upgrade. The gate walks src/db/schema.ts and rejects DROP
+      # TABLE / DROP COLUMN / RENAME / non-idempotent CREATE statements.
+      - name: Migration safety gate
+        run: bun run src/db/check-migrations.ts
+
       - name: Test
         run: bun test
 
