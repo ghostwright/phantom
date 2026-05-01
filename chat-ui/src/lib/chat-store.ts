@@ -292,13 +292,19 @@ export function dispatchFrame(
 		case "message.assistant_end":
 			store.update((s) => {
 				const msgs = [...s.messages];
+				const thinkingBlocks = new Map(s.thinkingBlocks);
 				const messageId = data.message_id as string;
 				const index = findMessageIndex(msgs, messageId);
 				const target = index >= 0 ? msgs[index] : undefined;
 				if (target && target.role === "assistant" && target.status === "streaming") {
 					msgs[index] = { ...target, status: "committed" };
 				}
-				return { ...s, messages: msgs };
+				for (const [blockId, block] of thinkingBlocks) {
+					if (block.messageId === messageId && block.isStreaming) {
+						thinkingBlocks.set(blockId, { ...block, isStreaming: false });
+					}
+				}
+				return { ...s, messages: msgs, thinkingBlocks };
 			});
 			break;
 

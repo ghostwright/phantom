@@ -107,6 +107,26 @@ describe("chat-store reducer: text block lifecycle", () => {
 		expect(last?.role).toBe("assistant");
 		expect(last?.content.length).toBe(0);
 	});
+
+	it("assistant_end closes a late open thinking block", () => {
+		const store = createChatStore();
+		send(store, "message.assistant_start", { message_id: "a1" });
+		send(store, "message.thinking_start", {
+			message_id: "a1",
+			thinking_block_id: "tk_0_0",
+			index: 0,
+			redacted: false,
+		});
+
+		expect(store.getState().thinkingBlocks.get("tk_0_0")?.isStreaming).toBe(true);
+
+		send(store, "message.assistant_end", {
+			message_id: "a1",
+			interrupted: false,
+		});
+
+		expect(store.getState().thinkingBlocks.get("tk_0_0")?.isStreaming).toBe(false);
+	});
 });
 
 describe("chat-store reducer: run activity", () => {
@@ -173,6 +193,7 @@ describe("chat-store reducer: run activity", () => {
 			tool_call_id: "tu_preview",
 			tool_name: "Bash",
 			elapsed_seconds: 2,
+			phase: "partial_output",
 			input_preview: "command: sleep 1",
 			output_preview: "working",
 			output_truncated: true,
@@ -181,6 +202,7 @@ describe("chat-store reducer: run activity", () => {
 
 		const tool = store.getState().activeToolCalls.get("tu_preview");
 		expect(tool?.state).toBe("running");
+		expect(tool?.phase).toBe("partial_output");
 		expect(tool?.inputJson).toBe("command: sleep 1");
 		expect(tool?.output).toBe("working");
 		expect(tool?.outputTruncated).toBe(true);
@@ -258,6 +280,51 @@ describe("chat-store reducer: run activity", () => {
 		expect(state.runActivity?.status).toBe("completed");
 		expect(state.activeToolCalls.get("tu_1")?.state).toBe("result");
 		expect(state.activeToolCalls.get("tu_1")?.output).toBe("done");
+	});
+
+	it("late streamed tool input does not erase completed progress state", () => {
+		const store = createChatStore();
+		beginRunActivity(store);
+		send(store, "message.tool_call_running", {
+			tool_call_id: "tu_late",
+			tool_name: "Bash",
+			phase: "started",
+			input_preview: '{\n  "command": "sleep 7"\n}',
+			elapsed_seconds: 0,
+		});
+		send(store, "message.tool_call_result", {
+			tool_call_id: "tu_late",
+			tool_name: "Bash",
+			status: "success",
+			duration_ms: 7034,
+			output: "exit_code: 0\nstdout:\nPHANTOM_RUN_CONSOLE_SENTINEL\nstderr:",
+		});
+		send(store, "message.assistant_start", { message_id: "a1" });
+		send(store, "message.tool_call_start", {
+			message_id: "a1",
+			tool_call_id: "tu_late",
+			tool_name: "Bash",
+		});
+		send(store, "message.tool_call_input_delta", {
+			tool_call_id: "tu_late",
+			json_delta: '{"command":"sleep 7"}',
+		});
+		send(store, "message.tool_call_input_end", {
+			tool_call_id: "tu_late",
+			input: { command: "sleep 7" },
+		});
+
+		const tool = store.getState().activeToolCalls.get("tu_late");
+		expect(tool).toMatchObject({
+			messageId: "a1",
+			toolName: "Bash",
+			state: "result",
+			phase: "completed",
+			durationMs: 7034,
+		});
+		expect(tool?.inputJson).toContain("sleep 7");
+		expect(tool?.inputJson).not.toContain('}{"command"');
+		expect(tool?.output).toContain("PHANTOM_RUN_CONSOLE_SENTINEL");
 	});
 
 	it("subagent frames produce activity state", () => {

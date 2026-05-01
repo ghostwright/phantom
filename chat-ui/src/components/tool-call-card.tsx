@@ -14,6 +14,8 @@ const TOOL_ICONS: Record<string, typeof Terminal> = {
 	WebFetch: FileText,
 };
 
+const TOOL_OUTPUT_DISPLAY_LIMIT = 12_000;
+
 function getToolIcon(toolName: string) {
 	return TOOL_ICONS[toolName] ?? Terminal;
 }
@@ -90,8 +92,13 @@ function toolInputDetails(tool: ToolCallState): { label: string; value: string }
 	}
 }
 
-function stateLabel(state: ToolCallState["state"]): string {
-	switch (state) {
+function stateLabel(tool: ToolCallState): string {
+	if (tool.phase === "started") return tool.state === "running" ? "Running" : "Started";
+	if (tool.phase === "partial_output") return "Streaming output";
+	if (tool.phase === "completed") return "Completed";
+	if (tool.phase === "failed") return "Error";
+
+	switch (tool.state) {
 		case "pending":
 			return "Queued";
 		case "input_streaming":
@@ -133,7 +140,7 @@ function getStateStyle(state: ToolCallState["state"]): StateStyle {
 		case "input_complete":
 			return { border: "border-border", icon: Terminal, iconClass: "text-foreground" };
 		case "running":
-			return { border: "border-success", icon: Loader2, iconClass: "text-success animate-spin", showSpinner: true };
+			return { border: "border-primary/40", icon: Loader2, iconClass: "text-primary animate-spin", showSpinner: true };
 		case "result":
 			return { border: "border-border", icon: Check, iconClass: "text-success" };
 		case "error":
@@ -152,13 +159,13 @@ export function ToolCallCard({ tool }: { tool: ToolCallState }) {
 	const subtitle = getToolSubtitle(tool);
 	const bodyId = useId();
 	const inputDetails = toolInputDetails(tool);
-	const output = tool.output ? redactSensitiveText(truncate(tool.output, 2000)) : "";
+	const output = tool.output ? redactSensitiveText(truncate(tool.output, TOOL_OUTPUT_DISPLAY_LIMIT)) : "";
 
-	const autoExpand = tool.state === "error" || tool.state === "blocked";
+	const autoExpand = tool.state === "running" || tool.state === "result" || tool.state === "error" || tool.state === "blocked";
 	const [isOpen, setIsOpen] = useState(autoExpand);
 
 	useEffect(() => {
-		if (tool.state === "error" || tool.state === "blocked") {
+		if (tool.state === "running" || tool.state === "result" || tool.state === "error" || tool.state === "blocked") {
 			setIsOpen(true);
 		}
 	}, [tool.state]);
@@ -182,7 +189,7 @@ export function ToolCallCard({ tool }: { tool: ToolCallState }) {
 						{subtitle && <span className="min-w-0 max-w-full truncate text-muted-foreground">{subtitle}</span>}
 					</div>
 					<div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-						<span>{stateLabel(tool.state)}</span>
+						<span>{stateLabel(tool)}</span>
 						{tool.durationMs != null && <span>{durationLabel(tool.durationMs)}</span>}
 						{tool.outputTruncated && <span>Output truncated</span>}
 						{tool.fullRef && <span>Full output saved</span>}
@@ -196,7 +203,7 @@ export function ToolCallCard({ tool }: { tool: ToolCallState }) {
 					{tool.state !== "pending" && tool.state !== "running" && (
 						<StatusIcon className={cn("h-3.5 w-3.5", style.iconClass)} />
 					)}
-					{tool.state === "running" && <Loader2 className="h-3.5 w-3.5 animate-spin text-success" />}
+					{tool.state === "running" && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
 					{hasBody && (
 						<ChevronDown
 							className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", isOpen && "rotate-180")}
@@ -222,7 +229,7 @@ export function ToolCallCard({ tool }: { tool: ToolCallState }) {
 					{tool.fullRef && (
 						<div className="space-y-1">
 							<div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-								Full output
+								Full output path
 							</div>
 							<div className="rounded bg-background px-3 py-2 font-mono text-xs text-muted-foreground">
 								{redactSensitiveText(tool.fullRef)}

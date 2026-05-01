@@ -40,6 +40,7 @@ export type ToolCallState = {
 	input?: unknown;
 	output?: string;
 	error?: string;
+	phase?: "started" | "running" | "partial_output" | "completed" | "failed";
 	durationMs?: number;
 	elapsedSeconds?: number;
 	outputTruncated?: boolean;

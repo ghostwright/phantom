@@ -135,7 +135,7 @@ function handleSystem(msg: Record<string, unknown>, ctx: TranslationContext): Ch
 	return frames;
 }
 
-const TOOL_RESULT_OUTPUT_LIMIT = 4000;
+const TOOL_RESULT_OUTPUT_LIMIT = 12_000;
 const SAFE_TOOL_ERROR_MESSAGE = "Tool returned an error. Details are hidden for safety.";
 
 function isRecord(value: unknown): value is Record<string, unknown> {

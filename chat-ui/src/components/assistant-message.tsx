@@ -19,7 +19,7 @@ export function AssistantMessage({
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-[85%]">
+      <div className="max-w-[92%]">
         {thinkingBlocks.map((block, i) => (
           <ThinkingBlock key={`thinking-${i}`} block={block} />
         ))}

@@ -129,6 +129,10 @@ const MAX_OUTPUT_SUMMARY_TEXT = 360;
 const MAX_COLLECTION_ITEMS = 25;
 const MAX_INPUT_PARTS = 3;
 
+function isTerminalToolState(state: RunTimelineToolState): boolean {
+	return state === "result" || state === "error" || state === "blocked" || state === "aborted";
+}
+
 export class ChatRunTimelineStore {
 	private db: Database;
 
@@ -253,7 +257,9 @@ export class DurableRunTimelineBuilder {
 			case "message.tool_call_start": {
 				const tool = this.tool(frame.tool_call_id, frame.tool_name);
 				tool.name = safeLabel(frame.tool_name);
-				tool.state = "running";
+				if (!isTerminalToolState(tool.state)) {
+					tool.state = "running";
+				}
 				tool.isMcp = frame.is_mcp;
 				tool.mcpServer = safeText(frame.mcp_server);
 				this.summary.currentLabel = `Using ${tool.name}...`;
@@ -261,7 +267,9 @@ export class DurableRunTimelineBuilder {
 			}
 			case "message.tool_call_input_end": {
 				const tool = this.tool(frame.tool_call_id);
-				tool.state = tool.state === "blocked" || tool.state === "aborted" ? tool.state : "running";
+				if (!isTerminalToolState(tool.state)) {
+					tool.state = "running";
+				}
 				tool.safeInputSummary = summarizeToolInput(frame.input);
 				this.summary.currentLabel = `Prepared ${tool.name}.`;
 				return true;
@@ -269,7 +277,9 @@ export class DurableRunTimelineBuilder {
 			case "message.tool_call_running": {
 				const tool = this.tool(frame.tool_call_id, frame.tool_name);
 				tool.name = safeLabel(frame.tool_name ?? tool.name);
-				tool.state = "running";
+				if (!isTerminalToolState(tool.state)) {
+					tool.state = "running";
+				}
 				tool.elapsedSeconds = safeNonNegativeNumber(frame.elapsed_seconds);
 				const inputPreview = safeText(frame.input_preview);
 				if (inputPreview) {

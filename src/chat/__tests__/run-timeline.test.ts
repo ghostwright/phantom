@@ -99,6 +99,61 @@ describe("DurableRunTimelineBuilder", () => {
 		});
 	});
 
+	test("late streamed tool input does not downgrade a completed tool", () => {
+		const builder = startBuilder();
+		builder.apply(
+			{
+				event: "message.tool_call_running",
+				tool_call_id: "tool-late",
+				tool_name: "Bash",
+				elapsed_seconds: 0,
+				phase: "started",
+				input_preview: '{\n  "command": "sleep 45"\n}',
+			},
+			2,
+		);
+		builder.apply(
+			{
+				event: "message.tool_call_result",
+				tool_call_id: "tool-late",
+				tool_name: "Bash",
+				status: "success",
+				duration_ms: 45029,
+				output: "exit_code: 0\nstdout:\nPHANTOM_RUN_CONSOLE_SENTINEL\nstderr:",
+			},
+			3,
+		);
+		builder.apply(
+			{
+				event: "message.tool_call_start",
+				message_id: "assistant-1",
+				tool_call_id: "tool-late",
+				tool_name: "Bash",
+				parent_tool_use_id: null,
+				is_mcp: false,
+			},
+			4,
+		);
+		builder.apply(
+			{
+				event: "message.tool_call_input_end",
+				tool_call_id: "tool-late",
+				input: { command: "sleep 45", description: "Run requested sentinel command" },
+			},
+			5,
+		);
+
+		const summary = builder.toUpsertParams().summary;
+		expect(summary.tools[0]).toMatchObject({
+			id: "tool-late",
+			name: "Bash",
+			state: "result",
+			durationMs: 45029,
+			safeInputSummary: "command: sleep; description: Run requested sentinel command",
+		});
+		expect(summary.tools[0]?.safeOutputSummary).toBe("Tool produced output.");
+	});
+
 	test("records blocked, aborted, compaction, MCP, rate limit, and subagents", () => {
 		const builder = startBuilder();
 		const frames: Array<{ frame: ChatWireFrame; seq: number }> = [
