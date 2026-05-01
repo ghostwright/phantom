@@ -192,6 +192,41 @@ The tenant.env C7 invariant (consumed once at firstboot, then deleted) does NOT 
 
 The overlay never carries provider keys, OAuth tokens, or secrets. Every var is a non-secret identifier or label.
 
+## Magic-link callback (`/auth/magic`, Phase 6)
+
+The dashboard mints a one-time, 60-second-TTL token via phantom-control and 302s the user's browser to `https://<slug>.phantom.ghostwright.dev/auth/magic?token=<43-char base64url>`. The handler at `src/ui/auth-magic.ts` validates the token server-side via the metadata gateway (`POST http://169.254.169.254/v1/magic-link/validate`, which proxies to phantom-control's bearer-auth shim), then mints a `phantom_session` cookie scoped to the per-tenant subdomain and redirects to `/chat`.
+
+Wiring: the route is dispatched from `src/core/server.ts` at the top-level path `/auth/magic` (NOT under `/ui/`). The dashboard 302 must reach the route without a pre-existing cookie; the token IS the auth, so the route bypasses the `/ui/*` cookie gate by design.
+
+Per-IP rate limit: 10 attempts per minute per source IP, sliding window. Successful validates do NOT bump the budget (it gates probing-by-strangers, not legitimate flows). Bounded eviction at 1024 IPs. Mirrors the rate-limit semantics in phantomd's `metadata.magicLinkRateLimiter` at `internal/metadata/magic_link_proxy.go`.
+
+Cookie shape (per architect §7):
+
+- `phantom_session=<32-byte base64url>` matching `createSession()` in `session.ts`.
+- `Domain=<slug>.phantom.ghostwright.dev` (per-tenant; never wildcard).
+- `Path=/`, `HttpOnly`, `Secure`, `SameSite=Lax`, `Max-Age=604800` (7 days).
+- A second `Set-Cookie` clears any legacy `Path=/ui` cookie a browser may carry from the pre-cookie-flatten era.
+
+Defense-in-depth gates in the handler:
+
+1. Token shape regex (43-char base64url) before the rate-limit budget.
+2. Per-IP rate limit before the validator hop.
+3. Tenant-config sanity (`PHANTOM_TENANT_SLUG` + `PHANTOM_OWNER_EMAIL` both required).
+4. Validator hop with 2-second timeout to the metadata gateway.
+5. Cross-tenant defense: `agent_slug` from validator must equal `PHANTOM_TENANT_SLUG`.
+6. Owner-email binding: validator's `owner_email` must equal `PHANTOM_OWNER_EMAIL` (case-insensitive).
+7. Open-redirect defense on `?redirect=`: must be a single-leading-slash path; protocol-relative or absolute URLs fall back to `/chat`.
+
+Failure paths: every error redirects to `${PHANTOM_DASHBOARD_URL}?magic_error=<code>` so the dashboard's Sonner toast surfaces. The token plaintext is NEVER echoed in the response body, the redirect Location, the upstream URL path/query, or any structured-log call. Codes: `invalid_token`, `rate_limited`, `expired`, `validator_unavailable`, `owner_mismatch`, `agent_mismatch`, `tenant_unconfigured`. When `PHANTOM_DASHBOARD_URL` is unset (dev mode) the fallback is `/ui/login?magic_error=...`.
+
+Cross-repo invariants (byte-equality with neighbouring repos):
+
+- The token-shape regex `^[A-Za-z0-9_-]{43}$` mirrors `phantom-control/internal/httpshim/magic_link.go::magicTokenShapeRE` and `phantomd/internal/metadata/magic_link_proxy.go::magicLinkTokenShapeRE`.
+- The validator wire shape `{token}` (request) and `{agent_id, agent_slug, owner_email}` (response) mirrors phantom-control + phantomd byte-for-byte.
+- Status mapping (200 -> success, 404 -> expired/consumed/unknown, 400 -> bad shape, 403 -> cross-tenant, 429 -> rate limit, 5xx -> validator unavailable) mirrors the phantomd proxy at `magic_link_proxy.go::handleMagicLinkValidate`.
+
+Tests: `src/ui/__tests__/auth-magic.test.ts` (45 cases) covers happy path, every failure mode, every plaintext-leak guard, the full rate-limit semantics, the cross-tenant + owner-email gates, the open-redirect defense, and refresh survival. The route-wiring smoke is at `src/core/__tests__/server.test.ts::"GET /auth/magic"`.
+
 ## Key Design Decisions
 
 **Qdrant over LanceDB:** WAL durability with crash recovery. Native hybrid search (dense + BM25 sparse vectors). Named vectors for separate embedding spaces. Mmap mode for low memory. TypeScript REST client works with Bun (no NAPI addon risk).
