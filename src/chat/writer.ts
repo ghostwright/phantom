@@ -122,13 +122,16 @@ export class ChatSessionWriter {
 		let terminalErrorMessage: string | null = null;
 
 		try {
-			const sessionContext = buildChatContinuityContext({
-				sessionId: this.deps.sessionId,
-				eventLog: this.deps.eventLog,
-			});
+			const sessionContextProvider = () =>
+				buildChatContinuityContext({
+					sessionId: this.deps.sessionId,
+					eventLog: this.deps.eventLog,
+				});
+			const sessionContext = sessionContextProvider();
 			const response = await this.deps.runtime.runForChat(sessionKey, message, {
 				signal: this.abortController.signal,
 				sessionContext,
+				sessionContextProvider,
 				onSdkEvent: (sdkMsg: unknown) => {
 					const frames = translateSdkMessage(sdkMsg as Record<string, unknown>, ctx);
 					for (const frame of frames) {

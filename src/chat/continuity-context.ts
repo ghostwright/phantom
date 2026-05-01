@@ -127,11 +127,12 @@ function renderContext(input: {
 }
 
 function artifactFromTool(tool: ToolAccumulator): PageArtifact | undefined {
-	if (!tool.toolName || !PAGE_TOOLS.has(tool.toolName)) return undefined;
+	const toolName = normalizePageToolName(tool.toolName);
+	if (!toolName) return undefined;
 
 	const input = recordFromUnknown(tool.input);
 	const output = parseJsonRecord(tool.output);
-	const path = stringField(output, "path") ?? stringField(input, "path");
+	const path = normalizePagePath(stringField(output, "path") ?? stringField(input, "path"));
 	const url = normalizePageUrl(
 		stringField(output, "url") ??
 			stringField(output, "publicUrl") ??
@@ -144,12 +145,22 @@ function artifactFromTool(tool: ToolAccumulator): PageArtifact | undefined {
 	const size = numberField(output, "size");
 	return {
 		seq: tool.seq,
-		toolName: tool.toolName,
+		toolName,
 		label: truncate(title, MAX_LABEL_LENGTH),
 		...(url ? { url } : {}),
 		...(path ? { path } : {}),
 		...(size !== undefined ? { size } : {}),
 	};
+}
+
+function normalizePageToolName(toolName: string | undefined): string | undefined {
+	if (!toolName) return undefined;
+	for (const pageToolName of PAGE_TOOLS) {
+		if (toolName === pageToolName || toolName.endsWith(`__${pageToolName}`) || toolName.endsWith(`:${pageToolName}`)) {
+			return pageToolName;
+		}
+	}
+	return undefined;
 }
 
 function dedupeArtifacts(artifacts: PageArtifact[]): PageArtifact[] {
@@ -199,16 +210,29 @@ function numberField(record: Record<string, unknown> | undefined, key: string): 
 }
 
 function normalizePageUrl(url: string | undefined): string | undefined {
-	if (!url || !url.includes("/ui/") || url.includes("/ui/login")) {
+	const trimmed = stripTrailingPunctuation(url?.trim() ?? "");
+	if (!trimmed || !trimmed.includes("/ui/") || trimmed.includes("/ui/login") || trimmed.includes("magic=")) {
 		return undefined;
 	}
-	return url;
+	return trimmed;
+}
+
+function normalizePagePath(path: string | undefined): string | undefined {
+	const cleaned = path?.trim().replace(/^\/+/, "").replace(/^ui\//, "");
+	if (!cleaned || cleaned.includes("..") || cleaned.includes("\0") || cleaned.startsWith("login")) {
+		return undefined;
+	}
+	return cleaned;
 }
 
 function urlFromText(text: string | undefined): string | undefined {
 	if (!text) return undefined;
-	const match = text.match(/https?:\/\/[^\s"']+\/ui\/[^\s"']+/);
+	const match = text.match(/https?:\/\/[^\s"']+\/ui\/[^\s"']+|\/ui\/[^\s"']+/);
 	return normalizePageUrl(match?.[0]);
+}
+
+function stripTrailingPunctuation(value: string): string {
+	return value.replace(/[),.;]+$/g, "");
 }
 
 function truncate(value: string, maxLength: number): string {

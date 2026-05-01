@@ -412,6 +412,49 @@ describe("Agent SDK boundary callers", () => {
 		expect(textFromContent(contextMessage.content)).toContain("http://127.0.0.1:3112/ui/profile.html");
 	});
 
+	test("chat query path passes a lazy Phantom continuity provider to Murph transformContext", async () => {
+		__setAgentSdkQueryForTests((params) => {
+			calls.push(params);
+			return queryFromMessages([initMessage(), assistantMessage("chat assistant"), resultMessage("chat result")]);
+		});
+
+		let context = "User-visible page: http://127.0.0.1:3112/ui/first.html";
+		await executeChatQuery(
+			{
+				config: makeConfig({
+					agent_runtime: "murph",
+					model: "gpt-5.5",
+					provider: { type: "openai" },
+				}),
+				sessionStore: new SessionStore(db),
+				costTracker: new CostTracker(db),
+				memoryContextBuilder: null,
+				evolvedConfig: null,
+				roleTemplate: null,
+				onboardingPrompt: null,
+				mcpServerFactories: null,
+			},
+			"web:chat-session",
+			{ role: "user", content: "give me the page link" },
+			Date.now(),
+			{
+				signal: new AbortController().signal,
+				sessionContextProvider: () => context,
+				onSdkEvent: () => {},
+			},
+		);
+
+		const options = calls[0]?.options as AgentSdkQueryOptions | undefined;
+		const transformContext = options?.transformContext;
+		expect(transformContext).toBeDefined();
+		const first = (await transformContext?.([{ role: "user", content: "same prompt" }])) ?? [];
+		context = "User-visible page: http://127.0.0.1:3112/ui/second.html";
+		const second = (await transformContext?.(first)) ?? [];
+
+		expect(JSON.stringify(second)).toContain("http://127.0.0.1:3112/ui/second.html");
+		expect(JSON.stringify(second)).not.toContain("http://127.0.0.1:3112/ui/first.html");
+	});
+
 	test("chat query retries stale resume result frames without forwarding the error result", async () => {
 		const sdkEvents: SDKMessage[] = [];
 		let factoryCalls = 0;

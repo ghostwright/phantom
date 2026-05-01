@@ -127,7 +127,12 @@ export class AgentRuntime {
 	async runForChat(
 		sessionKey: string,
 		message: MessageParam,
-		options: { signal: AbortSignal; onSdkEvent: (msg: SDKMessage) => void; sessionContext?: string },
+		options: {
+			signal: AbortSignal;
+			onSdkEvent: (msg: SDKMessage) => void;
+			sessionContext?: string;
+			sessionContextProvider?: () => string | undefined;
+		},
 	): Promise<AgentResponse> {
 		if (this.activeSessions.has(sessionKey)) {
 			return { text: "Error: session busy", sessionId: "", cost: emptyCost(), durationMs: 0 };

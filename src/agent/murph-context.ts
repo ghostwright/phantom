@@ -1,4 +1,5 @@
 export type MurphContextTransform = (messages: unknown[], signal?: AbortSignal) => Promise<unknown[]> | unknown[];
+export type MurphContextSource = string | undefined | (() => string | undefined | Promise<string | undefined>);
 
 const PHANTOM_CONTEXT_OPEN_TAG = "<phantom_chat_context>";
 const PHANTOM_CONTEXT_CLOSE_TAG = "</phantom_chat_context>";
@@ -9,25 +10,35 @@ type PhantomContextMessage = {
 	timestamp: number;
 };
 
-export function createMurphContextTransform(context: string | undefined): MurphContextTransform | undefined {
-	const trimmed = context?.trim();
-	if (!trimmed) return undefined;
+export function createMurphContextTransform(context: MurphContextSource): MurphContextTransform | undefined {
+	if (typeof context !== "function") {
+		const trimmed = context?.trim();
+		if (!trimmed) return undefined;
+		return (messages: unknown[]) => injectContext(messages, trimmed);
+	}
 
-	return (messages: unknown[]) => {
+	return async (messages: unknown[]) => {
 		const cleaned = messages.filter((message) => !isPhantomContextMessage(message));
-		const contextMessage = buildContextMessage(trimmed);
-		if (cleaned.length === 0) {
-			return [contextMessage];
-		}
-
-		const lastIndex = cleaned.length - 1;
-		const lastMessage = cleaned[lastIndex];
-		if (hasRole(lastMessage, "user")) {
-			return [...cleaned.slice(0, lastIndex), contextMessage, lastMessage];
-		}
-
-		return [...cleaned, contextMessage];
+		const trimmed = (await context())?.trim();
+		if (!trimmed) return cleaned;
+		return injectContext(cleaned, trimmed);
 	};
+}
+
+function injectContext(messages: unknown[], context: string): unknown[] {
+	const cleaned = messages.filter((message) => !isPhantomContextMessage(message));
+	const contextMessage = buildContextMessage(context);
+	if (cleaned.length === 0) {
+		return [contextMessage];
+	}
+
+	const lastIndex = cleaned.length - 1;
+	const lastMessage = cleaned[lastIndex];
+	if (hasRole(lastMessage, "user")) {
+		return [...cleaned.slice(0, lastIndex), contextMessage, lastMessage];
+	}
+
+	return [...cleaned, contextMessage];
 }
 
 function buildContextMessage(content: string): PhantomContextMessage {

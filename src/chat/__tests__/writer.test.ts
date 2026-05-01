@@ -40,7 +40,12 @@ function mockRuntime(overrides?: {
 	runForChat?: (
 		key: string,
 		msg: unknown,
-		opts: { signal: AbortSignal; onSdkEvent: (msg: unknown) => void; sessionContext?: string },
+		opts: {
+			signal: AbortSignal;
+			onSdkEvent: (msg: unknown) => void;
+			sessionContext?: string;
+			sessionContextProvider?: () => string | undefined;
+		},
 	) => Promise<{
 		text: string;
 		sessionId: string;
@@ -478,6 +483,59 @@ describe("ChatSessionWriter", () => {
 
 		expect(capturedContext).toContain("Profile Page");
 		expect(capturedContext).toContain("http://127.0.0.1:3112/ui/profile.html");
+	});
+
+	test("passes a live continuity context provider into the chat runtime", async () => {
+		const session = sessionStore.create();
+		let providerContext: string | undefined;
+
+		const writer = new ChatSessionWriter({
+			sessionId: session.id,
+			runtime: mockRuntime({
+				runForChat: async (_key, _message, opts) => {
+					opts.onSdkEvent({
+						type: "tool_progress",
+						tool_use_id: "tool-late-page",
+						tool_name: "mcp__phantom-web-ui__phantom_create_page",
+						phase: "completed",
+						output_preview: JSON.stringify({
+							title: "Late Page",
+							path: "late-page.html",
+							url: "http://127.0.0.1:3112/ui/late-page.html",
+						}),
+						duration_ms: 25,
+					});
+					providerContext = opts.sessionContextProvider?.();
+					opts.onSdkEvent({
+						type: "result",
+						subtype: "success",
+						result: "ok",
+						stop_reason: "end_turn",
+						total_cost_usd: 0,
+						usage: {},
+						modelUsage: {},
+						duration_ms: 0,
+						num_turns: 1,
+					});
+					return {
+						text: "ok",
+						sessionId: "sdk-1",
+						cost: { totalUsd: 0, inputTokens: 0, outputTokens: 0, modelUsage: {} },
+						durationMs: 0,
+					};
+				},
+			}),
+			eventLog,
+			messageStore,
+			sessionStore,
+			streamBus,
+		});
+		writer.claim();
+
+		await writer.run({ role: "user", content: "create a late page" }, "t1", "create a late page");
+
+		expect(providerContext).toContain("Late Page");
+		expect(providerContext).toContain("http://127.0.0.1:3112/ui/late-page.html");
 	});
 
 	test("persists errored run timeline without committing assistant id", async () => {

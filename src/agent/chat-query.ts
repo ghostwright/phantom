@@ -33,12 +33,19 @@ export type ChatQueryDeps = {
 	mcpServerFactories: Record<string, AgentMcpServerFactory> | null;
 };
 
+type SessionContextProvider = () => string | undefined;
+
 export async function executeChatQuery(
 	deps: ChatQueryDeps,
 	sessionKey: string,
 	message: MessageParam,
 	startTime: number,
-	options: { signal: AbortSignal; onSdkEvent: (msg: SDKMessage) => void; sessionContext?: string },
+	options: {
+		signal: AbortSignal;
+		onSdkEvent: (msg: SDKMessage) => void;
+		sessionContext?: string;
+		sessionContextProvider?: SessionContextProvider;
+	},
 ): Promise<AgentResponse> {
 	const parts = sessionKey.split(":");
 	const channelId = parts[0] ?? "web";
@@ -58,6 +65,7 @@ export async function executeChatQuery(
 		}
 	}
 	const useMurphContextTransform = deps.config.agent_runtime === "murph";
+	const initialSessionContext = options.sessionContextProvider?.() ?? options.sessionContext;
 	const appendPrompt = assemblePrompt(
 		deps.config,
 		memoryContext,
@@ -65,9 +73,11 @@ export async function executeChatQuery(
 		deps.roleTemplate ?? undefined,
 		deps.onboardingPrompt ?? undefined,
 		undefined,
-		useMurphContextTransform ? undefined : options.sessionContext,
+		useMurphContextTransform ? undefined : initialSessionContext,
 	);
-	const transformContext = useMurphContextTransform ? createMurphContextTransform(options.sessionContext) : undefined;
+	const transformContext = useMurphContextTransform
+		? createMurphContextTransform(options.sessionContextProvider ?? initialSessionContext)
+		: undefined;
 	const queryModel = resolveAgentRuntimeModel(deps.config, deps.config.model);
 	const providerEnv = buildAgentRuntimeEnv(deps.config, queryModel);
 

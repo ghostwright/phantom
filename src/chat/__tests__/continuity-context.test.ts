@@ -28,7 +28,7 @@ describe("buildChatContinuityContext", () => {
 		eventLog.append(session.id, null, 1, "message.tool_call_start", {
 			event: "message.tool_call_start",
 			tool_call_id: "tool-1",
-			tool_name: "phantom_create_page",
+			tool_name: "mcp__phantom-web-ui__phantom_create_page",
 			message_id: "assistant-1",
 			parent_tool_use_id: null,
 			is_mcp: true,
@@ -44,7 +44,7 @@ describe("buildChatContinuityContext", () => {
 		eventLog.append(session.id, null, 3, "message.tool_call_result", {
 			event: "message.tool_call_result",
 			tool_call_id: "tool-1",
-			tool_name: "phantom_create_page",
+			tool_name: "mcp__phantom-web-ui__phantom_create_page",
 			status: "success",
 			output: JSON.stringify({
 				path: "muhammad-ahmed-cheema.html",
@@ -61,7 +61,32 @@ describe("buildChatContinuityContext", () => {
 		expect(context).toContain("Muhammad Ahmed Cheema Profile");
 		expect(context).toContain("http://127.0.0.1:3112/ui/muhammad-ahmed-cheema.html");
 		expect(context).toContain("muhammad-ahmed-cheema.html");
+		expect(context).toContain("via phantom_create_page");
 		expect(context).not.toContain("/ui/login");
+	});
+
+	test("extracts relative page links from MCP-qualified preview output text", () => {
+		const session = sessionStore.create();
+		eventLog.append(session.id, null, 1, "message.tool_call_input_end", {
+			event: "message.tool_call_input_end",
+			tool_call_id: "tool-preview",
+			input: {
+				path: "reports/weekly.html",
+			},
+		});
+		eventLog.append(session.id, null, 2, "message.tool_call_result", {
+			event: "message.tool_call_result",
+			tool_call_id: "tool-preview",
+			tool_name: "mcp__phantom-preview__phantom_preview_page",
+			status: "success",
+			output: "Previewed /ui/reports/weekly.html.",
+		});
+
+		const context = buildChatContinuityContext({ sessionId: session.id, eventLog });
+
+		expect(context).toContain("reports/weekly.html");
+		expect(context).toContain("/ui/reports/weekly.html");
+		expect(context).toContain("via phantom_preview_page");
 	});
 
 	test("skips login links and keeps recent compact checkpoints", () => {
