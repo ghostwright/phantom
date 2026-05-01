@@ -197,6 +197,27 @@ The `phantom_send_email` MCP tool wraps Resend's `/emails` endpoint with a metad
 
 **Cross-repo wire.** Gateway URL: `http://169.254.169.254/v1/secrets/resend_api_key`. Secret name string: `"resend_api_key"`, mirrored byte-for-byte against phantomd `internal/secrets/types.go::AllowedSecretNames` (Phase 10 PR 10-1). Drift surfaces as HTTP 404 from the gateway, which the EmailTool surfaces as `error_kind = "key_unavailable"` to the agent.
 
+## Tenant self-knowledge overlay (Phase 9)
+
+The agent's system prompt carries a per-tenant identity block injected by `src/agent/prompt-blocks/tenant-self-knowledge.ts`. The assembler (`src/agent/prompt-assembler.ts`) slots it as section 1b, between Identity and Environment, so the agent reads its own facts before the environment description. The overlay is purely additive and degrades to the empty string in single-tenant dev mode (no env vars set).
+
+Env vars consumed (all non-secret tenant identifiers):
+
+- `PHANTOM_TENANT_SLUG`: short identifier, also the wildcard subdomain. Source: phantomd firstboot via `internal/firstboot/firstboot.go:270`.
+- `PHANTOM_TENANT_ID`: read but currently not surfaced on its own; reserved for future debugging context.
+- `PHANTOM_OWNER_EMAIL`: tenant owner email. Source: phantomd firstboot via `internal/firstboot/firstboot.go:273`.
+- `PHANTOM_OWNER_NAME`: optional human name. Source: phantomd firstboot, queued addition (per phantomd CLAUDE.md "What's queued").
+- `PHANTOM_DOMAIN`: full per-tenant origin, e.g. `gilded-hearth.phantom.ghostwright.dev`. Source: phantomd firstboot, queued addition. Falls back to `<slug>.phantom.ghostwright.dev` when missing.
+- `PHANTOM_DASHBOARD_URL`: the operator's control surface URL. Source: `phantom-rootfs/systemd/phantom.service` Environment= line.
+- `PHANTOM_AGENT_RUNTIME`: `anthropic` or `murph`. Source: `phantom.service` (Phase 0 hardcode) or tenant.env (Phase 1 wizard).
+- `PHANTOM_MODEL`: model id. Source: tenant.env when operator picked a non-default; rootfs phantom.yaml default otherwise.
+- `PHANTOM_GRANTED_INTEGRATIONS`: comma-separated list of granted integrations (Phase 7 hook; silent today).
+- `PHANTOM_CHANNEL_ALLOWLIST`: comma-separated Slack channel ids (Phase 8b hook; silent today).
+
+The tenant.env C7 invariant (consumed once at firstboot, then deleted) does NOT affect the overlay: phantom-firstboot stamps these values into `/etc/default/phantom`, which `phantom.service` sources via `EnvironmentFile=`, so they survive in `process.env` for the lifetime of the agent process.
+
+The overlay never carries provider keys, OAuth tokens, or secrets. Every var is a non-secret identifier or label.
+
 ## Key Design Decisions
 
 **Qdrant over LanceDB:** WAL durability with crash recovery. Native hybrid search (dense + BM25 sparse vectors). Named vectors for separate embedding spaces. Mmap mode for low memory. TypeScript REST client works with Bun (no NAPI addon risk).
@@ -288,7 +309,8 @@ Verify after every deploy with `docker exec phantom sh -c 'touch /app/public/_w 
 | File | Why |
 |------|-----|
 | `src/index.ts` | Main wiring. How everything connects. |
-| `src/agent/prompt-assembler.ts` | The system prompt. How identity, role, evolved config, and memory are composed. |
+| `src/agent/prompt-assembler.ts` | The system prompt. How identity, role, evolved config, and memory are composed. Slot 1b is the tenant self-knowledge overlay (Phase 9). |
+| `src/agent/prompt-blocks/tenant-self-knowledge.ts` | Phase 9 self-knowledge overlay. Reads PHANTOM_TENANT_SLUG, PHANTOM_OWNER_EMAIL/NAME, PHANTOM_DOMAIN, PHANTOM_DASHBOARD_URL, PHANTOM_AGENT_RUNTIME, PHANTOM_MODEL, PHANTOM_GRANTED_INTEGRATIONS, PHANTOM_CHANNEL_ALLOWLIST. Empty in single-tenant dev. |
 | `src/agent/runtime.ts` | How the Agent SDK is called. Session management, hooks, cost tracking. |
 | `src/evolution/engine.ts` | The self-evolution pipeline. The core differentiator. |
 | `src/channels/slack.ts` | Primary channel. Owner access control, threading, reactions. |
