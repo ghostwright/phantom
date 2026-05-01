@@ -11,7 +11,7 @@ import {
 	dispatchToolRunning,
 	dispatchToolStart,
 } from "./chat-dispatch-tools";
-import type { ChatMessage, ChatState } from "./chat-types";
+import type { ChatAttachmentView, ChatMessage, ChatState } from "./chat-types";
 
 type Listener = () => void;
 
@@ -81,14 +81,53 @@ function upsertMessage(messages: ChatMessage[], message: ChatMessage): ChatMessa
 	const next = [...messages];
 	const existing = next[existingIndex];
 	if (!existing) return messages;
+	const nextAttachments = mergeAttachments(existing.attachments, message.attachments);
 	next[existingIndex] = {
 		...existing,
 		...message,
 		content: existing.content.length > 0 ? existing.content : message.content,
+		attachments: nextAttachments,
 		status: existing.status === "committed" ? existing.status : message.status,
 		runTimeline: existing.runTimeline ?? message.runTimeline,
 	};
 	return next;
+}
+
+function mergeAttachments(
+	existing: ChatAttachmentView[] | undefined,
+	incoming: ChatAttachmentView[] | undefined,
+): ChatAttachmentView[] | undefined {
+	if (!existing || existing.length === 0) return incoming;
+	if (!incoming || incoming.length === 0) return existing;
+	const seen = new Set(existing.map((attachment) => attachment.id));
+	return [...existing, ...incoming.filter((attachment) => !seen.has(attachment.id))];
+}
+
+function normalizeAttachment(value: unknown): ChatAttachmentView | null {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+	const record = value as Record<string, unknown>;
+	if (typeof record.id !== "string" || record.id.length === 0) return null;
+	const filename = typeof record.filename === "string" && record.filename.length > 0 ? record.filename : "file";
+	const mimeType =
+		typeof record.mime_type === "string"
+			? record.mime_type
+			: typeof record.mimeType === "string"
+				? record.mimeType
+				: "application/octet-stream";
+	const sizeValue = record.size_bytes ?? record.sizeBytes;
+	const previewValue = record.preview_url ?? record.previewUrl;
+	return {
+		id: record.id,
+		filename,
+		mimeType,
+		sizeBytes: typeof sizeValue === "number" ? sizeValue : null,
+		previewUrl: typeof previewValue === "string" ? previewValue : `/chat/attachments/${record.id}/preview`,
+	};
+}
+
+function normalizeAttachments(value: unknown): ChatAttachmentView[] {
+	if (!Array.isArray(value)) return [];
+	return value.map(normalizeAttachment).filter((attachment): attachment is ChatAttachmentView => attachment !== null);
 }
 
 function updateTextBlockInContent(s: ChatState, blockId: string, updater: (text: string) => string): ChatState {
@@ -136,6 +175,7 @@ export function dispatchFrame(
 							id: data.message_id as string,
 							role: "user" as const,
 							content: [{ type: "text", text: data.text as string }],
+							attachments: normalizeAttachments(data.attachments),
 							createdAt: data.sent_at as string,
 							status: "committed" as const,
 						}),
@@ -323,9 +363,12 @@ export function dispatchFrame(
 								.findIndex((message) => message.role === "assistant" && message.status === "streaming");
 				const normalizedIndex = messageId !== null ? index : index >= 0 ? msgs.length - 1 - index : -1;
 				const target = normalizedIndex >= 0 ? msgs[normalizedIndex] : undefined;
-				if (target && target.role === "assistant" && target.status === "streaming") {
-					const newStatus = event === "session.error" ? "error" : "committed";
-					msgs[normalizedIndex] = { ...target, status: newStatus };
+				if (target && target.role === "assistant") {
+					if (event === "session.error") {
+						msgs[normalizedIndex] = { ...target, status: "error" };
+					} else if (target.status === "streaming") {
+						msgs[normalizedIndex] = { ...target, status: "committed" };
+					}
 				}
 				return {
 					...s,

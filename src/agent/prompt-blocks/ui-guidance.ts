@@ -147,6 +147,10 @@ export function buildUIGuidanceLines(publicUrl: string | undefined): string[] {
 	lines.push("phantom_preview_page with the same path. Review the screenshot. Read the");
 	lines.push("JSON metadata block. If console.errors > 0 or network.failedRequests > 0,");
 	lines.push("fix the HTML and re-preview until both are zero. Only then report the page.");
+	lines.push("Preserve the exact page URL returned by phantom_create_page or preview metadata.");
+	lines.push("When the user later asks for the page or link you created, return that page URL.");
+	lines.push("Do not answer a page-link request by calling phantom_generate_login unless");
+	lines.push("the user explicitly asks for an authentication link.");
 	lines.push("");
 	if (publicUrl) {
 		lines.push(`Pages are at ${publicUrl}/ui/<filename>`);

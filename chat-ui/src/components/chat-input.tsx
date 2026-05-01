@@ -15,7 +15,7 @@ export function ChatInput({
   onRemoveFile,
   initialText,
 }: {
-  onSend: (text: string) => void;
+  onSend: (text: string) => boolean | void | Promise<boolean | void>;
   onStop: () => void;
   isStreaming: boolean;
   disabled?: boolean;
@@ -25,6 +25,7 @@ export function ChatInput({
   initialText?: string;
 }) {
   const [text, setText] = useState(initialText ?? "");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -46,15 +47,21 @@ export function ChatInput({
     }
   }, [initialText]);
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     const trimmed = text.trim();
-    if (!trimmed || isStreaming) return;
-    onSend(trimmed);
-    setText("");
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
+    if (!trimmed || isStreaming || disabled || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const sent = await onSend(trimmed);
+      if (sent === false) return;
+      setText("");
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "auto";
+      }
+    } finally {
+      setIsSubmitting(false);
     }
-  }, [text, isStreaming, onSend]);
+  }, [text, isStreaming, disabled, isSubmitting, onSend]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -120,7 +127,7 @@ export function ChatInput({
               }}
               placeholder="Send a message..."
               rows={1}
-              disabled={disabled}
+              disabled={disabled || isSubmitting}
               enterKeyHint="send"
               className="max-h-[200px] min-h-[36px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
               aria-label="Message input"
@@ -141,7 +148,7 @@ export function ChatInput({
                 variant="ghost"
                 size="icon"
                 onClick={handleSend}
-                disabled={!text.trim() || disabled}
+                disabled={!text.trim() || disabled || isSubmitting}
                 className="h-8 w-8 shrink-0 rounded-lg bg-primary text-primary-content hover:bg-primary/90 disabled:opacity-50"
                 aria-label="Send message"
               >

@@ -415,6 +415,31 @@ describe("sdk-to-wire translator", () => {
 		expect(frames.some((f) => f.event === "session.error")).toBe(true);
 	});
 
+	test("result error after assistant start does not emit a normal assistant_end", () => {
+		const ctx = makeCtx();
+		translateSdkMessage(
+			{
+				type: "assistant",
+				message: { content: [{ type: "text", text: "Partial answer" }] },
+				parent_tool_use_id: null,
+			},
+			ctx,
+		);
+		const frames = translateSdkMessage(
+			{
+				type: "result",
+				subtype: "error_during_execution",
+				errors: ["Provider failed"],
+				total_cost_usd: 0.001,
+				usage: {},
+				duration_ms: 500,
+			},
+			ctx,
+		);
+		expect(frames.some((f) => f.event === "session.error")).toBe(true);
+		expect(frames.some((f) => f.event === "message.assistant_end")).toBe(false);
+	});
+
 	test("result with prompt_suggestion -> session.suggestion", () => {
 		const ctx = makeCtx();
 		const frames = translateSdkMessage({ type: "prompt_suggestion", suggestion: "Tell me more" }, ctx);

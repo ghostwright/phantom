@@ -1,4 +1,5 @@
 import type { ChatMessage, ThinkingBlockState, ToolCallState } from "@/lib/chat-types";
+import { getAssistantTextBlocks } from "@/lib/chat-message-content";
 import { Markdown } from "./markdown";
 import { ThinkingBlock } from "./thinking-block";
 import { ToolCallCard } from "./tool-call-card";
@@ -12,8 +13,8 @@ export function AssistantMessage({
   toolCalls: ToolCallState[];
   thinkingBlocks: ThinkingBlockState[];
 }) {
-  const textContent =
-    message.content.find((b) => b.type === "text")?.text ?? "";
+  const textBlocks = getAssistantTextBlocks(message);
+  const hasText = textBlocks.length > 0;
 
   const isStreaming = message.status === "streaming";
 
@@ -28,9 +29,11 @@ export function AssistantMessage({
           <ToolCallCard key={tool.id} tool={tool} />
         ))}
 
-        {textContent && <Markdown content={textContent} />}
+        {textBlocks.map((textContent, index) => (
+          <Markdown key={`text-${index}`} content={textContent} />
+        ))}
 
-        {isStreaming && !textContent && toolCalls.length === 0 && (
+        {isStreaming && !hasText && toolCalls.length === 0 && (
           <div className="flex items-center gap-1.5 py-2">
             <div className="h-2 w-2 animate-pulse rounded-full bg-primary" />
             <div className="h-2 w-2 animate-pulse rounded-full bg-primary [animation-delay:150ms]" />

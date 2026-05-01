@@ -35,6 +35,9 @@ export type {
 };
 
 export type AgentSdkQueryParams = Parameters<typeof anthropicQuery>[0];
+export type AgentSdkQueryOptions = NonNullable<AgentSdkQueryParams["options"]> & {
+	transformContext?: (messages: unknown[], signal?: AbortSignal) => Promise<unknown[]> | unknown[];
+};
 export type AgentSdkQuery = (params: AgentSdkQueryParams) => Query;
 export type AgentSdkRuntimeSelection = {
 	agentRuntime: AgentRuntimeKind;

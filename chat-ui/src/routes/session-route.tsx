@@ -3,13 +3,14 @@ import { DropOverlay } from "@/components/drop-overlay";
 import { IosInstallBanner } from "@/components/ios-install-banner";
 import { MessageList } from "@/components/message-list";
 import { NotificationBanner } from "@/components/notification-banner";
-import { useAttachments } from "@/hooks/use-attachments";
+import { shouldBlockSendAfterUpload, useAttachments } from "@/hooks/use-attachments";
 import { useChat } from "@/hooks/use-chat";
 import { useDragDrop } from "@/hooks/use-drag-drop";
 import { useFocusHeartbeat } from "@/hooks/use-focus-heartbeat";
 import { usePaste } from "@/hooks/use-paste";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
+import { toast } from "sonner";
 
 export function SessionRoute() {
 	const { sessionId } = useParams<{ sessionId: string }>();
@@ -56,13 +57,22 @@ export function SessionRoute() {
 	}, [sessionId, location.state, location.pathname, sendMessage]);
 
 	const handleSend = useCallback(
-		async (text: string) => {
-			if (!sessionId) return;
-			const attachmentIds = await uploadFiles(sessionId);
-			if (attachmentIds.length > 0) clearFiles();
-			sendMessage(text, attachmentIds.length > 0 ? attachmentIds : undefined);
+		async (text: string): Promise<boolean> => {
+			if (!sessionId) return false;
+			const uploadResult = await uploadFiles(sessionId);
+			if (shouldBlockSendAfterUpload(uploadResult)) {
+				const message =
+					uploadResult.acceptedIds.length === 0
+						? "No files uploaded. Your message was not sent."
+						: "Some files did not upload. Your message was not sent.";
+				toast.error(message);
+				return false;
+			}
+			if (uploadResult.acceptedIds.length > 0) clearFiles();
+			sendMessage(text, uploadResult.acceptedIds.length > 0 ? uploadResult.acceptedIds : undefined);
 			sentCountRef.current++;
 			setHasSentMessage(true);
+			return true;
 		},
 		[sessionId, uploadFiles, clearFiles, sendMessage],
 	);

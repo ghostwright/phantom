@@ -1,4 +1,5 @@
 import { runTimelineSummaryToView } from "@/lib/chat-activity";
+import { parseMessageContentJson } from "@/lib/chat-message-content";
 import { type ChatStore, beginRunActivity, createChatStore, dispatchFrame } from "@/lib/chat-store";
 import type {
 	ChatMessage,
@@ -265,28 +266,13 @@ function buildTimelineViewMap(detail: SessionDetail): Map<string, RunTimelineVie
 }
 
 function messageRowToChatMessage(row: SessionDetail["messages"][number], runTimeline?: RunTimelineView): ChatMessage {
-	let contentBlocks: Array<{
-		type: string;
-		text?: string;
-		[key: string]: unknown;
-	}> = [];
-	try {
-		const parsed = JSON.parse(row.content_json);
-		if (typeof parsed === "string") {
-			contentBlocks = [{ type: "text", text: parsed }];
-		} else if (Array.isArray(parsed)) {
-			contentBlocks = parsed;
-		} else {
-			contentBlocks = [parsed];
-		}
-	} catch {
-		contentBlocks = [{ type: "text", text: row.content_json }];
-	}
+	const parsed = parseMessageContentJson(row.content_json, row.role);
 
 	return {
 		id: row.id,
 		role: row.role as "user" | "assistant",
-		content: contentBlocks,
+		content: parsed.contentBlocks,
+		attachments: parsed.attachments,
 		createdAt: row.created_at,
 		status: row.status as "committed" | "streaming" | "error",
 		stopReason: row.stop_reason,

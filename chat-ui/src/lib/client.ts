@@ -129,16 +129,25 @@ export function abortSession(id: string): Promise<void> {
 	}).then(() => undefined);
 }
 
-export function sendMessage(sessionId: string, text: string, tabId: string): ReadableStream<Uint8Array> {
+export function sendMessage(
+	sessionId: string,
+	text: string,
+	tabId: string,
+	attachmentIds?: string[],
+): ReadableStream<Uint8Array> {
 	const controller = new AbortController();
 	const stream = new ReadableStream<Uint8Array>({
 		async start(streamController) {
 			try {
+				const body: Record<string, unknown> = { session_id: sessionId, text, tab_id: tabId };
+				if (attachmentIds && attachmentIds.length > 0) {
+					body.attachment_ids = attachmentIds;
+				}
 				const res = await fetch("/chat/stream", {
 					method: "POST",
 					credentials: "include",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ session_id: sessionId, text, tab_id: tabId }),
+					body: JSON.stringify(body),
 					signal: controller.signal,
 				});
 				if (!res.ok || !res.body) {

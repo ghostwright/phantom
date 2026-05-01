@@ -161,11 +161,11 @@ export function ToolCallCard({ tool }: { tool: ToolCallState }) {
 	const inputDetails = toolInputDetails(tool);
 	const output = tool.output ? redactSensitiveText(truncate(tool.output, TOOL_OUTPUT_DISPLAY_LIMIT)) : "";
 
-	const autoExpand = tool.state === "running" || tool.state === "result" || tool.state === "error" || tool.state === "blocked";
+	const autoExpand = tool.state === "error" || tool.state === "blocked";
 	const [isOpen, setIsOpen] = useState(autoExpand);
 
 	useEffect(() => {
-		if (tool.state === "running" || tool.state === "result" || tool.state === "error" || tool.state === "blocked") {
+		if (tool.state === "error" || tool.state === "blocked") {
 			setIsOpen(true);
 		}
 	}, [tool.state]);

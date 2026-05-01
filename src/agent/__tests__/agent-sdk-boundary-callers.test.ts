@@ -4,7 +4,13 @@ import { z } from "zod/v4";
 import { PhantomConfigSchema } from "../../config/schemas.ts";
 import type { PhantomConfig } from "../../config/types.ts";
 import { runMigrations } from "../../db/migrate.ts";
-import { type AgentSdkQueryParams, type Query, type SDKMessage, __setAgentSdkQueryForTests } from "../agent-sdk.ts";
+import {
+	type AgentSdkQueryOptions,
+	type AgentSdkQueryParams,
+	type Query,
+	type SDKMessage,
+	__setAgentSdkQueryForTests,
+} from "../agent-sdk.ts";
 import { executeChatQuery } from "../chat-query.ts";
 import { CostTracker } from "../cost-tracker.ts";
 import { runJudgeQuery } from "../judge-query.ts";
@@ -358,6 +364,54 @@ describe("Agent SDK boundary callers", () => {
 		expect(options?.thinking).toEqual({ type: "enabled", budgetTokens: 8192 });
 	});
 
+	test("chat query path passes Phantom continuity through Murph transformContext", async () => {
+		__setAgentSdkQueryForTests((params) => {
+			calls.push(params);
+			return queryFromMessages([initMessage(), assistantMessage("chat assistant"), resultMessage("chat result")]);
+		});
+
+		await executeChatQuery(
+			{
+				config: makeConfig({
+					agent_runtime: "murph",
+					model: "gpt-5.5",
+					provider: { type: "openai" },
+				}),
+				sessionStore: new SessionStore(db),
+				costTracker: new CostTracker(db),
+				memoryContextBuilder: null,
+				evolvedConfig: null,
+				roleTemplate: null,
+				onboardingPrompt: null,
+				mcpServerFactories: null,
+			},
+			"web:chat-session",
+			{ role: "user", content: "give me the page link" },
+			Date.now(),
+			{
+				signal: new AbortController().signal,
+				sessionContext: "User-visible page: http://127.0.0.1:3112/ui/profile.html",
+				onSdkEvent: () => {},
+			},
+		);
+		const options = calls[0]?.options as AgentSdkQueryOptions | undefined;
+		const transformContext = options?.transformContext;
+		expect(transformContext).toBeDefined();
+		const systemPrompt = calls[0]?.options?.systemPrompt;
+		if (typeof systemPrompt === "object" && systemPrompt !== null && "append" in systemPrompt) {
+			expect(systemPrompt.append).not.toContain("User-visible page");
+		} else {
+			throw new Error("Expected object system prompt");
+		}
+
+		const transformed = (await transformContext?.([{ role: "user", content: "same prompt" }])) ?? [];
+		expect(transformed).toHaveLength(2);
+		const contextMessage = transformed[0] as Record<string, unknown>;
+		expect(contextMessage.role).toBe("user");
+		expect(textFromContent(contextMessage.content)).toContain("<phantom_chat_context>");
+		expect(textFromContent(contextMessage.content)).toContain("http://127.0.0.1:3112/ui/profile.html");
+	});
+
 	test("chat query retries stale resume result frames without forwarding the error result", async () => {
 		const sdkEvents: SDKMessage[] = [];
 		let factoryCalls = 0;
@@ -474,3 +528,15 @@ describe("Agent SDK boundary callers", () => {
 		expect(options?.env?.OPENAI_API_KEY).toBe("openai-secret");
 	});
 });
+
+function textFromContent(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.map((item) => {
+			if (item === null || typeof item !== "object" || Array.isArray(item)) return "";
+			const block = item as Record<string, unknown>;
+			return block.type === "text" && typeof block.text === "string" ? block.text : "";
+		})
+		.join("\n");
+}

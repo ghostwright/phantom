@@ -27,7 +27,7 @@ export function createWebUiToolServer(
 		"phantom_create_page",
 		"Create or update an HTML page served at /ui/<path>. If html is provided, writes it directly. " +
 			"If title and content are provided instead, wraps the content in the base template. " +
-			"Returns the public URL of the page.",
+			"Returns the page URL to share when the user asks for the page you created.",
 		{
 			path: z.string().min(1).describe("File path relative to public/, e.g. 'dashboard.html' or 'reports/weekly.html'"),
 			html: z.string().optional().describe("Full HTML content to write (use this for complete pages)"),
@@ -77,6 +77,7 @@ export function createWebUiToolServer(
 					path: safePath,
 					url: publicUrl,
 					size: htmlContent.length,
+					note: "This is the created page URL, not a login link.",
 				});
 			} catch (error: unknown) {
 				const msg = error instanceof Error ? error.message : String(error);
@@ -87,7 +88,9 @@ export function createWebUiToolServer(
 
 	const generateLoginTool = tool(
 		"phantom_generate_login",
-		"Generate a magic link for web UI authentication. Send this link to the user via Slack. " +
+		"Generate a magic link for web UI authentication. Use only when the user asks for access, " +
+			"auth, login, a magic link, or says they cannot open a page because login is required. " +
+			"Do not use this to answer a request for the page URL of something you created. " +
 			"The link expires in 10 minutes. After authentication, the session lasts 7 days.",
 		{},
 		async () => {
@@ -100,7 +103,7 @@ export function createWebUiToolServer(
 					// sessionToken intentionally excluded - agent should only share the magic link
 					expiresIn: "10 minutes",
 					sessionDuration: "7 days",
-					note: "Send the magic link to the user via Slack. They click it and are authenticated instantly.",
+					note: "This is an authentication link, not a page URL. Send it only when login access is needed.",
 				});
 			} catch (error: unknown) {
 				const msg = error instanceof Error ? error.message : String(error);
