@@ -9,7 +9,7 @@ import type {
 	ThinkingBlockState,
 	ToolCallState,
 } from "@/lib/chat-types";
-import { type SessionDetail, abortSession, getSession, resumeSession } from "@/lib/client";
+import { type SessionDetail, abortSession, getSession, notifySessionsChanged, resumeSession } from "@/lib/client";
 import { useCallback, useRef, useSyncExternalStore } from "react";
 
 export function useChat(sessionId: string | null): {
@@ -71,6 +71,10 @@ export function useChat(sessionId: string | null): {
 						dispatchFrame(store, currentEvent, currentData, { source: replaying ? "replay" : "live" });
 						if (currentEvent === "session.caught_up") {
 							replaying = false;
+						} else if (currentEvent === "session.done") {
+							notifySessionsChanged("run-completed");
+						} else if (currentEvent === "session.title_updated") {
+							notifySessionsChanged("updated");
 						}
 						currentEvent = "";
 						currentData = "";

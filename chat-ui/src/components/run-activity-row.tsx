@@ -182,9 +182,9 @@ export function RunActivityRow({
 
 	return (
 		<div className="flex justify-start">
-			<section className="max-w-[92%] min-w-0 py-1.5" aria-label="Run activity">
+			<section className="w-full max-w-[92%] min-w-0 py-1.5" aria-label="Run activity">
 				<div className="relative pl-5">
-					<div className="absolute bottom-2 left-[7px] top-3 w-px bg-border" />
+					<div className="absolute bottom-2 left-[7px] top-3 w-px bg-border/70" />
 					<div className="relative flex min-w-0 items-start gap-3">
 						<div className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-background">
 							<Icon className={cn("h-4 w-4", className)} />
@@ -212,7 +212,7 @@ export function RunActivityRow({
 										{facts.map((fact) => (
 											<span
 												key={fact}
-												className="max-w-full truncate rounded border border-border bg-muted/45 px-2 py-0.5"
+												className="max-w-full truncate rounded-md border border-border/70 bg-muted/35 px-2 py-0.5"
 											>
 												{fact}
 											</span>
@@ -253,7 +253,7 @@ export function RunActivityRow({
 					</div>
 
 					{toolCalls.length > 0 && (
-						<div className="mt-2 space-y-2">
+						<div className="mt-2 space-y-1.5">
 							{toolCalls.map((tool) => (
 								<ToolCallCard key={tool.id} tool={tool} />
 							))}

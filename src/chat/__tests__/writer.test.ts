@@ -19,6 +19,10 @@ let eventLog: ChatEventLog;
 let timelineStore: ChatRunTimelineStore;
 let streamBus: StreamBus;
 
+function nextTick(): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 beforeEach(() => {
 	db = new Database(":memory:");
 	for (const sql of MIGRATIONS) {
@@ -107,6 +111,15 @@ describe("ChatSessionWriter", () => {
 		expect(eventTypes).toContain("user.message");
 		expect(eventTypes).toContain("session.created");
 		expect(eventTypes).toContain("session.done");
+
+		await nextTick();
+		const titleFrame = frames.find((f) => f.event === "session.title_updated");
+		expect(titleFrame).toMatchObject({
+			event: "session.title_updated",
+			session_id: session.id,
+			title: "Test Chat",
+		});
+		expect(sessionStore.get(session.id)?.title).toBe("Test Chat");
 	});
 
 	test("commits attachments to the user message and emits metadata", async () => {

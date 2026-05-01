@@ -179,13 +179,20 @@ export class ChatSessionWriter {
 			this.deps.sessionStore.incrementMessageCount(this.deps.sessionId);
 			this.deps.sessionStore.updateCost(this.deps.sessionId, response.cost);
 
-			// Fire auto-rename after first turn (non-blocking)
-			autoRenameSession(this.deps.runtime, this.deps.sessionStore, this.deps.sessionId, userText, resultText).catch(
-				(err: unknown) => {
+			autoRenameSession(this.deps.runtime, this.deps.sessionStore, this.deps.sessionId, userText, resultText)
+				.then((renamedTitle) => {
+					if (!renamedTitle) return;
+					this.emitFrameAtNextSeq({
+						event: "session.title_updated",
+						session_id: this.deps.sessionId,
+						title: renamedTitle,
+						updated_at: new Date().toISOString(),
+					});
+				})
+				.catch((err: unknown) => {
 					const msg = err instanceof Error ? err.message : String(err);
 					console.warn(`[chat-writer] Auto-rename failed: ${msg}`);
-				},
-			);
+				});
 
 			// Fire push notification trigger (non-blocking)
 			if (this.deps.notificationTriggers) {
@@ -274,6 +281,10 @@ export class ChatSessionWriter {
 		this.deps.eventLog.append(this.deps.sessionId, null, seq, frame.event, frame);
 		this.deps.streamBus.publish(this.deps.sessionId, frame, seq);
 		return seq;
+	}
+
+	private emitFrameAtNextSeq(frame: ChatWireFrame): number {
+		return this.emitFrame(frame, { current: this.deps.eventLog.getMaxSeq(this.deps.sessionId) });
 	}
 
 	private persistTimeline(timeline: DurableRunTimelineBuilder): void {

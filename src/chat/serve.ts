@@ -2,8 +2,8 @@ import { relative, resolve } from "node:path";
 import { getPublicDir } from "../ui/serve.ts";
 
 // Serve static files from public/chat/ with SPA fallback.
-// All paths under /chat/ that don't match an API route get served here.
-// If the file doesn't exist, return index.html (SPA routing).
+// Chat historically navigates session routes at /s/:id while the app assets
+// live under /chat/. Both URL shapes should refresh into the same SPA.
 
 function getChatDir(): string {
 	return resolve(getPublicDir(), "chat");
@@ -25,9 +25,13 @@ function isPathSafe(urlPath: string, chatDir: string): string | null {
 	}
 }
 
+function isChatStaticPath(pathname: string): boolean {
+	return pathname.startsWith("/chat") || pathname === "/s" || pathname.startsWith("/s/") || pathname === "/new";
+}
+
 export async function handleChatStaticRequest(req: Request): Promise<Response | null> {
 	const url = new URL(req.url);
-	if (!url.pathname.startsWith("/chat")) return null;
+	if (!isChatStaticPath(url.pathname)) return null;
 
 	const chatDir = getChatDir();
 	const filePath = isPathSafe(url.pathname, chatDir);

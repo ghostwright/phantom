@@ -98,7 +98,11 @@ function isApiPath(path: string): boolean {
 async function routeApi(req: Request, url: URL, path: string, deps: ChatHandlerDeps): Promise<Response | null> {
 	if (path === "/chat/bootstrap" && req.method === "GET") {
 		const base = deps.getBootstrapData?.() ?? {};
-		return Response.json({ ...base, avatar_url: avatarUrlIfPresent() });
+		return Response.json({
+			...base,
+			avatar_url: avatarUrlIfPresent(),
+			push_notifications_enabled: Boolean(deps.db && deps.vapidKeys),
+		});
 	}
 
 	if (path === "/chat/sessions" && req.method === "POST") {

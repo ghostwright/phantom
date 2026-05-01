@@ -64,6 +64,7 @@ describe("Chat HTTP handlers", () => {
 		expect(res?.status).toBe(200);
 		const body = await res?.json();
 		expect(body.agent_name).toBe("TestAgent");
+		expect(body.push_notifications_enabled).toBe(false);
 	});
 
 	test("POST /chat/sessions creates a session", async () => {
