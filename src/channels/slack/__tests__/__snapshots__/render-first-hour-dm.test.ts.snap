@@ -1,0 +1,177 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`renderFirstHourDmBlocks snapshot: Lilian's full block kit shape 1`] = `
+[
+  {
+    "text": {
+      "emoji": false,
+      "text": "Lilian here.",
+      "type": "plain_text",
+    },
+    "type": "header",
+  },
+  {
+    "text": {
+      "text": 
+"*First hour summary*
+I pulled 12 rows across slack-dm.
+_Took 28 seconds._"
+,
+      "type": "mrkdwn",
+    },
+    "type": "section",
+  },
+  {
+    "type": "divider",
+  },
+  {
+    "text": {
+      "text": 
+"*Draft 1 of 1* | Reply to Acme Co's last message
+_Hi Sarah, thanks for the patience. Here's the v3 quote attached._
+
+<https://acme.example.com/thread/1|Source>"
+,
+      "type": "mrkdwn",
+    },
+    "type": "section",
+  },
+  {
+    "block_id": "draft_dft_01HX01",
+    "elements": [
+      {
+        "action_id": "phantom:draft:dft_01HX01:send",
+        "style": "primary",
+        "text": {
+          "emoji": false,
+          "text": "Send",
+          "type": "plain_text",
+        },
+        "type": "button",
+        "value": "dft_01HX01",
+      },
+      {
+        "action_id": "phantom:draft:dft_01HX01:edit",
+        "text": {
+          "emoji": false,
+          "text": "Edit",
+          "type": "plain_text",
+        },
+        "type": "button",
+        "value": "dft_01HX01",
+      },
+      {
+        "action_id": "phantom:draft:dft_01HX01:skip",
+        "text": {
+          "emoji": false,
+          "text": "Skip",
+          "type": "plain_text",
+        },
+        "type": "button",
+        "value": "dft_01HX01",
+      },
+    ],
+    "type": "actions",
+  },
+  {
+    "type": "divider",
+  },
+  {
+    "block_id": "phantom_first_hour_skip_all",
+    "elements": [
+      {
+        "action_id": "phantom:draft:all:skip_all",
+        "confirm": {
+          "confirm": {
+            "text": "Skip all",
+            "type": "plain_text",
+          },
+          "deny": {
+            "text": "Cancel",
+            "type": "plain_text",
+          },
+          "text": {
+            "text": "I will hold off until you ping me. Reply MORE if you want me to surface them again.",
+            "type": "mrkdwn",
+          },
+          "title": {
+            "text": "Skip all 1 drafts?",
+            "type": "plain_text",
+          },
+        },
+        "style": "danger",
+        "text": {
+          "emoji": false,
+          "text": "Skip all today",
+          "type": "plain_text",
+        },
+        "type": "button",
+        "value": "all",
+      },
+    ],
+    "type": "actions",
+  },
+  {
+    "elements": [
+      {
+        "text": "Send / Edit / Skip each. I will hold off on the rest until you weigh in.",
+        "type": "mrkdwn",
+      },
+    ],
+    "type": "context",
+  },
+]
+`;
+
+exports[`renderFirstHourDmBlocks snapshot: every persona's header + footer text shape 1`] = `
+{
+  "am-sloane": {
+    "footer_text": "Want me to send these today, or refine first? Send / Edit / Skip each.",
+    "header_text": "Sloane here.",
+  },
+  "bdr-theo": {
+    "footer_text": "Send each / Edit each / Skip each. I will research more once you green-light the first.",
+    "header_text": "Theo here.",
+  },
+  "eng-cos-marcus": {
+    "footer_text": "Approve to ship the standup. Edit any PR comment before I send it.",
+    "header_text": "Marcus here.",
+  },
+  "founder-asst-adrian": {
+    "footer_text": "Reply EDIT <id> to tweak. Reply SKIP ALL to stop today.",
+    "header_text": "Adrian here.",
+  },
+  "gtm-eng-ryan": {
+    "footer_text": "Approve the #gtm post; Edit the writeup before I share with engineering.",
+    "header_text": "Ryan here.",
+  },
+  "sales-vp-priya": {
+    "footer_text": "Approve the board paragraph; Edit AE prep notes individually.",
+    "header_text": "Priya here.",
+  },
+  "sdr-lilian": {
+    "footer_text": "Send / Edit / Skip each. I will hold off on the rest until you weigh in.",
+    "header_text": "Lilian here.",
+  },
+}
+`;
+
+exports[`renderFirstHourDmFallbackBlocks snapshot: Marcus fallback block kit 1`] = `
+[
+  {
+    "text": {
+      "emoji": false,
+      "text": "Marcus here.",
+      "type": "plain_text",
+    },
+    "type": "header",
+  },
+  {
+    "text": {
+      "text": "Marcus here. I am ready to triage your PRs, but I do not have GitHub access yet. Connect GitHub at <link|the integrations panel> and I will have today's standup plus PR triage drafted in 30 seconds.",
+      "type": "mrkdwn",
+    },
+    "type": "section",
+  },
+]
+`;

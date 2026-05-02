@@ -58,6 +58,8 @@ import { isFirstRun, isOnboardingInProgress } from "./onboarding/detection.ts";
 import { type OnboardingTarget, startOnboarding } from "./onboarding/flow.ts";
 import { buildOnboardingPrompt } from "./onboarding/prompt.ts";
 import { getOnboardingStatus, markOnboardingComplete, markOnboardingStarted } from "./onboarding/state.ts";
+import { fireFirstHourOfWorkOnFirstboot } from "./persona/firstboot-hook.ts";
+import { createDefaultLlmCaller } from "./persona/llm-caller.ts";
 import { createRoleRegistry } from "./roles/registry.ts";
 import type { RoleTemplate } from "./roles/types.ts";
 import { Scheduler } from "./scheduler/service.ts";
@@ -949,6 +951,35 @@ async function main(): Promise<void> {
 			}
 		} else {
 			console.warn("[onboarding] No owner, default user, or channel configured, skipping intro message");
+		}
+	}
+
+	// Slice 15a: do_first_hour_of_work fires once per tenant lifetime,
+	// immediately after the intro DM lands. Gated by PHANTOM_PERSONA_ID
+	// (slice 16 plumbed). The runner reads PHANTOM_GRANTED_INTEGRATIONS
+	// via the env-based grant resolver, builds the scaffold prompt for
+	// the persona's work plan, runs ONE Sonnet turn, parses the JSON
+	// envelope, persists drafts to local SQLite, sends the Block Kit
+	// DM with Send/Edit/Skip buttons, and emits 5 audit events (start,
+	// pulls, drafts, dm, finish). 60 second hard cap via AbortController.
+	// Architect: phantom-cloud-deploy/local/2026-05-03-slice-15-first-
+	// hour-of-work-architect.md.
+	if (slackChannel) {
+		const ownerUserId = channelsConfig?.slack?.owner_user_id;
+		if (ownerUserId) {
+			await fireFirstHourOfWorkOnFirstboot({
+				db,
+				slack: {
+					sendBlocks: (userId, text, blocks) => slackChannel.sendDm(userId, text, blocks),
+				},
+				owner_user_id: ownerUserId,
+				tenant_slug: process.env.PHANTOM_TENANT_SLUG?.trim() || config.name,
+				owner_email: process.env.PHANTOM_OWNER_EMAIL?.trim() ?? "",
+				owner_name: process.env.PHANTOM_OWNER_NAME?.trim() || undefined,
+				dashboard_url: process.env.PHANTOM_DASHBOARD_URL?.trim() || undefined,
+				agent_id: process.env.PHANTOM_TENANT_ID?.trim() || undefined,
+				llm: createDefaultLlmCaller({ runtime }),
+			});
 		}
 	}
 

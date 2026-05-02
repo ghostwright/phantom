@@ -290,8 +290,8 @@ export class SlackChannel implements Channel {
 		return egressPostToChannel(this.egressContext(), channelId, text);
 	}
 
-	async sendDm(userId: string, text: string): Promise<string | null> {
-		return egressSendDm(this.egressContext(), userId, text);
+	async sendDm(userId: string, text: string, blocks?: SlackBlock[]): Promise<string | null> {
+		return egressSendDm(this.egressContext(), userId, text, blocks);
 	}
 
 	async postThinking(channel: string, threadTs: string): Promise<string | null> {

@@ -1,0 +1,68 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`buildEditModalView snapshot of the modal payload 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": 
+"*Draft kind:* Slack reply
+*Edit hints from Lilian here:* tighten the ask"
+,
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "block_id": "draft_body_block",
+      "element": {
+        "action_id": "draft_body_input",
+        "initial_value": "Hi Sarah, here is the v3 quote.",
+        "max_length": 4000,
+        "multiline": true,
+        "type": "plain_text_input",
+      },
+      "label": {
+        "emoji": false,
+        "text": "Draft body",
+        "type": "plain_text",
+      },
+      "type": "input",
+    },
+    {
+      "block_id": "edit_save_only",
+      "elements": [
+        {
+          "action_id": "phantom:draft:dft_01J:save_only",
+          "text": {
+            "emoji": false,
+            "text": "Save without sending",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "value": "dft_01J",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "callback_id": "phantom_draft_edit_modal",
+  "close": {
+    "emoji": false,
+    "text": "Cancel",
+    "type": "plain_text",
+  },
+  "private_metadata": "dft_01J",
+  "submit": {
+    "emoji": false,
+    "text": "Save and send",
+    "type": "plain_text",
+  },
+  "title": {
+    "emoji": false,
+    "text": "Edit draft",
+    "type": "plain_text",
+  },
+  "type": "modal",
+}
+`;
