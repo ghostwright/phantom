@@ -9,16 +9,27 @@
 //
 // The introduction is the user's first contact with the agent: when a
 // hosted operator stamps an installer through the channel install flow,
-// this DM is what the user sees first. The body is pinned by a test
-// (composeIntroductionText test in __tests__). Change here, change
-// there.
+// this DM is what the user sees first. Voice contract: co-worker on
+// day 1, NOT chatbot. We greet by PHANTOM_OWNER_NAME when present, lead
+// with one specific commitment (the 8am morning brief), and ask for
+// confirmation via three Block Kit buttons rather than open-ended
+// suggestion prompts. The body is pinned by the test in __tests__.
+// Change here, change there.
 
 import { DEFAULT_METADATA_BASE_URL } from "../config/identity-fetcher.ts";
 import { reportFirstDmSent } from "../tenancy/heartbeat.ts";
+import type { SlackBlock } from "./feedback.ts";
 import { readSlackTransportFromEnv } from "./slack-channel-factory.ts";
 import { redactTokens } from "./slack-http-utils.ts";
 
 const INTRODUCTION_LOG_TAG = "slack-introduction";
+
+// Block Kit action ids for the three morning-brief confirmation buttons.
+// Exported so the actions dispatcher (slack-actions.ts) can register the
+// matching handlers and the test can pin the wire shape.
+export const MORNING_BRIEF_LOCK_ACTION_ID = "phantom:morning_brief:lock";
+export const MORNING_BRIEF_RETIME_ACTION_ID = "phantom:morning_brief:retime";
+export const MORNING_BRIEF_SKIP_ACTION_ID = "phantom:morning_brief:skip";
 
 export type IntroductionDeps = {
 	phantomName: string;
@@ -26,9 +37,12 @@ export type IntroductionDeps = {
 	installerUserId: string;
 	// sendDm returns the Slack message_ts on success, or null when Slack
 	// accepted the conversations.open but chat.postMessage failed (rate
-	// limit, archived channel, etc). Inheriting the existing channel
-	// helper keeps the test surface identical.
-	sendDm(userId: string, text: string): Promise<string | null>;
+	// limit, archived channel, etc). The blocks argument carries the
+	// Block Kit shape; the text argument is the fallback for clients
+	// that do not render blocks (mobile push notifications, screen
+	// readers, the Slack search index). Inheriting the existing channel
+	// helper keeps the egress test surface identical.
+	sendDm(userId: string, text: string, blocks?: SlackBlock[]): Promise<string | null>;
 };
 
 export type IntroductionResult = {
@@ -55,9 +69,13 @@ export type IntroductionResult = {
  * is not derailed by a transient Slack hiccup.
  */
 export async function sendIntroductionDm(deps: IntroductionDeps): Promise<IntroductionResult> {
-	const text = composeIntroductionText(deps.phantomName, deps.teamName, resolveDashboardUrl());
+	const ownerName = readOwnerName();
+	const homeUrl = resolveHomeUrl();
+	const dashboardUrl = resolveDashboardUrl();
+	const text = composeIntroductionText(deps.phantomName, ownerName, homeUrl, dashboardUrl);
+	const blocks = composeIntroductionBlocks(deps.phantomName, ownerName, homeUrl, dashboardUrl);
 	try {
-		const messageTs = await deps.sendDm(deps.installerUserId, text);
+		const messageTs = await deps.sendDm(deps.installerUserId, text, blocks);
 		if (!messageTs) {
 			console.warn(`[${INTRODUCTION_LOG_TAG}] introduction DM returned no message_ts; skipping first_dm_sent ack`);
 			return { sent: false, messageTs: null };
@@ -88,33 +106,157 @@ export async function sendIntroductionDm(deps: IntroductionDeps): Promise<Introd
 	}
 }
 
-// composeIntroductionText is exported for the test that pins the copy.
-// dashboardUrl is optional: when unset, the "manage me" line is omitted
-// so self-hosters who do not have a management URL are not pointed at a
-// dashboard they cannot reach. When set, the line appears verbatim.
-export function composeIntroductionText(phantomName: string, teamName: string, dashboardUrl?: string): string {
+// composeIntroductionText is exported for the test that pins the copy
+// AND as the text fallback for Slack clients that do not render blocks
+// (mobile push previews, screen readers, the Slack search index). The
+// shape is co-worker voice, not chatbot voice: a named greeting, a
+// single concrete commitment (the 8am morning brief), and an offer to
+// start now. No feature catalog, no "what can I help you with",
+// no em dashes, no emojis.
+//
+// Five-or-fewer sentences by design. The voice contract is in the
+// architect doc at phantom-cloud-deploy/local/2026-05-02-first-five-
+// minutes-audit.md section 1.8 and the strategy doc at
+// phantom-cloud-deploy/local/2026-05-02-phantom-as-product-strategy.md.
+export function composeIntroductionText(
+	phantomName: string,
+	ownerName?: string,
+	homeUrl?: string,
+	dashboardUrl?: string,
+): string {
+	const greeting = ownerName ? `Hi ${ownerName}.` : "Hi there.";
+	const introSentence = homeUrl
+		? `I'm in. I live at ${homeUrl} and I'll be your co-worker in this Slack as ${phantomName} from now on.`
+		: `I'm in. I'll be your co-worker in this Slack as ${phantomName} from now on.`;
+	// Text fallback for clients that do not render Block Kit (mobile push
+	// previews, screen readers, the Slack search index). The buttons row
+	// is replaced with a "tap a button below" cue so screen-reader users
+	// hear that there is something to interact with rather than dead-end
+	// at the question; the buttons themselves render in the blocks
+	// payload above this fallback.
 	const lines = [
-		`Hi! I'm ${phantomName}. I'm now connected to ${teamName}.`,
+		`${greeting} ${introSentence}`,
 		"",
-		"Reply to this DM to start a conversation, or @-mention me in any channel.",
+		"Tomorrow at 8am your time I'll send you a quick read on what changed overnight and what needs you. Lock it in, pick another time, or skip mornings using the buttons below.",
 		"",
-		"A few things to try:",
-		'  - "What can you do?"',
-		'  - "Tell me about my workspace."',
-		'  - "Read the latest in #general."',
+		"If you want me to start on something now, just tell me what.",
 	];
 	if (dashboardUrl) {
-		lines.push("", `You can manage me at ${dashboardUrl}.`);
+		lines.push("", `If you want to change anything about me, I live at ${dashboardUrl}.`);
 	}
 	return lines.join("\n");
+}
+
+// composeIntroductionBlocks renders the introduction as Slack Block Kit:
+// a header, a section with the body, an actions row with three buttons,
+// and a context footer (when a dashboard URL is configured) so the user
+// has a route back to the management surface without it crowding the
+// primary copy. The buttons confirm the morning-brief schedule; the
+// handlers in slack-actions.ts persist the choice and update the message
+// to acknowledge the click.
+export function composeIntroductionBlocks(
+	phantomName: string,
+	ownerName?: string,
+	homeUrl?: string,
+	dashboardUrl?: string,
+): SlackBlock[] {
+	const greeting = ownerName ? `Hi ${ownerName}.` : "Hi there.";
+	const introSentence = homeUrl
+		? `I'm in. I live at <${homeUrl}|${stripScheme(homeUrl)}> and I'll be your co-worker in this Slack as *${phantomName}* from now on.`
+		: `I'm in. I'll be your co-worker in this Slack as *${phantomName}* from now on.`;
+	const intro = `${greeting} ${introSentence}`;
+	const commitment =
+		"Tomorrow at 8am your time I'll send you a quick read on what changed overnight and what needs you. Lock it in?";
+	const offer = "If you want me to start on something now, just tell me what.";
+
+	const blocks: SlackBlock[] = [
+		{
+			type: "header",
+			text: { type: "plain_text", text: `${phantomName} is in.` },
+		},
+		{
+			type: "section",
+			text: { type: "mrkdwn", text: `${intro}\n\n${commitment}` },
+		},
+		{
+			type: "actions",
+			block_id: "phantom_morning_brief",
+			elements: [
+				{
+					type: "button",
+					text: { type: "plain_text", text: "Lock 8am", emoji: false },
+					action_id: MORNING_BRIEF_LOCK_ACTION_ID,
+					style: "primary",
+					value: "lock_8am",
+				},
+				{
+					type: "button",
+					text: { type: "plain_text", text: "Pick another time", emoji: false },
+					action_id: MORNING_BRIEF_RETIME_ACTION_ID,
+					value: "retime",
+				},
+				{
+					type: "button",
+					text: { type: "plain_text", text: "Skip mornings", emoji: false },
+					action_id: MORNING_BRIEF_SKIP_ACTION_ID,
+					value: "skip",
+				},
+			],
+		},
+		{
+			type: "section",
+			text: { type: "mrkdwn", text: offer },
+		},
+	];
+
+	if (dashboardUrl) {
+		blocks.push({
+			type: "context",
+			elements: [
+				{
+					type: "mrkdwn",
+					text: `If you want to change anything about me, I live at <${dashboardUrl}|${stripScheme(dashboardUrl)}>.`,
+				},
+			],
+		});
+	}
+
+	return blocks;
+}
+
+// readOwnerName reads PHANTOM_OWNER_NAME and returns the trimmed value
+// when non-empty. The greeting falls back to "Hi there." when the owner
+// name is missing so the DM never reads as a half-finished mail merge
+// (e.g. "Hi ,") to a self-hoster who has not set the env.
+function readOwnerName(): string | undefined {
+	const raw = process.env.PHANTOM_OWNER_NAME?.trim();
+	return raw && raw.length > 0 ? raw : undefined;
+}
+
+// resolveHomeUrl reads PHANTOM_DOMAIN, falling back to a slug-derived
+// hostname under phantom.ghostwright.dev so Phase-9-era tenants whose
+// firstboot pre-dates the PHANTOM_DOMAIN injection still surface a real
+// per-tenant URL. Returns undefined for single-tenant dev (neither var
+// set) so the line drops cleanly.
+function resolveHomeUrl(): string | undefined {
+	const domain = process.env.PHANTOM_DOMAIN?.trim();
+	if (domain && domain.length > 0) {
+		const cleaned = domain.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+		if (cleaned.length > 0) return `https://${cleaned}`;
+	}
+	const slug = process.env.PHANTOM_TENANT_SLUG?.trim();
+	if (slug && slug.length > 0) {
+		return `https://${slug}.phantom.ghostwright.dev`;
+	}
+	return undefined;
 }
 
 // resolveDashboardUrl reads PHANTOM_DASHBOARD_URL and validates it as a
 // well-formed URL. Operators set this in the agent's environment when
 // the deployment has a management surface; self-hosters leave it unset
-// and the "manage me" line is dropped from the introduction. A malformed
-// value is logged and dropped so a misconfigured env var cannot inject
-// unparseable text into a user-facing DM.
+// and the dashboard footer line drops. A malformed value is logged and
+// dropped so a misconfigured env var cannot inject unparseable text
+// into a user-facing DM.
 function resolveDashboardUrl(): string | undefined {
 	const raw = process.env.PHANTOM_DASHBOARD_URL?.trim();
 	if (!raw) return undefined;
@@ -122,7 +264,15 @@ function resolveDashboardUrl(): string | undefined {
 		new URL(raw);
 		return raw;
 	} catch {
-		console.warn(`[${INTRODUCTION_LOG_TAG}] PHANTOM_DASHBOARD_URL is not a valid URL; dropping the manage-me line`);
+		console.warn(`[${INTRODUCTION_LOG_TAG}] PHANTOM_DASHBOARD_URL is not a valid URL; dropping the dashboard line`);
 		return undefined;
 	}
+}
+
+// stripScheme strips the URL scheme for cleaner Slack link display.
+// Slack renders <url|label> with the label visible; we keep the URL
+// readable by dropping the redundant https:// while leaving the
+// underlying href intact.
+function stripScheme(url: string): string {
+	return url.replace(/^https?:\/\//i, "");
 }

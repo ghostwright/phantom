@@ -726,18 +726,34 @@ describe("lifecycle and bot user discovery", () => {
 // ----- synthetic first DM on connect ---------------------------------------
 
 describe("synthetic first DM on connect", () => {
-	test("opens a DM with the installer and posts the introduction text", async () => {
+	test("opens a DM with the installer and posts the co-worker introduction text + Block Kit blocks", async () => {
 		const channel = new SlackHttpChannel(baseConfig);
 		channel.setPhantomName("Maple");
 		await channel.connect();
 
 		expect(mockConversationsOpen).toHaveBeenCalledWith({ users: "U_INSTALLER" });
-		const calls = mockPostMessage.mock.calls as unknown as Array<[{ channel?: string; text?: string }]>;
+		// The intro DM is now co-worker-voiced: "Hi there. I'm in. ... as
+		// Maple from now on." plus a Block Kit payload carrying the three
+		// morning-brief buttons. We pin both the phantom name in the text
+		// fallback AND the actions block_id so a regression that drops
+		// either fails loudly.
+		const calls = mockPostMessage.mock.calls as unknown as Array<
+			[{ channel?: string; text?: string; blocks?: Array<{ type: string; block_id?: string }> }]
+		>;
 		const introCall = calls.find((c) => {
 			const arg = c[0];
-			return arg.channel === "D_DM_OPEN" && typeof arg.text === "string" && arg.text.includes("I'm Maple");
+			return (
+				arg.channel === "D_DM_OPEN" &&
+				typeof arg.text === "string" &&
+				arg.text.includes("co-worker") &&
+				arg.text.includes("Maple")
+			);
 		});
 		expect(introCall).toBeDefined();
+		const blocks = introCall?.[0].blocks;
+		expect(Array.isArray(blocks)).toBe(true);
+		const actionsBlock = blocks?.find((b) => b.block_id === "phantom_morning_brief");
+		expect(actionsBlock).toBeDefined();
 	});
 
 	test("does not re-introduce on a reconnect after disconnect (firstDmSent gates)", async () => {
