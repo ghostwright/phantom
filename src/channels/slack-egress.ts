@@ -65,7 +65,21 @@ export async function egressPostToChannel(ctx: EgressContext, channelId: string,
 	return lastTs;
 }
 
-export async function egressSendDm(ctx: EgressContext, userId: string, text: string): Promise<string | null> {
+// egressSendDm opens a DM channel and posts the message. When `blocks`
+// is provided, the message ships as a Block Kit payload with `text` as
+// the screen-reader and notification fallback (Slack truncates long
+// fallbacks; the caller is expected to keep the fallback under 3000
+// chars). The blocks payload bypasses splitMessage chunking because
+// blocks must travel as a single chat.postMessage; if the blocks shape
+// is too large for Slack the API returns an error which we log and
+// return null. When `blocks` is omitted the helper falls back to the
+// text-chunked path through egressPostToChannel.
+export async function egressSendDm(
+	ctx: EgressContext,
+	userId: string,
+	text: string,
+	blocks?: SlackBlock[],
+): Promise<string | null> {
 	try {
 		const openResult = await ctx.client.conversations.open({ users: userId });
 		const dmChannelId = openResult.channel?.id;
@@ -73,7 +87,20 @@ export async function egressSendDm(ctx: EgressContext, userId: string, text: str
 			console.error(`[${ctx.logTag}] Failed to open DM with user ${userId}: no channel returned`);
 			return null;
 		}
-		return egressPostToChannel(ctx, dmChannelId, text);
+		if (!blocks || blocks.length === 0) {
+			return egressPostToChannel(ctx, dmChannelId, text);
+		}
+		try {
+			const postArgs: Record<string, unknown> = { channel: dmChannelId, text, blocks };
+			const result = await ctx.client.chat.postMessage(
+				postArgs as unknown as Parameters<typeof ctx.client.chat.postMessage>[0],
+			);
+			return result.ts ?? null;
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.error(`[${ctx.logTag}] Failed to post DM blocks to user ${userId}: ${msg}`);
+			return null;
+		}
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
 		console.error(`[${ctx.logTag}] Failed to send DM to user ${userId}: ${msg}`);

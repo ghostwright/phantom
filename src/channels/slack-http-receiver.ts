@@ -255,7 +255,7 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 			phantomName: this.phantomName,
 			teamName: this.teamName,
 			installerUserId: this.installerUserId,
-			sendDm: (userId, text) => this.sendDm(userId, text),
+			sendDm: (userId, text, blocks) => this.sendDm(userId, text, blocks),
 		});
 		if (result.sent) {
 			this.firstDmSent = true;
@@ -309,8 +309,8 @@ export class SlackHttpChannel implements Channel, EventDispatchHost {
 		return egressPostToChannel(this.egressContext(), channelId, text);
 	}
 
-	async sendDm(userId: string, text: string): Promise<string | null> {
-		return egressSendDm(this.egressContext(), userId, text);
+	async sendDm(userId: string, text: string, blocks?: SlackBlock[]): Promise<string | null> {
+		return egressSendDm(this.egressContext(), userId, text, blocks);
 	}
 
 	async postThinking(channel: string, threadTs: string): Promise<string | null> {
