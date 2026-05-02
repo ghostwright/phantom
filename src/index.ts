@@ -440,6 +440,7 @@ async function main(): Promise<void> {
 	if (channelsConfig?.telegram?.enabled && channelsConfig.telegram.bot_token) {
 		telegramChannel = new TelegramChannel({
 			botToken: channelsConfig.telegram.bot_token,
+			allowedUserIds: channelsConfig.telegram.allowed_user_ids,
 		});
 		router.register(telegramChannel);
 		console.log("[phantom] Telegram channel registered");
