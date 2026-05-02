@@ -50,12 +50,15 @@ Results are fused using Reciprocal Rank Fusion (RRF). This means searching for "
 Before each agent invocation, the context builder:
 
 1. Embeds the user's message
-2. Searches episodic memory (top 10 episodes)
-3. Searches semantic memory (top 20 facts)
-4. Searches procedural memory (top 5 procedures)
-5. Budgets results to fit within the token limit (default: 50,000 tokens)
-6. Filters out stale, low-signal episodic memories before prompt injection
-7. Formats results into the memory section of the system prompt
+2. On the first turn of a brand-new session, adds a compact durable context section
+3. Searches episodic memory (top 10 episodes)
+4. Searches semantic memory (top 20 facts)
+5. Searches procedural memory (top 5 procedures)
+6. Budgets results to fit within the token limit (default: 50,000 tokens)
+7. Filters out stale, low-signal episodic memories before prompt injection
+8. Formats results into the memory section of the system prompt
+
+The durable context section is startup-only and intentionally small. It favors high-confidence facts and metadata-ranked memories so a new session begins with a little long-term continuity before normal retrieval takes over.
 
 ## Consolidation
 
