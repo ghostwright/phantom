@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { PERSONA_CATALOG, PERSONA_IDS, type PersonaId } from "../../persona/catalog.ts";
 import type { SlackBlock } from "../feedback.ts";
 import {
 	MORNING_BRIEF_LOCK_ACTION_ID,
@@ -35,6 +36,7 @@ const ORIGINAL_DASHBOARD = process.env.PHANTOM_DASHBOARD_URL;
 const ORIGINAL_OWNER_NAME = process.env.PHANTOM_OWNER_NAME;
 const ORIGINAL_DOMAIN = process.env.PHANTOM_DOMAIN;
 const ORIGINAL_TENANT_SLUG = process.env.PHANTOM_TENANT_SLUG;
+const ORIGINAL_PERSONA_ID = process.env.PHANTOM_PERSONA_ID;
 
 beforeEach(() => {
 	heartbeatCalls.length = 0;
@@ -45,6 +47,7 @@ beforeEach(() => {
 	process.env.PHANTOM_OWNER_NAME = undefined;
 	process.env.PHANTOM_DOMAIN = undefined;
 	process.env.PHANTOM_TENANT_SLUG = undefined;
+	process.env.PHANTOM_PERSONA_ID = undefined;
 });
 
 afterEach(() => {
@@ -77,6 +80,11 @@ afterEach(() => {
 		process.env.PHANTOM_TENANT_SLUG = undefined;
 	} else {
 		process.env.PHANTOM_TENANT_SLUG = ORIGINAL_TENANT_SLUG;
+	}
+	if (ORIGINAL_PERSONA_ID === undefined) {
+		process.env.PHANTOM_PERSONA_ID = undefined;
+	} else {
+		process.env.PHANTOM_PERSONA_ID = ORIGINAL_PERSONA_ID;
 	}
 });
 
@@ -515,4 +523,265 @@ describe("sendIntroductionDm", () => {
 		expect(all).toContain("postMessage failed");
 		expect(all).not.toContain("xoxb-leaky-token-XXX");
 	});
+});
+
+// Slice 16b: persona overlay coverage.
+//
+// The wire shape from PR #120 (Block Kit header + body section + actions
+// row + offer section + optional context footer) STAYS THE SAME under
+// the persona overlay. The actions row block_id, the three button
+// action_ids, the primary style on Lock 8am, and the order of the
+// buttons stay byte-equal across every persona AND the persona-less
+// fallback. The text content shifts to the persona's display_name +
+// intro_role_phrase + intro_first_commitment + intro_open_offer.
+
+describe("composeIntroductionText with persona overlay", () => {
+	for (const id of PERSONA_IDS) {
+		const persona = PERSONA_CATALOG[id];
+		test(`${id} text fallback uses the persona's named greeting + role phrase + first_commitment + open_offer`, () => {
+			const text = composeIntroductionText(
+				"Phantom",
+				"Cheema",
+				"https://gilded-hearth.phantom.ghostwright.dev",
+				undefined,
+				persona,
+			);
+			expect(text).toContain(`I'm ${persona.display_name}, ${persona.intro_role_phrase}.`);
+			expect(text).toContain(persona.intro_first_commitment);
+			expect(text).toContain(persona.intro_open_offer);
+			// The wire-shape cue ("buttons below") stays so screen-reader
+			// users do not dead-end at the question regardless of persona.
+			expect(text).toContain("buttons below");
+		});
+	}
+
+	test("falls back to the PR #120 default copy when no persona is provided", () => {
+		const text = composeIntroductionText(
+			"Phantom",
+			"Cheema",
+			"https://gilded-hearth.phantom.ghostwright.dev",
+			undefined,
+			undefined,
+		);
+		expect(text).toContain("I'm in.");
+		expect(text).toContain("co-worker in this Slack as Phantom");
+		expect(text).toContain(
+			"Tomorrow at 8am your time I'll send you a quick read on what changed overnight and what needs you",
+		);
+		expect(text).toContain("If you want me to start on something now, just tell me what.");
+	});
+
+	test("never contains an em dash, en dash, or marketing voice across all seven personas", () => {
+		for (const id of PERSONA_IDS) {
+			const persona = PERSONA_CATALOG[id];
+			const text = composeIntroductionText(
+				"Phantom",
+				"Cheema",
+				"https://gilded-hearth.phantom.ghostwright.dev",
+				"https://app.ghostwright.dev",
+				persona,
+			);
+			expect(text).not.toContain("—");
+			expect(text).not.toContain("–");
+			expect(text).not.toContain("blazing");
+			expect(text).not.toContain("Welcome to the future");
+			expect(text).not.toContain("✨");
+		}
+	});
+});
+
+describe("composeIntroductionBlocks with persona overlay", () => {
+	for (const id of PERSONA_IDS) {
+		const persona = PERSONA_CATALOG[id];
+		test(`${id} header text uses the persona's display_name`, () => {
+			const blocks = composeIntroductionBlocks("Phantom", "Cheema", "https://example.test", undefined, persona);
+			const header = blocks.find((b) => b.type === "header");
+			expect(header?.text?.text).toBe(`${persona.display_name} is in.`);
+		});
+
+		test(`${id} body section identifies the agent by display_name + role_phrase`, () => {
+			const blocks = composeIntroductionBlocks("Phantom", "Cheema", "https://example.test", undefined, persona);
+			const bodySection = blocks.find(
+				(b) => b.type === "section" && (b.text?.text ?? "").includes("I'll be in this Slack"),
+			);
+			expect(bodySection).toBeDefined();
+			expect(bodySection?.text?.text).toContain(persona.display_name);
+			expect(bodySection?.text?.text).toContain(persona.intro_role_phrase);
+			expect(bodySection?.text?.text).toContain(persona.intro_first_commitment);
+		});
+
+		test(`${id} offer section uses the persona's intro_open_offer`, () => {
+			const blocks = composeIntroductionBlocks("Phantom", "Cheema", "https://example.test", undefined, persona);
+			const offerSection = blocks.find(
+				(b) => b.type === "section" && (b.text?.text ?? "").includes(persona.intro_open_offer),
+			);
+			expect(offerSection).toBeDefined();
+		});
+
+		test(`${id} preserves the exact PR #120 actions wire shape (block_id, action_ids, primary on Lock 8am)`, () => {
+			const blocks = composeIntroductionBlocks("Phantom", "Cheema", "https://example.test", undefined, persona);
+			const actions = blocks.find((b) => b.type === "actions") as SlackBlock & {
+				elements?: Array<{ action_id?: string; text?: { text?: string }; style?: string; value?: string }>;
+			};
+			expect(actions?.block_id).toBe("phantom_morning_brief");
+			expect(actions?.elements?.length).toBe(3);
+			expect(actions?.elements?.map((e) => e.action_id)).toEqual([
+				MORNING_BRIEF_LOCK_ACTION_ID,
+				MORNING_BRIEF_RETIME_ACTION_ID,
+				MORNING_BRIEF_SKIP_ACTION_ID,
+			]);
+			expect(actions?.elements?.[0]?.style).toBe("primary");
+			expect(actions?.elements?.[0]?.text?.text).toBe("Lock 8am");
+			expect(actions?.elements?.[1]?.text?.text).toBe("Pick another time");
+			expect(actions?.elements?.[2]?.text?.text).toBe("Skip mornings");
+		});
+	}
+
+	test("default header (no persona) keeps the PR #120 phantomName-driven copy", () => {
+		const blocks = composeIntroductionBlocks("Phantom", "Cheema", "https://example.test", undefined, undefined);
+		const header = blocks.find((b) => b.type === "header");
+		expect(header?.text?.text).toBe("Phantom is in.");
+	});
+
+	test("dashboard context footer renders for any persona when PHANTOM_DASHBOARD_URL is set", () => {
+		for (const id of PERSONA_IDS) {
+			const persona = PERSONA_CATALOG[id];
+			const blocks = composeIntroductionBlocks(
+				"Phantom",
+				"Cheema",
+				"https://example.test",
+				"https://app.ghostwright.dev",
+				persona,
+			);
+			expect(blocks.some((b) => b.type === "context")).toBe(true);
+		}
+	});
+});
+
+describe("sendIntroductionDm reads PHANTOM_PERSONA_ID and threads the persona through", () => {
+	for (const id of PERSONA_IDS as readonly PersonaId[]) {
+		const persona = PERSONA_CATALOG[id];
+		test(`${id}: PHANTOM_PERSONA_ID drives the persona's display_name in the header and the body sentence`, async () => {
+			process.env.PHANTOM_OWNER_NAME = "Cheema";
+			process.env.PHANTOM_DOMAIN = "gilded-hearth.phantom.ghostwright.dev";
+			process.env.PHANTOM_PERSONA_ID = id;
+			let capturedText = "";
+			let capturedBlocks: SlackBlock[] | undefined;
+			const sendDm = mock(async (_userId: string, text: string, blocks?: SlackBlock[]) => {
+				capturedText = text;
+				capturedBlocks = blocks;
+				return "1715000000.999000" as string | null;
+			});
+			const result = await sendIntroductionDm({
+				phantomName: "Phantom",
+				teamName: "Acme",
+				installerUserId: "U_INSTALLER",
+				sendDm,
+			});
+
+			expect(result.sent).toBe(true);
+			expect(capturedText).toContain(`I'm ${persona.display_name}, ${persona.intro_role_phrase}.`);
+			expect(capturedText).toContain(persona.intro_first_commitment);
+			expect(capturedText).toContain(persona.intro_open_offer);
+			const header = capturedBlocks?.find((b) => b.type === "header");
+			expect(header?.text?.text).toBe(`${persona.display_name} is in.`);
+			const actions = capturedBlocks?.find((b) => b.type === "actions");
+			expect(actions?.block_id).toBe("phantom_morning_brief");
+		});
+	}
+
+	test("falls back to default scaffold when PHANTOM_PERSONA_ID is unset", async () => {
+		process.env.PHANTOM_OWNER_NAME = "Cheema";
+		process.env.PHANTOM_DOMAIN = "gilded-hearth.phantom.ghostwright.dev";
+		let capturedText = "";
+		let capturedBlocks: SlackBlock[] | undefined;
+		const sendDm = mock(async (_userId: string, text: string, blocks?: SlackBlock[]) => {
+			capturedText = text;
+			capturedBlocks = blocks;
+			return "1715000000.998000" as string | null;
+		});
+		await sendIntroductionDm({
+			phantomName: "Phantom",
+			teamName: "Acme",
+			installerUserId: "U_INSTALLER",
+			sendDm,
+		});
+
+		expect(capturedText).toContain("co-worker in this Slack as Phantom");
+		expect(capturedText).toContain(
+			"Tomorrow at 8am your time I'll send you a quick read on what changed overnight and what needs you",
+		);
+		const header = capturedBlocks?.find((b) => b.type === "header");
+		expect(header?.text?.text).toBe("Phantom is in.");
+	});
+
+	test("falls back to default scaffold when PHANTOM_PERSONA_ID is unknown (defends against typos and validator drift)", async () => {
+		process.env.PHANTOM_OWNER_NAME = "Cheema";
+		process.env.PHANTOM_PERSONA_ID = "sdr-typo";
+		let capturedText = "";
+		const sendDm = mock(async (_userId: string, text: string, _blocks?: SlackBlock[]) => {
+			capturedText = text;
+			return "1715000000.997000" as string | null;
+		});
+		await sendIntroductionDm({
+			phantomName: "Phantom",
+			teamName: "Acme",
+			installerUserId: "U_INSTALLER",
+			sendDm,
+		});
+
+		expect(capturedText).toContain("co-worker in this Slack as Phantom");
+		expect(capturedText).not.toContain("sdr-typo");
+	});
+
+	test("falls back to default scaffold when PHANTOM_PERSONA_ID is empty string", async () => {
+		process.env.PHANTOM_PERSONA_ID = "";
+		let capturedText = "";
+		const sendDm = mock(async (_userId: string, text: string, _blocks?: SlackBlock[]) => {
+			capturedText = text;
+			return "1715000000.996000" as string | null;
+		});
+		await sendIntroductionDm({
+			phantomName: "Phantom",
+			teamName: "Acme",
+			installerUserId: "U_INSTALLER",
+			sendDm,
+		});
+
+		expect(capturedText).toContain("co-worker in this Slack as Phantom");
+	});
+});
+
+describe("intro DM Block Kit snapshot per persona", () => {
+	// Snapshot test (architect doc §6 Mandate E): each persona's rendered
+	// Block Kit JSON. We pin the structural shape (header + sections +
+	// actions + optional context) plus the persona-specific copy that
+	// shifts in each block. This catches accidental drift between
+	// persona text content and the block scaffolding without coupling
+	// to Slack's wire format minutiae.
+	for (const id of PERSONA_IDS) {
+		const persona = PERSONA_CATALOG[id];
+		test(`${id} renders the locked Block Kit shape with persona-specific copy`, () => {
+			const blocks = composeIntroductionBlocks(
+				"Phantom",
+				"Cheema",
+				"https://gilded-hearth.phantom.ghostwright.dev",
+				"https://app.ghostwright.dev",
+				persona,
+			);
+			// Shape: header + body section + actions + offer section + context.
+			expect(blocks.length).toBe(5);
+			expect(blocks[0]?.type).toBe("header");
+			expect(blocks[1]?.type).toBe("section");
+			expect(blocks[2]?.type).toBe("actions");
+			expect(blocks[3]?.type).toBe("section");
+			expect(blocks[4]?.type).toBe("context");
+			// Persona-specific content lands in the right blocks.
+			expect(blocks[0]?.text?.text).toBe(`${persona.display_name} is in.`);
+			expect(blocks[1]?.text?.text).toContain(persona.display_name);
+			expect(blocks[1]?.text?.text).toContain(persona.intro_role_phrase);
+			expect(blocks[1]?.text?.text).toContain(persona.intro_first_commitment);
+			expect(blocks[3]?.text?.text).toContain(persona.intro_open_offer);
+		});
+	}
 });
