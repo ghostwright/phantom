@@ -149,7 +149,12 @@ export class DynamicToolRegistry {
 
 	registerAllOnServer(server: McpServer): void {
 		for (const tool of this.tools.values()) {
-			registerDynamicToolOnServer(server, tool);
+			try {
+				registerDynamicToolOnServer(server, tool);
+			} catch (err: unknown) {
+				const msg = err instanceof Error ? err.message : String(err);
+				console.warn(`[dynamic-tools] Failed to register '${tool.name}' on MCP server: ${msg}`);
+			}
 		}
 	}
 }

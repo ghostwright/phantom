@@ -159,6 +159,115 @@ describe("executeDynamicHandler", () => {
 		}
 	});
 
+	test("concurrent drain: large stderr before stdout does not deadlock", async () => {
+		// Regression test for pipe-buffer deadlock. Write 200 KB to stderr
+		// (well beyond the 64 KB pipe buffer), then print to stdout and exit.
+		// Under the old sequential-drain code this hangs forever.
+		const tool: DynamicToolDef = {
+			name: "test_pipe_deadlock",
+			description: "test",
+			inputSchema: {},
+			handlerType: "shell",
+			handlerCode: 'head -c 204800 /dev/urandom | base64 >&2; echo "done"',
+		};
+
+		const start = Date.now();
+		const result = await executeDynamicHandler(tool, {});
+		const elapsed = Date.now() - start;
+
+		expect(result.isError).toBeFalsy();
+		const text = (result.content[0] as { type: string; text: string }).text;
+		expect(text).toBe("done");
+		// Should complete in well under 5 seconds. A deadlock would hit the
+		// test runner timeout instead.
+		expect(elapsed).toBeLessThan(5000);
+	});
+
+	test("timeout kills a hung handler", async () => {
+		const origTimeout = process.env.PHANTOM_DYNAMIC_HANDLER_TIMEOUT_MS;
+		process.env.PHANTOM_DYNAMIC_HANDLER_TIMEOUT_MS = "500";
+		try {
+			const tool: DynamicToolDef = {
+				name: "test_hang",
+				description: "test",
+				inputSchema: {},
+				handlerType: "shell",
+				handlerCode: "sleep 10",
+			};
+
+			const start = Date.now();
+			const result = await executeDynamicHandler(tool, {});
+			const elapsed = Date.now() - start;
+
+			expect(result.isError).toBe(true);
+			const text = (result.content[0] as { type: string; text: string }).text;
+			expect(text).toContain("timed out");
+			// 500ms timeout + 2s grace + slack. Should be well under 10s (the sleep).
+			expect(elapsed).toBeLessThan(5000);
+		} finally {
+			if (origTimeout !== undefined) {
+				process.env.PHANTOM_DYNAMIC_HANDLER_TIMEOUT_MS = origTimeout;
+			} else {
+				// `= undefined` would coerce to the string "undefined" on process.env;
+				// Reflect.deleteProperty actually removes the key so later tests see it as unset.
+				// (Matches the pattern acknowledged by the maintainer in #5.)
+				Reflect.deleteProperty(process.env, "PHANTOM_DYNAMIC_HANDLER_TIMEOUT_MS");
+			}
+		}
+	});
+
+	test("output cap truncates runaway stdout", async () => {
+		const origCap = process.env.PHANTOM_DYNAMIC_HANDLER_MAX_OUTPUT_BYTES;
+		process.env.PHANTOM_DYNAMIC_HANDLER_MAX_OUTPUT_BYTES = "10000";
+		try {
+			const tool: DynamicToolDef = {
+				name: "test_runaway",
+				description: "test",
+				inputSchema: {},
+				handlerType: "shell",
+				// Emit ~270 KB of base64 to stdout, far exceeding the 10 KB cap.
+				handlerCode: "head -c 200000 /dev/urandom | base64",
+			};
+
+			const result = await executeDynamicHandler(tool, {});
+
+			expect(result.isError).toBeFalsy();
+			const text = (result.content[0] as { type: string; text: string }).text;
+			expect(text).toContain("Output truncated");
+			// Captured bytes ≤ cap + truncation notice (~50 chars). Trim happens
+			// after the truncation marker was appended, so just assert it's
+			// bounded well below the full output size.
+			expect(text.length).toBeLessThan(11000);
+		} finally {
+			if (origCap !== undefined) {
+				process.env.PHANTOM_DYNAMIC_HANDLER_MAX_OUTPUT_BYTES = origCap;
+			} else {
+				// See note on PHANTOM_DYNAMIC_HANDLER_TIMEOUT_MS above.
+				Reflect.deleteProperty(process.env, "PHANTOM_DYNAMIC_HANDLER_MAX_OUTPUT_BYTES");
+			}
+		}
+	});
+
+	test("non-zero exit surfaces stderr and exit code in error message", async () => {
+		// The concurrency claim (stdout and stderr drained in parallel) is
+		// already proven by the pipe-deadlock regression test above. This test
+		// guards the non-zero exit path: the error message must include the
+		// captured stderr and the exit code so the agent has actionable signal.
+		const tool: DynamicToolDef = {
+			name: "test_mixed_streams",
+			description: "test",
+			inputSchema: {},
+			handlerType: "shell",
+			handlerCode: 'echo "stdout-marker"; echo "stderr-marker" >&2; exit 2',
+		};
+
+		const result = await executeDynamicHandler(tool, {});
+		expect(result.isError).toBe(true);
+		const text = (result.content[0] as { type: string; text: string }).text;
+		expect(text).toContain("stderr-marker");
+		expect(text).toContain("exit 2");
+	});
+
 	test("script handler receives TOOL_INPUT via env", async () => {
 		const tmpFile = "/tmp/phantom-test-tool-input.ts";
 		await Bun.write(tmpFile, "console.log(process.env.TOOL_INPUT)");
