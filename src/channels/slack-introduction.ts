@@ -17,6 +17,7 @@
 // Change here, change there.
 
 import { DEFAULT_METADATA_BASE_URL } from "../config/identity-fetcher.ts";
+import { type PersonaCatalogEntry, readPersonaFromEnv } from "../persona/catalog.ts";
 import { reportFirstDmSent } from "../tenancy/heartbeat.ts";
 import type { SlackBlock } from "./feedback.ts";
 import { readSlackTransportFromEnv } from "./slack-channel-factory.ts";
@@ -72,8 +73,16 @@ export async function sendIntroductionDm(deps: IntroductionDeps): Promise<Introd
 	const ownerName = readOwnerName();
 	const homeUrl = resolveHomeUrl();
 	const dashboardUrl = resolveDashboardUrl();
-	const text = composeIntroductionText(deps.phantomName, ownerName, homeUrl, dashboardUrl);
-	const blocks = composeIntroductionBlocks(deps.phantomName, ownerName, homeUrl, dashboardUrl);
+	// Persona overlay (Slice 16b). When PHANTOM_PERSONA_ID is set and
+	// matches a catalog entry, the intro DM swaps in the persona's
+	// display_name + intro_* fields. The Block Kit wire shape (header,
+	// section, three-button actions row, optional context footer) does
+	// not change; only the text content shifts. When the env is unset or
+	// unknown, the persona-less default copy from PR #120 ships
+	// unchanged.
+	const persona = readPersonaFromEnv();
+	const text = composeIntroductionText(deps.phantomName, ownerName, homeUrl, dashboardUrl, persona);
+	const blocks = composeIntroductionBlocks(deps.phantomName, ownerName, homeUrl, dashboardUrl, persona);
 	try {
 		const messageTs = await deps.sendDm(deps.installerUserId, text, blocks);
 		if (!messageTs) {
@@ -118,29 +127,49 @@ export async function sendIntroductionDm(deps: IntroductionDeps): Promise<Introd
 // architect doc at phantom-cloud-deploy/local/2026-05-02-first-five-
 // minutes-audit.md section 1.8 and the strategy doc at
 // phantom-cloud-deploy/local/2026-05-02-phantom-as-product-strategy.md.
+//
+// Persona overlay (Slice 16b): when `persona` is provided, the named
+// agent identity (display_name + intro_role_phrase) replaces the bare
+// phantomName, the persona's first_commitment replaces the default
+// morning-brief line, and the open_offer replaces the "start on
+// something now" close. The buttons-below cue stays so the wire shape
+// (Lock 8am / Pick another time / Skip mornings) maps straight to the
+// persona's morning-brief commitment without a scaffold change.
 export function composeIntroductionText(
 	phantomName: string,
 	ownerName?: string,
 	homeUrl?: string,
 	dashboardUrl?: string,
+	persona?: PersonaCatalogEntry,
 ): string {
 	const greeting = ownerName ? `Hi ${ownerName}.` : "Hi there.";
+	const displayName = persona?.display_name ?? phantomName;
+	const rolePhrase = persona?.intro_role_phrase;
+	// Lead sentence. Persona-tweaked: "I'm Lilian, your SDR." Default:
+	// "I'm in." The location ("I live at <homeUrl>") and the
+	// in-this-Slack-from-now-on commitment carry across both branches so
+	// the user always sees where the agent lives and what it's doing.
+	const namedSelf = persona ? `I'm ${displayName}, ${rolePhrase}.` : "I'm in.";
 	const introSentence = homeUrl
-		? `I'm in. I live at ${homeUrl} and I'll be your co-worker in this Slack as ${phantomName} from now on.`
-		: `I'm in. I'll be your co-worker in this Slack as ${phantomName} from now on.`;
+		? persona
+			? `${namedSelf} I live at ${homeUrl} and I'll be in this Slack from now on.`
+			: `${namedSelf} I live at ${homeUrl} and I'll be your co-worker in this Slack as ${phantomName} from now on.`
+		: persona
+			? `${namedSelf} I'll be in this Slack from now on.`
+			: `${namedSelf} I'll be your co-worker in this Slack as ${phantomName} from now on.`;
+	const commitmentLine = persona
+		? `${persona.intro_first_commitment}. Lock it in, pick another time, or skip mornings using the buttons below.`
+		: "Tomorrow at 8am your time I'll send you a quick read on what changed overnight and what needs you. Lock it in, pick another time, or skip mornings using the buttons below.";
+	const offerLine = persona
+		? `${persona.intro_open_offer}.`
+		: "If you want me to start on something now, just tell me what.";
 	// Text fallback for clients that do not render Block Kit (mobile push
 	// previews, screen readers, the Slack search index). The buttons row
 	// is replaced with a "tap a button below" cue so screen-reader users
 	// hear that there is something to interact with rather than dead-end
 	// at the question; the buttons themselves render in the blocks
 	// payload above this fallback.
-	const lines = [
-		`${greeting} ${introSentence}`,
-		"",
-		"Tomorrow at 8am your time I'll send you a quick read on what changed overnight and what needs you. Lock it in, pick another time, or skip mornings using the buttons below.",
-		"",
-		"If you want me to start on something now, just tell me what.",
-	];
+	const lines = [`${greeting} ${introSentence}`, "", commitmentLine, "", offerLine];
 	if (dashboardUrl) {
 		lines.push("", `If you want to change anything about me, I live at ${dashboardUrl}.`);
 	}
@@ -154,25 +183,45 @@ export function composeIntroductionText(
 // primary copy. The buttons confirm the morning-brief schedule; the
 // handlers in slack-actions.ts persist the choice and update the message
 // to acknowledge the click.
+//
+// Persona overlay (Slice 16b): when `persona` is provided, the header
+// switches to "${persona.display_name} is in." and the body section
+// uses the persona's named-self lead sentence + intro_first_commitment
+// + intro_open_offer. The actions row block_id, the three button
+// action_ids, the primary style on Lock 8am, and the context footer
+// shape stay byte-equal with the persona-less default; slice 15
+// reads the click events from the same handlers regardless of which
+// persona shipped the DM.
 export function composeIntroductionBlocks(
 	phantomName: string,
 	ownerName?: string,
 	homeUrl?: string,
 	dashboardUrl?: string,
+	persona?: PersonaCatalogEntry,
 ): SlackBlock[] {
 	const greeting = ownerName ? `Hi ${ownerName}.` : "Hi there.";
+	const displayName = persona?.display_name ?? phantomName;
+	const rolePhrase = persona?.intro_role_phrase;
+	const namedSelfMrkdwn = persona ? `I'm *${displayName}*, ${rolePhrase}.` : "I'm in.";
 	const introSentence = homeUrl
-		? `I'm in. I live at <${homeUrl}|${stripScheme(homeUrl)}> and I'll be your co-worker in this Slack as *${phantomName}* from now on.`
-		: `I'm in. I'll be your co-worker in this Slack as *${phantomName}* from now on.`;
+		? persona
+			? `${namedSelfMrkdwn} I live at <${homeUrl}|${stripScheme(homeUrl)}> and I'll be in this Slack from now on.`
+			: `${namedSelfMrkdwn} I live at <${homeUrl}|${stripScheme(homeUrl)}> and I'll be your co-worker in this Slack as *${phantomName}* from now on.`
+		: persona
+			? `${namedSelfMrkdwn} I'll be in this Slack from now on.`
+			: `${namedSelfMrkdwn} I'll be your co-worker in this Slack as *${phantomName}* from now on.`;
 	const intro = `${greeting} ${introSentence}`;
-	const commitment =
-		"Tomorrow at 8am your time I'll send you a quick read on what changed overnight and what needs you. Lock it in?";
-	const offer = "If you want me to start on something now, just tell me what.";
+	const commitment = persona
+		? `${persona.intro_first_commitment}. Lock it in?`
+		: "Tomorrow at 8am your time I'll send you a quick read on what changed overnight and what needs you. Lock it in?";
+	const offer = persona
+		? `${persona.intro_open_offer}.`
+		: "If you want me to start on something now, just tell me what.";
 
 	const blocks: SlackBlock[] = [
 		{
 			type: "header",
-			text: { type: "plain_text", text: `${phantomName} is in.` },
+			text: { type: "plain_text", text: `${displayName} is in.` },
 		},
 		{
 			type: "section",

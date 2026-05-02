@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { PhantomConfig } from "../config/types.ts";
 import type { EvolvedConfig } from "../evolution/types.ts";
+import { buildPersonaSystemPromptOverlay } from "../persona/system-prompt.ts";
 import type { RoleTemplate } from "../roles/types.ts";
 import { buildAgentMemoryInstructions } from "./prompt-blocks/agent-memory-instructions.ts";
 import { buildDashboardAwarenessLines } from "./prompt-blocks/dashboard-awareness.ts";
@@ -35,6 +36,17 @@ export function assemblePrompt(
 	const selfKnowledge = buildTenantSelfKnowledge();
 	if (selfKnowledge) {
 		sections.push(selfKnowledge);
+	}
+
+	// 1c. Persona overlay (Slice 16b). Reads PHANTOM_PERSONA_ID and
+	// emits the persona's system_prompt_overlay as a "# Your Voice And
+	// Role" section. Returns the empty string when the persona id is
+	// unset or unknown so the slot drops cleanly. Sits after the
+	// tenant-self-knowledge block so the agent reads its own identity
+	// (workspace, owner, runtime) before its voice and role.
+	const personaOverlay = buildPersonaSystemPromptOverlay();
+	if (personaOverlay) {
+		sections.push(personaOverlay);
 	}
 
 	// 2. Environment - what you have access to
