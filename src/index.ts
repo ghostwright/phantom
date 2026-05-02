@@ -23,6 +23,7 @@ import { WebhookChannel } from "./channels/webhook.ts";
 import { DEFAULT_METADATA_BASE_URL } from "./config/identity-fetcher.ts";
 import { loadChannelsConfig, loadConfig } from "./config/loader.ts";
 import { installShutdownHandlers, onShutdown } from "./core/graceful.ts";
+import { logger } from "./core/logger.ts";
 import {
 	setChannelHealthProvider,
 	setChatHandler,
@@ -83,10 +84,24 @@ import {
 } from "./ui/serve.ts";
 import { createWebUiToolServer } from "./ui/tools.ts";
 
+// Intercept console.error and console.warn to mirror into the log file.
+// All existing code benefits without needing to import the logger directly.
+const _origError = console.error.bind(console);
+const _origWarn = console.warn.bind(console);
+console.error = (...args: unknown[]) => {
+	_origError(...args);
+	logger.error("console", args.map(String).join(" "));
+};
+console.warn = (...args: unknown[]) => {
+	_origWarn(...args);
+	logger.warn("console", args.map(String).join(" "));
+};
+
 async function main(): Promise<void> {
 	const startedAt = Date.now();
 
 	console.log("[phantom] Starting...");
+	logger.info("phantom", `Starting - log file: ${logger.getPath()}`);
 
 	const config = await loadConfig();
 	await configureAgentSdkRuntime({ agentRuntime: config.agent_runtime, env: process.env });
