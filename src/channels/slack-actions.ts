@@ -52,6 +52,31 @@ export function setMorningBriefPreferenceRecorder(recorder: MorningBriefPreferen
 	morningBriefRecorder = recorder;
 }
 
+/**
+ * First-hour-of-work draft action handler (architect §5.4). The user
+ * clicks Send / Edit / Skip / Skip-All / Save-Only on the Block Kit
+ * DM that the runner posted at firstboot; the Bolt action handler
+ * parses the action_id (phantom:draft:{draft_id}:{action}), looks up
+ * the draft via this recorder, and the recorder updates the local
+ * SQLite row + (slice 15b) POSTs to phantom-control.
+ */
+export type FirstHourDraftAction = "send" | "edit" | "skip" | "skip_all" | "save_only";
+
+export type FirstHourDraftActionRecorder = (params: {
+	draftId: string;
+	action: FirstHourDraftAction;
+	userId: string;
+	channelId: string;
+	messageTs: string;
+	clickedAt: number;
+}) => Promise<void> | void;
+
+let firstHourDraftRecorder: FirstHourDraftActionRecorder | null = null;
+
+export function setFirstHourDraftActionRecorder(recorder: FirstHourDraftActionRecorder): void {
+	firstHourDraftRecorder = recorder;
+}
+
 /** Extract a typed value from the Bolt body object */
 function bodyField<T>(body: unknown, ...keys: string[]): T | undefined {
 	let obj = body as Record<string, unknown> | undefined;
@@ -254,5 +279,90 @@ export function registerSlackActions(app: App): void {
 				);
 			}
 		});
+	}
+
+	// Slice 15a first-hour-of-work draft buttons. Pattern:
+	// phantom:draft:{draft_id}:{action} where action is send | edit |
+	// skip | skip_all | save_only. The handler parses the action_id,
+	// hands off to the draft recorder (slice 15a wires the local
+	// SQLite update; slice 15b POSTs to phantom-control).
+	app.action(/^phantom:draft:[^:]+:(send|edit|skip|skip_all|save_only)$/, async ({ ack, body, client }) => {
+		await ack();
+
+		const b = body as unknown as Record<string, unknown>;
+		const actions = b.actions as Array<{ action_id: string; value?: string }> | undefined;
+		if (!actions?.[0]) return;
+
+		const actionId = actions[0].action_id;
+		const parts = actionId.split(":");
+		if (parts.length !== 4) return;
+		const draftId = parts[2];
+		const action = parts[3] as FirstHourDraftAction;
+
+		const channelId = bodyField<string>(b, "channel", "id");
+		const messageTs = bodyField<string>(b, "message", "ts");
+		const userId = bodyField<string>(b, "user", "id");
+		if (!channelId || !messageTs || !userId) return;
+
+		if (firstHourDraftRecorder) {
+			try {
+				await firstHourDraftRecorder({
+					draftId,
+					action,
+					userId,
+					channelId,
+					messageTs,
+					clickedAt: Date.now(),
+				});
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				console.warn(`[slack] first-hour draft recorder failed: ${msg}`);
+			}
+		} else {
+			console.log(`[slack] first_hour_draft_action draft=${draftId} action=${action} user=${userId}`);
+		}
+
+		// Update the message: replace the draft's own actions block with a
+		// context block reflecting the click. The skip-all and save_only
+		// surfaces follow the same shape; the send/edit/skip variants
+		// flip just the per-draft actions row, leaving other drafts in the
+		// same DM untouched.
+		const existingBlocks = bodyField<Array<{ type: string; block_id?: string }>>(b, "message", "blocks") ?? [];
+		const replacementText = ackTextForAction(action, draftId);
+		const targetBlockId = action === "skip_all" ? "phantom_first_hour_skip_all" : `draft_${draftId}`;
+		const updatedBlocks = existingBlocks.map((block) => {
+			if (block.block_id !== targetBlockId) return block;
+			return {
+				type: "context",
+				elements: [{ type: "mrkdwn", text: replacementText }],
+			};
+		});
+		const messageText = bodyField<string>(b, "message", "text") ?? "";
+		try {
+			await client.chat.update({
+				channel: channelId,
+				ts: messageTs,
+				text: messageText,
+				blocks: updatedBlocks,
+			} as unknown as Parameters<typeof client.chat.update>[0]);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`[slack] Failed to update first-hour draft buttons: ${msg}`);
+		}
+	});
+}
+
+function ackTextForAction(action: FirstHourDraftAction, draftId: string): string {
+	switch (action) {
+		case "send":
+			return `_Sent. (draft ${draftId})_`;
+		case "edit":
+			return `_Edit modal opened. (draft ${draftId})_`;
+		case "skip":
+			return `_Skipped. (draft ${draftId})_`;
+		case "skip_all":
+			return "_All drafts skipped. Reply MORE to surface them again._";
+		case "save_only":
+			return `_Saved. (draft ${draftId})_`;
 	}
 }

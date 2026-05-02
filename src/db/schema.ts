@@ -429,4 +429,41 @@ export const MIGRATIONS: string[] = [
 		intro_sent_at TEXT,
 		research_outcome TEXT
 	)`,
+
+	// Slice 15a: extend firstboot_state with the do_first_hour_of_work
+	// ledger columns. ALTER TABLE ADD COLUMN is idempotent against the
+	// migrations runner (the _migrations index gates re-execution) per
+	// the migration-safety contract in src/db/migration-safety.ts.
+	// Architect: phantom-cloud-deploy/local/2026-05-03-slice-15-first-
+	// hour-of-work-architect.md §3.4 (three-layer idempotency: in-VM
+	// SQLite ledger is layer 1).
+	"ALTER TABLE firstboot_state ADD COLUMN first_hour_of_work_started_at TEXT",
+	"ALTER TABLE firstboot_state ADD COLUMN first_hour_of_work_completed_at TEXT",
+	"ALTER TABLE firstboot_state ADD COLUMN first_hour_of_work_reason_code TEXT",
+	"ALTER TABLE firstboot_state ADD COLUMN first_hour_of_work_fire_id TEXT",
+
+	// Slice 15a: phantom_drafts table. The in-VM phantom persists each
+	// draft locally before POSTing to phantom-control (slice 15b). Local
+	// rows let the action handler look up the body when the user clicks
+	// Send/Edit/Skip on the Slack DM, and let the dashboard reflect the
+	// in-VM state when phantom-control's row eventually arrives. Status
+	// transitions: pending -> approved -> sent (or pending -> skipped /
+	// edited / failed).
+	`CREATE TABLE IF NOT EXISTS phantom_drafts (
+		draft_id TEXT PRIMARY KEY,
+		fire_id TEXT NOT NULL,
+		persona_id TEXT NOT NULL,
+		kind TEXT NOT NULL,
+		summary TEXT NOT NULL,
+		body TEXT NOT NULL,
+		reference_url TEXT,
+		edit_hints TEXT,
+		status TEXT NOT NULL DEFAULT 'pending',
+		slack_message_ts TEXT,
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+		CHECK (status IN ('pending', 'approved', 'sent', 'skipped', 'edited', 'failed'))
+	)`,
+	"CREATE INDEX IF NOT EXISTS idx_phantom_drafts_fire_id ON phantom_drafts (fire_id)",
+	"CREATE INDEX IF NOT EXISTS idx_phantom_drafts_status ON phantom_drafts (status)",
 ];

@@ -34,6 +34,24 @@ jobs:
       - name: Test
         run: bun test
 
+      # Slice 15a: persona-work-plans drift guard. The in-VM phantom
+      # mirror at src/persona/work-plans.ts must stay byte-equal with
+      # the canonical fixture at scripts/shared/persona-work-plans.json
+      # in phantom-cloud-deploy. The verifier parses persona_id and
+      # required_integrations literals out of the TS file and diffs
+      # them against the canonical JSON. Strict mode flips on once the
+      # phantom-cloud-deploy fixture lands on main; until then this
+      # step skips on a missing fixture (the slice 15d-fixture PR is
+      # already open at #22).
+      - name: verify persona-work-plans drift
+        run: |
+          git clone --depth 1 https://github.com/ghostwright/phantom-cloud-deploy.git /tmp/pcd || true
+          if [ -f /tmp/pcd/scripts/shared/verify-persona-work-plans.sh ]; then
+            PERSONA_WORK_PLANS_VERIFY_STRICT=1 /tmp/pcd/scripts/shared/verify-persona-work-plans.sh
+          else
+            echo "phantom-cloud-deploy fixture not yet on main; skipping drift verification"
+          fi
+
       - name: Install Chat UI Dependencies
         working-directory: chat-ui
         run: bun install --frozen-lockfile
