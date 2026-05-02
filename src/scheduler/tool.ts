@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { type McpSdkServerConfigWithInstance, createSdkMcpServer, tool } from "../agent/agent-sdk.ts";
 import type { Scheduler } from "./service.ts";
-import { ScheduleInputSchema } from "./tool-schema.ts";
+import { JobUpdateInputSchema, ScheduleInputSchema } from "./tool-schema.ts";
 import { JobDeliverySchema } from "./types.ts";
 
 function ok(data: Record<string, unknown>): { content: Array<{ type: "text"; text: string }> } {
@@ -12,11 +12,12 @@ function err(message: string): { content: Array<{ type: "text"; text: string }>;
 	return { content: [{ type: "text" as const, text: JSON.stringify({ error: message }) }], isError: true };
 }
 
-const TOOL_DESCRIPTION = `Create, list, delete, or trigger scheduled tasks. Lets you set up recurring jobs, one-shot reminders, and automated reports.
+const TOOL_DESCRIPTION = `Create, list, update, delete, or trigger scheduled tasks. Lets you set up recurring jobs, one-shot reminders, and automated reports.
 
 Actions:
 - create: Create a new scheduled task. Returns the job id and next run time. Rejects invalid schedules, past timestamps, duplicate names, task text over 32 KB, and delivery targets that are not "owner", a channel id (C...), or a user id (U...).
 - list: List all scheduled tasks with status and next run time. Corrupt rows are logged and skipped.
+- update: Edit task, description, schedule, delivery, or enabled on an existing job by jobId or name. Run history (last_run_at, run_count, consecutive_errors) and the stable jobId are preserved. If schedule changes, next_run_at is recomputed. Requires at least one field; name is not editable.
 - delete: Remove a scheduled task by jobId or by name (case insensitive).
 - run: Trigger a task immediately. Only runs when status is active and no other job is currently executing. Returns the task output.
 
@@ -59,19 +60,25 @@ export function createSchedulerToolServer(scheduler: Scheduler): McpSdkServerCon
 		TOOL_DESCRIPTION,
 		{
 			action: z
-				.enum(["create", "list", "delete", "run"])
+				.enum(["create", "list", "update", "delete", "run"])
 				.describe(
-					"create: new scheduled task. list: enumerate tasks. delete: remove by jobId or name. run: trigger immediately (only when status=active and scheduler is idle).",
+					"create: new scheduled task. list: enumerate tasks. update: edit user-authored fields by jobId or name (preserves run history). delete: remove by jobId or name. run: trigger immediately (only when status=active and scheduler is idle).",
 				),
-			name: z.string().optional().describe("Job name (required for create)"),
+			name: z.string().optional().describe("Job name (required for create; lookup key for update, delete, run)"),
 			description: z.string().optional().describe("Job description"),
-			schedule: ScheduleInputSchema.optional().describe("Schedule definition (required for create)"),
+			schedule: ScheduleInputSchema.optional().describe(
+				"Schedule definition (required for create, optional for update)",
+			),
 			task: z
 				.string()
 				.optional()
-				.describe("The prompt for the agent when the job fires (required for create, 32 KB max)"),
+				.describe("The prompt for the agent when the job fires (required for create, optional for update, 32 KB max)"),
 			delivery: JobDeliverySchema.optional().describe("Where to deliver results"),
-			jobId: z.string().optional().describe("Job ID (for delete or run)"),
+			enabled: z
+				.boolean()
+				.optional()
+				.describe("Whether the job fires (optional for update; pause/resume manage status separately)"),
+			jobId: z.string().optional().describe("Job ID (for update, delete, or run)"),
 		},
 		async (input) => {
 			try {
@@ -119,6 +126,38 @@ export function createSchedulerToolServer(scheduler: Scheduler): McpSdkServerCon
 								consecutiveErrors: j.consecutiveErrors,
 								delivery: j.delivery,
 							})),
+						});
+					}
+
+					case "update": {
+						const targetId = input.jobId ?? scheduler.findJobIdByName(input.name);
+						if (!targetId) return err("Provide jobId or name to update");
+
+						const partialResult = JobUpdateInputSchema.safeParse({
+							description: input.description,
+							schedule: input.schedule,
+							task: input.task,
+							delivery: input.delivery,
+							enabled: input.enabled,
+						});
+						if (!partialResult.success) {
+							return err(partialResult.error.issues.map((i) => i.message).join("; "));
+						}
+
+						const updated = scheduler.updateJob(targetId, partialResult.data);
+						if (!updated) return err(`Job not found: ${targetId}`);
+
+						return ok({
+							updated: true,
+							id: updated.id,
+							name: updated.name,
+							schedule: updated.schedule,
+							task: updated.task,
+							description: updated.description,
+							delivery: updated.delivery,
+							enabled: updated.enabled,
+							nextRunAt: updated.nextRunAt,
+							runCount: updated.runCount,
 						});
 					}
 
