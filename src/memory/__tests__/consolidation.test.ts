@@ -135,6 +135,60 @@ describe("consolidateSession", () => {
 		expect(storedFacts.length).toBe(0);
 	});
 
+	test("rejects pattern-matching messages that end in a question mark", async () => {
+		const { memory, storedFacts } = createMockMemory();
+		const data = makeTestSessionData({
+			userMessages: ["No did you see the images or no?", "Actually is the deploy script broken?"],
+		});
+
+		const result = await consolidateSession(memory, data);
+
+		expect(result.factsExtracted).toBe(0);
+		expect(storedFacts.length).toBe(0);
+	});
+
+	test("rejects pattern-matching messages with fewer than three words", async () => {
+		const { memory, storedFacts } = createMockMemory();
+		const data = makeTestSessionData({
+			userMessages: ["No actually", "Wrong"],
+		});
+
+		const result = await consolidateSession(memory, data);
+
+		expect(result.factsExtracted).toBe(0);
+		expect(storedFacts.length).toBe(0);
+	});
+
+	test("rejects pattern-matching messages longer than the truncation boundary", async () => {
+		const { memory, storedFacts } = createMockMemory();
+		const longThinkingOutLoud = `No need to ${"keep typing this whole long stream of consciousness ".repeat(6)}and a final clause`;
+		expect(longThinkingOutLoud.length).toBeGreaterThan(200);
+		const data = makeTestSessionData({
+			userMessages: [longThinkingOutLoud],
+		});
+
+		const result = await consolidateSession(memory, data);
+
+		expect(result.factsExtracted).toBe(0);
+		expect(storedFacts.length).toBe(0);
+	});
+
+	test("dedupes identical messages within the same session", async () => {
+		const { memory, storedFacts } = createMockMemory();
+		const data = makeTestSessionData({
+			userMessages: [
+				"I prefer PRs over direct pushes",
+				"I prefer PRs over direct pushes",
+				"  I prefer PRs over direct pushes  ",
+			],
+		});
+
+		const result = await consolidateSession(memory, data);
+
+		expect(result.factsExtracted).toBe(1);
+		expect(storedFacts.length).toBe(1);
+	});
+
 	test("episode detail includes tools and files", async () => {
 		const { memory, storedEpisodes } = createMockMemory();
 		const data = makeTestSessionData({
