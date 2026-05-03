@@ -98,6 +98,21 @@ function calculateImportance(data: SessionData): number {
 	return Math.min(importance, 1.0);
 }
 
+// Gate thresholds for the heuristic extractor. The LLM consolidation judge
+// removed in Phase 3 used to do topic and structure analysis; until that path
+// returns, these guard against the most common false-positive shapes.
+const MIN_FACT_WORDS = 3;
+const MAX_FACT_CHARS = 200;
+
+function isExtractable(message: string): boolean {
+	const trimmed = message.trim();
+	if (trimmed.length === 0) return false;
+	if (trimmed.length > MAX_FACT_CHARS) return false;
+	if (trimmed.endsWith("?")) return false;
+	if (trimmed.split(/\s+/).length < MIN_FACT_WORDS) return false;
+	return true;
+}
+
 /**
  * HEURISTIC FALLBACK: heuristic fact extraction from user messages.
  * Looks for correction patterns, preferences, and explicit facts.
@@ -105,8 +120,15 @@ function calculateImportance(data: SessionData): number {
 function extractFactsFromSession(data: SessionData, episodeId: string): SemanticFact[] {
 	const facts: SemanticFact[] = [];
 	const now = new Date().toISOString();
+	const seen = new Set<string>();
 
 	for (const message of data.userMessages) {
+		if (!isExtractable(message)) continue;
+
+		const normalized = message.trim().toLowerCase();
+		if (seen.has(normalized)) continue;
+		seen.add(normalized);
+
 		const lower = message.toLowerCase();
 
 		if (matchesCorrectionPattern(lower)) {
