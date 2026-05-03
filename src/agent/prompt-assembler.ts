@@ -2,9 +2,11 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { PhantomConfig } from "../config/types.ts";
 import type { EvolvedConfig } from "../evolution/types.ts";
+import { getPhantomConfigMemoryRoot } from "../memory-files/paths.ts";
 import { buildPersonaSystemPromptOverlay } from "../persona/system-prompt.ts";
 import type { RoleTemplate } from "../roles/types.ts";
 import { buildAgentMemoryInstructions } from "./prompt-blocks/agent-memory-instructions.ts";
+import { buildConfigMemory } from "./prompt-blocks/config-memory.ts";
 import { buildDashboardAwarenessLines } from "./prompt-blocks/dashboard-awareness.ts";
 import { buildEvolvedSections } from "./prompt-blocks/evolved.ts";
 import { buildInstructions } from "./prompt-blocks/instructions.ts";
@@ -92,6 +94,12 @@ export function assemblePrompt(
 	const workingMemory = buildWorkingMemory(resolvedDataDir);
 	if (workingMemory) {
 		sections.push(workingMemory);
+	}
+
+	// 8.5. Config memory - phantom-config/memory/ files (agent-notes.md, corrections.md, etc.)
+	const configMemory = buildConfigMemory(getPhantomConfigMemoryRoot());
+	if (configMemory) {
+		sections.push(configMemory);
 	}
 
 	// 9. Memory context - what you remember (dynamic, changes per query)
