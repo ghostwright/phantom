@@ -15,6 +15,7 @@ const COLLECTION_SCHEMA = {
 const PAYLOAD_INDEXES: { field: string; type: "keyword" | "integer" | "float" }[] = [
 	{ field: "subject", type: "keyword" },
 	{ field: "predicate", type: "keyword" },
+	{ field: "object", type: "keyword" },
 	{ field: "category", type: "keyword" },
 	{ field: "confidence", type: "float" },
 	{ field: "valid_from", type: "integer" },
@@ -53,6 +54,16 @@ export class SemanticStore {
 
 		for (const existing of contradictions) {
 			await this.resolveContradiction(fact, existing);
+		}
+
+		// Check for exact duplicates (same subject + object, still valid)
+		const duplicate = await this.findExactDuplicate(fact);
+		if (duplicate) {
+			const mergedEpisodes = [...new Set([...duplicate.source_episode_ids, ...fact.source_episode_ids])];
+			await this.qdrant.updatePayload(this.collectionName, duplicate.id, {
+				source_episode_ids: mergedEpisodes,
+			});
+			return duplicate.id;
 		}
 
 		const factVec = await this.embedder.embed(fact.natural_language);
@@ -131,6 +142,23 @@ export class SemanticStore {
 				return existingObject !== newFact.object;
 			})
 			.map((r) => this.payloadToFact(r));
+	}
+
+	async findExactDuplicate(newFact: SemanticFact): Promise<SemanticFact | null> {
+		const { points } = await this.qdrant.scroll(this.collectionName, {
+			limit: 1,
+			filter: {
+				must: [
+					{ key: "subject", match: { value: newFact.subject } },
+					{ key: "object", match: { value: newFact.object } },
+					{ is_null: { key: "valid_until" } },
+				],
+			},
+			withPayload: true,
+		});
+
+		if (points.length === 0) return null;
+		return this.payloadToFact(points[0]);
 	}
 
 	async resolveContradiction(newFact: SemanticFact, existingFact: SemanticFact): Promise<void> {
