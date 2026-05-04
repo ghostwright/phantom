@@ -398,3 +398,59 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ## License
 
 Apache 2.0. Use it, modify it, deploy it, build on it. See [LICENSE](LICENSE).
+
+---
+
+## FAQ
+
+### General
+
+**What is Phantom?**
+Phantom gives AI agents their own persistent computer — a dedicated machine where they install software, remember context across sessions, and get better at your work over time. It is not a chatbot; it is a co-worker with its own workspace, email, and tools.
+
+**How is Phantom different from other AI agents?**
+Unlike disposable chat-based agents, Phantom runs on a persistent VM. It remembers what you told it last week, builds infrastructure without asking, creates its own tools, and registers MCP tools for future use. Each session builds on the previous one.
+
+**What license does Phantom use?**
+Phantom is licensed under Apache 2.0.
+
+### Installation & Setup
+
+**How do I install Phantom?**
+Phantom runs via Docker. Pull the image from `ghostwright/phantom` on Docker Hub and configure your LLM provider in the YAML config file. See the [Getting Started guide](https://ghostwright.dev/phantom) for step-by-step instructions.
+
+**What are the system requirements?**
+Phantom runs in Docker and needs a machine with at least 4GB RAM and 20GB disk space. For local models via Ollama, a GPU is recommended.
+
+**Can I run Phantom locally?**
+Yes. Phantom supports Ollama for running models locally on your own GPU with zero API cost.
+
+### LLM Providers
+
+**Which LLM providers are supported?**
+Phantom ships with support for 7 providers: Anthropic (default), Z.AI, OpenRouter (100+ models), Ollama (local), vLLM, and more. Configure through a single YAML block.
+
+**Which model is recommended?**
+Anthropic Claude Opus or Sonnet for best results. Z.AI's GLM-5.1 is roughly 15x cheaper than Claude Opus for comparable coding quality.
+
+### Features
+
+**What communication channels does Phantom support?**
+Out of the box: Slack, Telegram, Email, and Webhooks. Phantom can also extend itself — for example, it built Discord support on its own when asked.
+
+**What is the MCP server?**
+Phantom includes an MCP (Model Context Protocol) server that lets the agent register tools it builds, making them available for future sessions and other agents.
+
+**Can Phantom build its own tools?**
+Yes. Phantom identifies useful capabilities and builds entire stacks — from installing databases to creating REST APIs and dashboards — without being explicitly asked.
+
+### Troubleshooting
+
+**Phantom fails to start — what should I check?**
+Verify Docker is running, your LLM API key is correctly set in the YAML config, and you have sufficient disk space (20GB+). Check Docker logs with `docker logs phantom`.
+
+**My agent is not responding to messages.**
+Ensure the communication channel (Slack/Telegram/Email) tokens are correctly configured. For Slack, verify the bot token and app permissions. For Telegram, check the bot token is active.
+
+**How do I update Phantom?**
+Pull the latest Docker image: `docker pull ghostwright/phantom:latest` and restart your container. Your persistent data is stored in volumes and will be preserved.
