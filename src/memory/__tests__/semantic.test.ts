@@ -59,6 +59,16 @@ describe("SemanticStore", () => {
 				return Promise.resolve(new Response(JSON.stringify({ result: { points: [] } }), { status: 200 }));
 			}
 
+			// Exact duplicate scroll returns no match
+			if (urlStr.includes("/points/scroll")) {
+				return Promise.resolve(
+					new Response(
+						JSON.stringify({ result: { points: [], next_page_offset: null } }),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					),
+				);
+			}
+
 			if (urlStr.includes("/points") && init?.method === "PUT") {
 				upsertBody = JSON.parse(init.body as string);
 			}
@@ -242,6 +252,128 @@ describe("SemanticStore", () => {
 
 		// Same object value is not a contradiction
 		expect(contradictions.length).toBe(0);
+	});
+
+	test("store() skips upsert and merges episode IDs for exact duplicate", async () => {
+		const vec = make768dVector();
+		let upsertCalled = false;
+		let updatePayloadBody: Record<string, unknown> | null = null;
+
+		globalThis.fetch = mock((url: string | Request, init?: RequestInit) => {
+			const urlStr = typeof url === "string" ? url : url.url;
+
+			if (urlStr.includes("/api/embed")) {
+				return Promise.resolve(new Response(JSON.stringify({ embeddings: [vec] }), { status: 200 }));
+			}
+
+			// Contradiction search returns no results
+			if (urlStr.includes("/points/query")) {
+				return Promise.resolve(new Response(JSON.stringify({ result: { points: [] } }), { status: 200 }));
+			}
+
+			// Exact duplicate scroll returns an existing fact
+			if (urlStr.includes("/points/scroll")) {
+				return Promise.resolve(
+					new Response(
+						JSON.stringify({
+							result: {
+								points: [
+									{
+										id: "existing-fact-id",
+										payload: {
+											subject: "staging server",
+											predicate: "runs on",
+											object: "port 3001",
+											natural_language: "The staging server runs on port 3001",
+											source_episode_ids: ["ep-001"],
+											confidence: 0.9,
+											valid_from: Date.now(),
+											valid_until: null,
+											version: 1,
+											category: "domain_knowledge",
+											tags: ["infrastructure"],
+										},
+									},
+								],
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					),
+				);
+			}
+
+			// Track upsert calls (should NOT be called)
+			if (urlStr.includes("/points") && init?.method === "PUT") {
+				upsertCalled = true;
+			}
+
+			// Track updatePayload calls
+			if (urlStr.includes("/points/payload") && init?.method === "POST") {
+				updatePayloadBody = JSON.parse(init.body as string);
+			}
+
+			return Promise.resolve(new Response(JSON.stringify({ status: "ok" }), { status: 200 }));
+		}) as unknown as typeof fetch;
+
+		const qdrant = new QdrantClient(TEST_CONFIG);
+		const embedder = new EmbeddingClient(TEST_CONFIG);
+		const store = new SemanticStore(qdrant, embedder, TEST_CONFIG);
+
+		const fact = makeTestFact({ id: "new-fact-id", source_episode_ids: ["ep-002"] });
+		const id = await store.store(fact);
+
+		expect(id).toBe("existing-fact-id");
+		expect(upsertCalled).toBe(false);
+		expect(updatePayloadBody).not.toBeNull();
+		const payload = (updatePayloadBody as Record<string, unknown>).payload as Record<string, unknown>;
+		const mergedEpisodes = payload.source_episode_ids as string[];
+		expect(mergedEpisodes).toContain("ep-001");
+		expect(mergedEpisodes).toContain("ep-002");
+		expect(mergedEpisodes.length).toBe(2);
+	});
+
+	test("store() creates new point when subject matches but object differs", async () => {
+		const vec = make768dVector();
+		let upsertCalled = false;
+
+		globalThis.fetch = mock((url: string | Request, init?: RequestInit) => {
+			const urlStr = typeof url === "string" ? url : url.url;
+
+			if (urlStr.includes("/api/embed")) {
+				return Promise.resolve(new Response(JSON.stringify({ embeddings: [vec] }), { status: 200 }));
+			}
+
+			// Contradiction search returns no results
+			if (urlStr.includes("/points/query")) {
+				return Promise.resolve(new Response(JSON.stringify({ result: { points: [] } }), { status: 200 }));
+			}
+
+			// Exact duplicate scroll returns no match (different object)
+			if (urlStr.includes("/points/scroll")) {
+				return Promise.resolve(
+					new Response(
+						JSON.stringify({ result: { points: [], next_page_offset: null } }),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					),
+				);
+			}
+
+			if (urlStr.includes("/points") && init?.method === "PUT") {
+				upsertCalled = true;
+			}
+
+			return Promise.resolve(new Response(JSON.stringify({ status: "ok" }), { status: 200 }));
+		}) as unknown as typeof fetch;
+
+		const qdrant = new QdrantClient(TEST_CONFIG);
+		const embedder = new EmbeddingClient(TEST_CONFIG);
+		const store = new SemanticStore(qdrant, embedder, TEST_CONFIG);
+
+		const fact = makeTestFact({ id: "new-fact-id", object: "port 4000" });
+		const id = await store.store(fact);
+
+		expect(id).toBe("new-fact-id");
+		expect(upsertCalled).toBe(true);
 	});
 
 	test("resolveContradiction() invalidates old fact when new has higher confidence", async () => {
