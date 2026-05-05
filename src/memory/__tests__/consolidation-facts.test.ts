@@ -104,7 +104,7 @@ describe("extractFactsFromSession quality gates", () => {
 
 		await consolidateSession(memory, data);
 
-		expect(storedFacts.length).toBe(2);
+		expect(storedFacts.length).toBe(1);
 	});
 
 	test("accepts messages ending with exclamation mark", async () => {
@@ -239,6 +239,39 @@ describe("extractFactsFromSession quality gates", () => {
 
 		expect(storedFacts.length).toBe(2);
 		expect(storedFacts.every((f) => f.confidence === 0.4)).toBe(true);
+	});
+
+	test("message matching both correction and preference patterns produces exactly one fact", async () => {
+		const { memory, storedFacts } = createMockMemory();
+		const data = makeTestSessionData({
+			userMessages: ["Actually, I prefer using tabs over spaces."],
+		});
+
+		await consolidateSession(memory, data);
+
+		expect(storedFacts.length).toBe(1);
+	});
+
+	test("accepts messages ending with closing paren after punctuation", async () => {
+		const { memory, storedFacts } = createMockMemory();
+		const data = makeTestSessionData({
+			userMessages: ["I prefer this approach (it is faster)."],
+		});
+
+		await consolidateSession(memory, data);
+
+		expect(storedFacts.length).toBe(1);
+	});
+
+	test("accepts messages ending with closing quote after punctuation", async () => {
+		const { memory, storedFacts } = createMockMemory();
+		const data = makeTestSessionData({
+			userMessages: ['He said "I prefer using spaces."'],
+		});
+
+		await consolidateSession(memory, data);
+
+		expect(storedFacts.length).toBe(1);
 	});
 
 	test("issue #84 regression: short Slack fragments are rejected", async () => {

@@ -141,9 +141,7 @@ function extractFactsFromSession(data: SessionData, episodeId: string): Semantic
 				category: "user_preference",
 				tags: ["correction"],
 			});
-		}
-
-		if (matchesPreferencePattern(lower)) {
+		} else if (matchesPreferencePattern(lower)) {
 			seenNormalizedTexts.add(normalizedText);
 			facts.push({
 				id: crypto.randomUUID(),
@@ -178,8 +176,7 @@ function isTruncated(text: string): boolean {
 	if (trimmed.length === 0) {
 		return false;
 	}
-	const lastChar = trimmed[trimmed.length - 1];
-	const endsWithPunctuation = /[.!?;:]/.test(lastChar);
+	const endsWithPunctuation = /[.!?;:][)\]"'"']*$/.test(trimmed);
 	return !endsWithPunctuation;
 }
 
