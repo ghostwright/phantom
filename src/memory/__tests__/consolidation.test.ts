@@ -99,7 +99,7 @@ describe("consolidateSession", () => {
 	test("extracts correction facts from user messages", async () => {
 		const { memory, storedFacts } = createMockMemory();
 		const data = makeTestSessionData({
-			userMessages: ["Actually, the staging server is on port 3001 not 3000", "Deploy it now"],
+			userMessages: ["Actually, the staging server is on port 3001 not 3000.", "Deploy it now"],
 		});
 
 		const result = await consolidateSession(memory, data);
@@ -113,7 +113,7 @@ describe("consolidateSession", () => {
 	test("extracts preference facts from user messages", async () => {
 		const { memory, storedFacts } = createMockMemory();
 		const data = makeTestSessionData({
-			userMessages: ["I prefer PRs over direct pushes", "Please always use feature branches"],
+			userMessages: ["I prefer PRs over direct pushes.", "Please always use feature branches."],
 		});
 
 		const result = await consolidateSession(memory, data);
