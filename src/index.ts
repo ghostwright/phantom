@@ -10,11 +10,13 @@ import { EmailChannel } from "./channels/email.ts";
 import { emitFeedback, setFeedbackHandler } from "./channels/feedback.ts";
 import { formatToolActivity } from "./channels/progress-stream.ts";
 import { createProgressStream } from "./channels/progress-stream.ts";
+import { ChannelInteractionRegistry } from "./channels/interaction-adapter.ts";
 import { ChannelRouter } from "./channels/router.ts";
 import { setActionFollowUpHandler } from "./channels/slack-actions.ts";
 import { createSlackChannel, readSlackTransportFromEnv } from "./channels/slack-channel-factory.ts";
 import { SlackHttpChannel } from "./channels/slack-http-receiver.ts";
 import { setSlackHttpChannelProvider } from "./channels/slack-http-routes.ts";
+import { createSlackInteractionFactory } from "./channels/slack-interaction.ts";
 import { SlackMetrics } from "./channels/slack-metrics.ts";
 import type { SlackTransport } from "./channels/slack-transport.ts";
 import { createStatusReactionController } from "./channels/status-reactions.ts";
@@ -416,6 +418,12 @@ async function main(): Promise<void> {
 		router.register(slackChannel);
 		console.log(`[phantom] Slack channel registered (transport=${slackTransport})`);
 
+		// Phase 1: Register interaction adapters for channel-specific features
+		const interactionRegistry = new ChannelInteractionRegistry();
+		if (slackChannel) {
+			interactionRegistry.register(createSlackInteractionFactory(slackChannel));
+		}
+
 		// In an operator-managed deployment the agent posts a best-effort
 		// "ready" signal to the host metadata gateway so the operator's
 		// readiness RPC can unblock and the user-facing wizard advances
@@ -602,57 +610,19 @@ async function main(): Promise<void> {
 		existing.user.push(msg.text);
 		conversationMessages.set(convKey, existing);
 
-		const isSlack = msg.channelId === "slack" && slackChannel && msg.metadata;
+		// Phase 1: Build interaction adapters for this message
+		const interactions = interactionRegistry.buildFor(msg);
+
+		// Telegram: preserve existing typing indicator (not yet adapted)
 		const isTelegram = msg.channelId === "telegram" && telegramChannel && msg.metadata;
-		const slackChannelId = isSlack ? (msg.metadata?.slackChannel as string) : null;
-		const slackThreadTs = isSlack ? (msg.metadata?.slackThreadTs as string) : null;
-		const slackMessageTs = isSlack ? (msg.metadata?.slackMessageTs as string) : null;
 		const telegramChatId = isTelegram ? (msg.metadata?.telegramChatId as number) : null;
-
-		// Slack: set up status reactions on the user's message
-		let statusReactions: ReturnType<typeof createStatusReactionController> | null = null;
-		if (isSlack && slackChannel && slackChannelId && slackMessageTs) {
-			const sc = slackChannel;
-			const ch = slackChannelId;
-			const mts = slackMessageTs;
-			statusReactions = createStatusReactionController({
-				adapter: {
-					addReaction: (emoji) => sc.addReaction(ch, mts, emoji),
-					removeReaction: (emoji) => sc.removeReaction(ch, mts, emoji),
-				},
-				onError: (err) => {
-					const errMsg = err instanceof Error ? err.message : String(err);
-					console.warn(`[slack] Reaction error: ${errMsg}`);
-				},
-			});
-			statusReactions.setQueued();
-		}
-
-		// Slack: set up progress streaming in the thread
-		let progressStream: ReturnType<typeof createProgressStream> | null = null;
-		if (isSlack && slackChannel && slackChannelId && slackThreadTs) {
-			const sc = slackChannel;
-			const ch = slackChannelId;
-			const tts = slackThreadTs;
-			progressStream = createProgressStream({
-				adapter: {
-					postMessage: (_t) => sc.postThinking(ch, tts).then((ts) => ts ?? ""),
-					updateMessage: (msgId, updatedText) => sc.updateMessage(ch, msgId, updatedText),
-				},
-				onFinish: async (messageId, text) => {
-					await sc.updateWithFeedback(ch, messageId, text);
-				},
-				onError: (err) => {
-					const errMsg = err instanceof Error ? err.message : String(err);
-					console.warn(`[slack] Progress stream error: ${errMsg}`);
-				},
-			});
-			await progressStream.start();
-		}
-
-		// Telegram: start typing indicator
 		if (isTelegram && telegramChannel && telegramChatId) {
 			telegramChannel.startTyping(telegramChatId);
+		}
+
+		// Invoke adapter lifecycle hooks
+		for (const interaction of interactions) {
+			await interaction.onTurnStart();
 		}
 
 		const response = await runtime.handleMessage(msg.channelId, msg.conversationId, msg.text, (event: RuntimeEvent) => {
@@ -661,17 +631,12 @@ async function main(): Promise<void> {
 					console.log(`\n[phantom] Session: ${event.sessionId}`);
 					break;
 				case "thinking":
-					statusReactions?.setThinking();
-					break;
 				case "tool_use":
-					statusReactions?.setTool(event.tool);
-					if (progressStream) {
-						const summary = formatToolActivity(event.tool, event.input);
-						progressStream.addToolActivity(event.tool, summary);
-					}
-					break;
 				case "error":
-					statusReactions?.setError();
+					// Fan out runtime events to all adapters
+					for (const interaction of interactions) {
+						interaction.onRuntimeEvent(event);
+					}
 					break;
 			}
 		});
@@ -681,34 +646,37 @@ async function main(): Promise<void> {
 			existing.assistant.push(response.text);
 		}
 
-		// Finalize: set done reaction
-		if (response.text.startsWith("Error:")) {
-			await statusReactions?.setError();
-		} else {
-			await statusReactions?.setDone();
+		// Invoke adapter turn-end hooks
+		const isError = response.text.startsWith("Error:");
+		for (const interaction of interactions) {
+			await interaction.onTurnEnd({ text: response.text, isError });
 		}
 
-		// Telegram: stop typing, send response
+		// Telegram: stop typing indicator (not yet adapted)
 		if (isTelegram && telegramChannel && telegramChatId) {
 			telegramChannel.stopTyping(telegramChatId);
 		}
 
-		// Deliver the response
-		if (progressStream) {
-			// Slack: update the progress message with the final response + feedback buttons
-			await progressStream.finish(response.text);
-		} else if (isSlack && slackChannel && slackChannelId && slackThreadTs) {
-			// Slack fallback: send direct reply with feedback
-			const thinkingTs = await slackChannel.postThinking(slackChannelId, slackThreadTs);
-			if (thinkingTs) {
-				await slackChannel.updateWithFeedback(slackChannelId, thinkingTs, response.text);
+		// Deliver response: first adapter claiming delivery wins, otherwise router.send fallback
+		let delivered = false;
+		for (const interaction of interactions) {
+			const claimed = await interaction.deliverResponse({ text: response.text, isError });
+			if (claimed) {
+				delivered = true;
+				break;
 			}
-		} else {
-			// All other channels: send via router
+		}
+
+		if (!delivered) {
 			await router.send(msg.channelId, msg.conversationId, {
 				text: response.text,
 				threadId: msg.threadId,
 			});
+		}
+
+		// Cleanup: dispose all adapters
+		for (const interaction of interactions) {
+			interaction.dispose();
 		}
 
 		if (response.cost.totalUsd > 0) {
