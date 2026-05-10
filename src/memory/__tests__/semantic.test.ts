@@ -272,4 +272,147 @@ describe("SemanticStore", () => {
 		expect(payload.valid_until).toBeDefined();
 		expect(typeof payload.valid_until).toBe("number");
 	});
+
+	test("store() returns existing id and skips upsert when an exact duplicate is already stored", async () => {
+		const vec = make768dVector();
+		let upsertCalled = false;
+		let scrollFilter: Record<string, unknown> | null = null;
+
+		globalThis.fetch = mock((url: string | Request, init?: RequestInit) => {
+			const urlStr = typeof url === "string" ? url : url.url;
+
+			if (urlStr.includes("/api/embed")) {
+				return Promise.resolve(new Response(JSON.stringify({ embeddings: [vec] }), { status: 200 }));
+			}
+
+			if (urlStr.includes("/points/scroll")) {
+				if (init?.body) {
+					const body = JSON.parse(init.body as string) as Record<string, unknown>;
+					scrollFilter = body.filter as Record<string, unknown>;
+				}
+				return Promise.resolve(
+					new Response(
+						JSON.stringify({
+							result: {
+								points: [
+									{
+										id: "fact-existing",
+										payload: {
+											subject: "staging server",
+											predicate: "runs on",
+											object: "port 3001",
+											natural_language: "The staging server runs on port 3001",
+											valid_from: Date.now(),
+											valid_until: null,
+											confidence: 0.9,
+											category: "domain_knowledge",
+											version: 1,
+										},
+									},
+								],
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					),
+				);
+			}
+
+			if (urlStr.includes("/points?") && init?.method === "PUT") {
+				upsertCalled = true;
+			}
+
+			return Promise.resolve(new Response(JSON.stringify({ status: "ok" }), { status: 200 }));
+		}) as unknown as typeof fetch;
+
+		const qdrant = new QdrantClient(TEST_CONFIG);
+		const embedder = new EmbeddingClient(TEST_CONFIG);
+		const store = new SemanticStore(qdrant, embedder, TEST_CONFIG);
+
+		const fact = makeTestFact({ id: "fact-fresh-uuid" });
+		const id = await store.store(fact);
+
+		expect(id).toBe("fact-existing");
+		expect(upsertCalled).toBe(false);
+		expect(scrollFilter).not.toBeNull();
+		const must = (scrollFilter as unknown as { must?: Array<Record<string, unknown>> })?.must ?? [];
+		const matchKeys = must
+			.filter((c) => "match" in c)
+			.map((c) => (c as { key: string }).key)
+			.sort();
+		expect(matchKeys).toEqual(["object", "predicate", "subject"]);
+	});
+
+	test("store() proceeds with upsert when scroll returns no duplicate", async () => {
+		const vec = make768dVector();
+		let upsertCalled = false;
+
+		globalThis.fetch = mock((url: string | Request, init?: RequestInit) => {
+			const urlStr = typeof url === "string" ? url : url.url;
+
+			if (urlStr.includes("/api/embed")) {
+				return Promise.resolve(new Response(JSON.stringify({ embeddings: [vec] }), { status: 200 }));
+			}
+
+			if (urlStr.includes("/points/scroll")) {
+				return Promise.resolve(new Response(JSON.stringify({ result: { points: [] } }), { status: 200 }));
+			}
+
+			if (urlStr.includes("/points/query")) {
+				return Promise.resolve(new Response(JSON.stringify({ result: { points: [] } }), { status: 200 }));
+			}
+
+			if (urlStr.includes("/points?") && init?.method === "PUT") {
+				upsertCalled = true;
+			}
+
+			return Promise.resolve(new Response(JSON.stringify({ status: "ok" }), { status: 200 }));
+		}) as unknown as typeof fetch;
+
+		const qdrant = new QdrantClient(TEST_CONFIG);
+		const embedder = new EmbeddingClient(TEST_CONFIG);
+		const store = new SemanticStore(qdrant, embedder, TEST_CONFIG);
+
+		const fact = makeTestFact({ id: "fact-fresh-uuid" });
+		const id = await store.store(fact);
+
+		expect(id).toBe("fact-fresh-uuid");
+		expect(upsertCalled).toBe(true);
+	});
+
+	test("findExactDuplicate() filters scroll on subject + predicate + object and excludes invalidated facts", async () => {
+		let scrollFilter: Record<string, unknown> | null = null;
+
+		globalThis.fetch = mock((url: string | Request, init?: RequestInit) => {
+			const urlStr = typeof url === "string" ? url : url.url;
+
+			if (urlStr.includes("/points/scroll")) {
+				if (init?.body) {
+					const body = JSON.parse(init.body as string) as Record<string, unknown>;
+					scrollFilter = body.filter as Record<string, unknown>;
+				}
+				return Promise.resolve(new Response(JSON.stringify({ result: { points: [] } }), { status: 200 }));
+			}
+
+			return Promise.resolve(new Response(JSON.stringify({ status: "ok" }), { status: 200 }));
+		}) as unknown as typeof fetch;
+
+		const qdrant = new QdrantClient(TEST_CONFIG);
+		const embedder = new EmbeddingClient(TEST_CONFIG);
+		const store = new SemanticStore(qdrant, embedder, TEST_CONFIG);
+
+		const result = await store.findExactDuplicate(makeTestFact());
+
+		expect(result).toBeNull();
+		expect(scrollFilter).not.toBeNull();
+		const must = (scrollFilter as unknown as { must?: Array<Record<string, unknown>> })?.must ?? [];
+		const subjectClause = must.find((c) => (c as { key?: string }).key === "subject");
+		const predicateClause = must.find((c) => (c as { key?: string }).key === "predicate");
+		const objectClause = must.find((c) => (c as { key?: string }).key === "object");
+		const validClause = must.find((c) => "is_null" in c);
+
+		expect(subjectClause).toMatchObject({ match: { value: "staging server" } });
+		expect(predicateClause).toMatchObject({ match: { value: "runs on" } });
+		expect(objectClause).toMatchObject({ match: { value: "port 3001" } });
+		expect(validClause).toMatchObject({ is_null: { key: "valid_until" } });
+	});
 });

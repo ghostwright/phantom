@@ -48,6 +48,15 @@ export class SemanticStore {
 	}
 
 	async store(fact: SemanticFact): Promise<string> {
+		// If a currently-valid fact with the same subject + predicate + object already exists,
+		// return its id without inserting a duplicate row. Repeated extractions of the same user
+		// message would otherwise accumulate as separate points (each with a fresh randomUUID),
+		// since findContradictions intentionally ignores same-object matches.
+		const duplicate = await this.findExactDuplicate(fact);
+		if (duplicate) {
+			return duplicate.id;
+		}
+
 		// Check for contradictions before storing
 		const contradictions = await this.findContradictions(fact);
 
@@ -106,6 +115,28 @@ export class SemanticStore {
 
 		const minScore = options?.minScore ?? 0;
 		return results.filter((r) => r.score >= minScore).map((r) => this.payloadToFact(r));
+	}
+
+	/**
+	 * Look up a currently-valid fact that already encodes the same (subject, predicate, object)
+	 * triple. Returns the existing fact when one is present so callers can avoid inserting a
+	 * second row, and `null` otherwise.
+	 */
+	async findExactDuplicate(fact: SemanticFact): Promise<SemanticFact | null> {
+		const { points } = await this.qdrant.scroll(this.collectionName, {
+			limit: 1,
+			filter: {
+				must: [
+					{ key: "subject", match: { value: fact.subject } },
+					{ key: "predicate", match: { value: fact.predicate } },
+					{ key: "object", match: { value: fact.object } },
+					{ is_null: { key: "valid_until" } },
+				],
+			},
+			withPayload: true,
+		});
+		if (points.length === 0) return null;
+		return this.payloadToFact(points[0]);
 	}
 
 	async findContradictions(newFact: SemanticFact): Promise<SemanticFact[]> {
