@@ -444,6 +444,97 @@ describe("Scheduler", () => {
 		expect(row.enabled).toBe(0);
 	});
 
+	test("updateJob changes task in place and preserves run history", async () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "TaskEditable",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Original task text",
+		});
+		// Run once so run_count and last_run_at are populated. The point of
+		// the update path is that this history survives a task edit.
+		await scheduler.runJobNow(job.id);
+		const before = scheduler.getJob(job.id);
+		expect(before?.runCount).toBe(1);
+		expect(before?.lastRunAt).toBeTruthy();
+
+		const updated = scheduler.updateJob(job.id, { task: "New task text" });
+		expect(updated?.task).toBe("New task text");
+		expect(updated?.runCount).toBe(1);
+		expect(updated?.lastRunAt).toBe(before?.lastRunAt ?? null);
+		expect(updated?.id).toBe(job.id);
+	});
+
+	test("updateJob recomputes next_run_at when schedule changes", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "ScheduleEditable",
+			schedule: { kind: "every", intervalMs: 24 * 60 * 60 * 1000 },
+			task: "Daily",
+		});
+		const originalNext = job.nextRunAt ? new Date(job.nextRunAt).getTime() : 0;
+
+		const updated = scheduler.updateJob(job.id, {
+			schedule: { kind: "every", intervalMs: 60_000 },
+		});
+		expect(updated?.schedule).toEqual({ kind: "every", intervalMs: 60_000 });
+		const newNext = updated?.nextRunAt ? new Date(updated.nextRunAt).getTime() : 0;
+		expect(newNext).toBeLessThan(originalNext);
+		expect(newNext).toBeGreaterThan(Date.now() - 5_000);
+		expect(newNext).toBeLessThan(Date.now() + 120_000);
+	});
+
+	test("updateJob can flip enabled to false and back to true", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "EnabledToggle",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Toggle me",
+		});
+		expect(job.enabled).toBe(true);
+
+		const disabled = scheduler.updateJob(job.id, { enabled: false });
+		expect(disabled?.enabled).toBe(false);
+
+		const enabled = scheduler.updateJob(job.id, { enabled: true });
+		expect(enabled?.enabled).toBe(true);
+	});
+
+	test("updateJob can change delivery target", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "DeliveryEditable",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Deliver",
+		});
+		expect(job.delivery).toEqual({ channel: "slack", target: "owner" });
+
+		const updated = scheduler.updateJob(job.id, {
+			delivery: { channel: "slack", target: "C04ABC123" },
+		});
+		expect(updated?.delivery).toEqual({ channel: "slack", target: "C04ABC123" });
+	});
+
+	test("updateJob rejects an invalid slack target", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "BadTargetReject",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Try bad target",
+		});
+		expect(() =>
+			scheduler.updateJob(job.id, {
+				delivery: { channel: "slack", target: "#general" },
+			}),
+		).toThrow(/invalid delivery.target/);
+	});
+
+	test("updateJob returns null for unknown id", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const result = scheduler.updateJob("does-not-exist", { task: "anything" });
+		expect(result).toBeNull();
+	});
+
 	test("paused job is excluded from the armTimer MIN query", async () => {
 		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
 		await scheduler.start();

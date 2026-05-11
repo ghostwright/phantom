@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { runMigrations } from "../../db/migrate.ts";
 import { Scheduler } from "../service.ts";
+import { JobUpdateInputSchema } from "../tool-schema.ts";
 import { createSchedulerToolServer } from "../tool.ts";
 
 function createMockRuntime() {
@@ -105,5 +106,29 @@ describe("createSchedulerToolServer", () => {
 		const mcpServers = { "phantom-scheduler": server };
 		expect(mcpServers["phantom-scheduler"].type).toBe("sdk");
 		expect(mcpServers["phantom-scheduler"].name).toBe("phantom-scheduler");
+	});
+
+	test("update action via scheduler edits a job by name", () => {
+		const job = scheduler.createJob({
+			name: "Editable",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Original",
+		});
+		const targetId = scheduler.findJobIdByName("Editable");
+		expect(targetId).toBe(job.id);
+
+		const updated = scheduler.updateJob(targetId as string, { task: "Edited" });
+		expect(updated?.task).toBe("Edited");
+		expect(updated?.id).toBe(job.id);
+	});
+
+	test("JobUpdateInputSchema rejects an empty partial", () => {
+		const result = JobUpdateInputSchema.safeParse({});
+		expect(result.success).toBe(false);
+	});
+
+	test("JobUpdateInputSchema accepts a single-field partial", () => {
+		const result = JobUpdateInputSchema.safeParse({ task: "Just the task" });
+		expect(result.success).toBe(true);
 	});
 });
