@@ -109,6 +109,108 @@ describe("createDangerousCommandBlocker", () => {
 		expect(result).toHaveProperty("decision", "block");
 	});
 
+	test("blocks git push -f (short force flag)", async () => {
+		const hook = createDangerousCommandBlocker();
+		const callback = hook.hooks[0];
+
+		const result = await callback(
+			makeHookInput({
+				hook_event_name: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: { command: "git push -f origin main" },
+			}),
+			undefined,
+			{ signal: new AbortController().signal },
+		);
+
+		expect(result).toHaveProperty("decision", "block");
+	});
+
+	test("blocks git push with +refspec force prefix", async () => {
+		const hook = createDangerousCommandBlocker();
+		const callback = hook.hooks[0];
+
+		const result = await callback(
+			makeHookInput({
+				hook_event_name: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: { command: "git push origin +main:main" },
+			}),
+			undefined,
+			{ signal: new AbortController().signal },
+		);
+
+		expect(result).toHaveProperty("decision", "block");
+	});
+
+	test("blocks git push with quoted +refspec", async () => {
+		const hook = createDangerousCommandBlocker();
+		const callback = hook.hooks[0];
+
+		const result = await callback(
+			makeHookInput({
+				hook_event_name: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: { command: 'git push origin "+HEAD:refs/heads/main"' },
+			}),
+			undefined,
+			{ signal: new AbortController().signal },
+		);
+
+		expect(result).toHaveProperty("decision", "block");
+	});
+
+	test("blocks git push --force-with-lease", async () => {
+		const hook = createDangerousCommandBlocker();
+		const callback = hook.hooks[0];
+
+		const result = await callback(
+			makeHookInput({
+				hook_event_name: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: { command: "git push --force-with-lease origin main" },
+			}),
+			undefined,
+			{ signal: new AbortController().signal },
+		);
+
+		expect(result).toHaveProperty("decision", "block");
+	});
+
+	test("allows + inside a token (not a force refspec)", async () => {
+		const hook = createDangerousCommandBlocker();
+		const callback = hook.hooks[0];
+
+		const result = await callback(
+			makeHookInput({
+				hook_event_name: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: { command: "git push origin tag+sign:main" },
+			}),
+			undefined,
+			{ signal: new AbortController().signal },
+		);
+
+		expect(result).toEqual({ continue: true });
+	});
+
+	test("allows -f outside a git push context", async () => {
+		const hook = createDangerousCommandBlocker();
+		const callback = hook.hooks[0];
+
+		const result = await callback(
+			makeHookInput({
+				hook_event_name: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: { command: "ls -f /tmp" },
+			}),
+			undefined,
+			{ signal: new AbortController().signal },
+		);
+
+		expect(result).toEqual({ continue: true });
+	});
+
 	test("blocks docker system prune", async () => {
 		const hook = createDangerousCommandBlocker();
 		const callback = hook.hooks[0];
