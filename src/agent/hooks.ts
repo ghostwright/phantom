@@ -14,6 +14,8 @@ const DANGEROUS_COMMANDS: { pattern: RegExp; label: string }[] = [
 	{ pattern: /docker\s+volume\s+prune/, label: "docker volume prune" },
 	{ pattern: /docker\s+system\s+prune/, label: "docker system prune" },
 	{ pattern: /git\s+push\s+.*--force/, label: "git push --force" },
+	{ pattern: /git\s+push\s+(?:\S+\s+)*-f(?=\s|$)/, label: "git push -f" },
+	{ pattern: /git\s+push\s+.*\s["']?\+\S+/, label: "git push +refspec" },
 	{ pattern: /git\s+reset\s+--hard/, label: "git reset --hard" },
 	{ pattern: /rm\s+-rf\s+\/(\s|$)/, label: "rm -rf /" },
 	{ pattern: /rm\s+-rf\s+\/home(\s|$)/, label: "rm -rf /home" },
