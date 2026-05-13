@@ -388,6 +388,9 @@ async function main(): Promise<void> {
 		},
 	});
 
+	// Phase 1: Register interaction adapters for channel-specific features
+	const interactionRegistry = new ChannelInteractionRegistry();
+
 	if (slackChannel) {
 		slackChannel.setPhantomName(config.name);
 
@@ -418,11 +421,8 @@ async function main(): Promise<void> {
 		router.register(slackChannel);
 		console.log(`[phantom] Slack channel registered (transport=${slackTransport})`);
 
-		// Phase 1: Register interaction adapters for channel-specific features
-		const interactionRegistry = new ChannelInteractionRegistry();
-		if (slackChannel) {
-			interactionRegistry.register(createSlackInteractionFactory(slackChannel));
-		}
+		// Register Slack interaction adapter
+		interactionRegistry.register(createSlackInteractionFactory(slackChannel));
 
 		// In an operator-managed deployment the agent posts a best-effort
 		// "ready" signal to the host metadata gateway so the operator's
