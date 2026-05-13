@@ -101,6 +101,15 @@ export function createSlackInteractionFactory(slackChannel: SlackChannel | null)
 				}
 			},
 
+			async onTurnEnd({ text }): Promise<void> {
+				// Finalize the user-message reaction with done/error state
+				if (text.startsWith("Error:")) {
+					statusReactions?.setError();
+				} else {
+					statusReactions?.setDone();
+				}
+			},
+
 			async deliverResponse({ text }): Promise<boolean> {
 				if (progressStream) {
 					// Slack happy path: update the progress message with the final

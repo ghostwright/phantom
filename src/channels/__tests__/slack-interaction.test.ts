@@ -205,4 +205,83 @@ describe("createSlackInteractionFactory", () => {
 		// dispose should not throw
 		expect(() => instance?.dispose?.()).not.toThrow();
 	});
+
+	describe("onTurnEnd", () => {
+		test("sets done reaction for successful responses", async () => {
+			const { channel, calls } = makeMockSlackChannel();
+			const factory = createSlackInteractionFactory(channel);
+
+			const instance = factory(makeSlackMessage());
+			await instance?.onTurnEnd?.({ text: "Here is your answer", isError: false });
+			await new Promise((r) => setTimeout(r, 50));
+
+			// Should have white_check_mark reaction for success
+			expect(calls.addReaction.some((c) => c.emoji === "white_check_mark")).toBe(
+				true,
+			);
+		});
+
+		test("sets error reaction for error responses", async () => {
+			const { channel, calls } = makeMockSlackChannel();
+			const factory = createSlackInteractionFactory(channel);
+
+			const instance = factory(makeSlackMessage());
+			await instance?.onTurnEnd?.({ text: "Error: Something went wrong", isError: true });
+			await new Promise((r) => setTimeout(r, 50));
+
+			// Should have warning reaction for errors
+			expect(calls.addReaction.some((c) => c.emoji === "warning")).toBe(true);
+		});
+
+		test("sets error reaction when text starts with Error: prefix", async () => {
+			const { channel, calls } = makeMockSlackChannel();
+			const factory = createSlackInteractionFactory(channel);
+
+			const instance = factory(makeSlackMessage());
+			await instance?.onTurnEnd?.({ text: "Error: API rate limit exceeded", isError: false });
+			await new Promise((r) => setTimeout(r, 50));
+
+			// Should detect Error: prefix and set error reaction
+			expect(calls.addReaction.some((c) => c.emoji === "warning")).toBe(true);
+		});
+
+		test("sets final reaction after intermediate states", async () => {
+			const { channel, calls } = makeMockSlackChannel();
+			const factory = createSlackInteractionFactory(channel);
+
+			const instance = factory(makeSlackMessage());
+
+			// First set a thinking reaction
+			instance?.onRuntimeEvent?.({ type: "thinking" });
+			await new Promise((r) => setTimeout(r, 50));
+
+			const thinkingCalls = calls.addReaction.length;
+
+			// Then finalize with successful response
+			await instance?.onTurnEnd?.({ text: "Success", isError: false });
+			await new Promise((r) => setTimeout(r, 50));
+
+			// Should have added more reactions (thinking + done)
+			expect(calls.addReaction.length).toBeGreaterThan(thinkingCalls);
+			// Final reaction should be the done state
+			expect(calls.addReaction.some((c) => c.emoji === "white_check_mark")).toBe(
+				true,
+			);
+		});
+
+		test("handles missing statusReactions gracefully", async () => {
+			const { channel, calls } = makeMockSlackChannel();
+			const factory = createSlackInteractionFactory(channel);
+
+			// Create a message without slackMessageTs, so no statusReactions controller
+			const msgWithoutReaction = makeSlackMessage({ slackMessageTs: undefined });
+			const instance = factory(msgWithoutReaction);
+			expect(instance?.statusReactions).toBeUndefined();
+
+			// Should not throw when onTurnEnd is called with undefined statusReactions
+			instance?.onTurnEnd?.({ text: "Test", isError: false });
+			// The function completes without error even though statusReactions is undefined
+			expect(calls.addReaction.length).toBe(0); // No reactions added
+		});
+	});
 });
