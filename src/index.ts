@@ -758,9 +758,6 @@ async function main(): Promise<void> {
 					console.warn(`[evolution] Post-session evolution failed: ${errMsg}`);
 				});
 		}
-
-		// Clean up
-		statusReactions?.dispose();
 	});
 
 	const server = startServer(config, startedAt);
