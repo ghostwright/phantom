@@ -8,8 +8,6 @@ import type { RuntimeEvent } from "./agent/runtime.ts";
 import { CliChannel } from "./channels/cli.ts";
 import { EmailChannel } from "./channels/email.ts";
 import { emitFeedback, setFeedbackHandler } from "./channels/feedback.ts";
-import { formatToolActivity } from "./channels/progress-stream.ts";
-import { createProgressStream } from "./channels/progress-stream.ts";
 import { ChannelInteractionRegistry } from "./channels/interaction-adapter.ts";
 import { ChannelRouter } from "./channels/router.ts";
 import { setActionFollowUpHandler } from "./channels/slack-actions.ts";
@@ -19,7 +17,6 @@ import { setSlackHttpChannelProvider } from "./channels/slack-http-routes.ts";
 import { createSlackInteractionFactory } from "./channels/slack-interaction.ts";
 import { SlackMetrics } from "./channels/slack-metrics.ts";
 import type { SlackTransport } from "./channels/slack-transport.ts";
-import { createStatusReactionController } from "./channels/status-reactions.ts";
 import { TelegramChannel } from "./channels/telegram.ts";
 import { WebhookChannel } from "./channels/webhook.ts";
 import { DEFAULT_METADATA_BASE_URL } from "./config/identity-fetcher.ts";
@@ -620,74 +617,91 @@ async function main(): Promise<void> {
 			telegramChannel.startTyping(telegramChatId);
 		}
 
-		// Invoke adapter lifecycle hooks
-		for (const interaction of interactions) {
-			await interaction.onTurnStart();
-		}
+		try {
+			// Invoke adapter lifecycle hooks
+			for (const interaction of interactions) {
+				if (!interaction.onTurnStart) continue;
+				try {
+					await interaction.onTurnStart();
+				} catch (err) {
+					const m = err instanceof Error ? err.message : String(err);
+					console.warn(`[orchestration] adapter onTurnStart threw: ${m}`);
+				}
+			}
 
-		const response = await runtime.handleMessage(msg.channelId, msg.conversationId, msg.text, (event: RuntimeEvent) => {
-			switch (event.type) {
-				case "init":
+			const response = await runtime.handleMessage(msg.channelId, msg.conversationId, msg.text, (event: RuntimeEvent) => {
+				if (event.type === "init") {
 					console.log(`\n[phantom] Session: ${event.sessionId}`);
-					break;
-				case "thinking":
-				case "tool_use":
-				case "error":
-					// Fan out runtime events to all adapters
-					for (const interaction of interactions) {
-						interaction.onRuntimeEvent(event);
-					}
-					break;
-			}
-		});
-
-		// Track assistant messages
-		if (response.text) {
-			existing.assistant.push(response.text);
-		}
-
-		// Invoke adapter turn-end hooks
-		const isError = response.text.startsWith("Error:");
-		for (const interaction of interactions) {
-			await interaction.onTurnEnd({ text: response.text, isError });
-		}
-
-		// Telegram: stop typing indicator (not yet adapted)
-		if (isTelegram && telegramChannel && telegramChatId) {
-			telegramChannel.stopTyping(telegramChatId);
-		}
-
-		// Deliver response: first adapter claiming delivery wins, otherwise router.send fallback
-		let delivered = false;
-		for (const interaction of interactions) {
-			const claimed = await interaction.deliverResponse({ text: response.text, isError });
-			if (claimed) {
-				delivered = true;
-				break;
-			}
-		}
-
-		if (!delivered) {
-			await router.send(msg.channelId, msg.conversationId, {
-				text: response.text,
-				threadId: msg.threadId,
+				}
+				// Fan out runtime events to all adapters
+				for (const interaction of interactions) {
+					interaction.onRuntimeEvent?.(event);
+				}
 			});
-		}
 
-		// Cleanup: dispose all adapters
-		for (const interaction of interactions) {
-			interaction.dispose();
-		}
+			// Track assistant messages
+			if (response.text) {
+				existing.assistant.push(response.text);
+			}
 
-		if (response.cost.totalUsd > 0) {
-			console.log(
-				`[phantom] Cost: $${response.cost.totalUsd.toFixed(4)} | ` +
-					`${response.cost.inputTokens} in / ${response.cost.outputTokens} out | ` +
-					`${(response.durationMs / 1000).toFixed(1)}s`,
-			);
-		}
+			// Invoke adapter turn-end hooks
+			const isError = response.text.startsWith("Error:");
+			for (const interaction of interactions) {
+				if (!interaction.onTurnEnd) continue;
+				try {
+					await interaction.onTurnEnd({ text: response.text, isError });
+				} catch (err) {
+					const m = err instanceof Error ? err.message : String(err);
+					console.warn(`[orchestration] adapter onTurnEnd threw: ${m}`);
+				}
+			}
 
-		const trackedFiles = runtime.getLastTrackedFiles();
+			// Deliver response: adapters may claim delivery, otherwise router.send fallback
+			let delivered = false;
+			for (const interaction of interactions) {
+				if (!interaction.deliverResponse) continue;
+				try {
+					const claimed = await interaction.deliverResponse({ text: response.text, isError });
+					if (claimed) delivered = true;
+				} catch (err) {
+					const m = err instanceof Error ? err.message : String(err);
+					console.warn(`[orchestration] adapter deliverResponse threw: ${m}`);
+				}
+			}
+
+			if (!delivered) {
+				await router.send(msg.channelId, msg.conversationId, {
+					text: response.text,
+					threadId: msg.threadId,
+				});
+			}
+
+			if (response.cost.totalUsd > 0) {
+				console.log(
+					`[phantom] Cost: $${response.cost.totalUsd.toFixed(4)} | ` +
+						`${response.cost.inputTokens} in / ${response.cost.outputTokens} out | ` +
+						`${(response.durationMs / 1000).toFixed(1)}s`,
+				);
+			}
+
+			const trackedFiles = runtime.getLastTrackedFiles();
+		} finally {
+			// Cleanup: Telegram stopTyping (idempotent) and adapter disposal
+			if (isTelegram && telegramChannel && telegramChatId) {
+				telegramChannel.stopTyping(telegramChatId);
+			}
+
+			// Dispose all adapters
+			for (const interaction of interactions) {
+				if (!interaction.dispose) continue;
+				try {
+					interaction.dispose();
+				} catch (err) {
+					const m = err instanceof Error ? err.message : String(err);
+					console.warn(`[orchestration] adapter dispose threw: ${m}`);
+				}
+			}
+		}
 
 		// Memory consolidation (non-blocking)
 		if (memory.isReady()) {

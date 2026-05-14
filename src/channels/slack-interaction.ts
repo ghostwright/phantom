@@ -12,7 +12,7 @@
  */
 
 import type { ChannelInteractionFactory, ChannelInteractionInstance } from "./interaction-adapter.ts";
-import type { SlackChannel } from "./slack.ts";
+import type { SlackTransport } from "./slack-transport.ts";
 import type { InboundMessage } from "./types.ts";
 import { createProgressStream, formatToolActivity, type ProgressStream } from "./progress-stream.ts";
 import { createStatusReactionController, type StatusReactionController } from "./status-reactions.ts";
@@ -24,7 +24,7 @@ import { createStatusReactionController, type StatusReactionController } from ".
  * Returns null for non-Slack messages or when the channel argument
  * is null (Slack not configured).
  */
-export function createSlackInteractionFactory(slackChannel: SlackChannel | null): ChannelInteractionFactory {
+export function createSlackInteractionFactory(slackChannel: SlackTransport | null): ChannelInteractionFactory {
 	return (msg: InboundMessage): ChannelInteractionInstance | null => {
 		if (!slackChannel || msg.channelId !== "slack" || !msg.metadata) return null;
 
