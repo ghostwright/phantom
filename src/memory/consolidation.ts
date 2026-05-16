@@ -105,8 +105,13 @@ function calculateImportance(data: SessionData): number {
 function extractFactsFromSession(data: SessionData, episodeId: string): SemanticFact[] {
 	const facts: SemanticFact[] = [];
 	const now = new Date().toISOString();
+	const seenKeys = new Set<string>();
 
 	for (const message of data.userMessages) {
+		const key = message.toLowerCase().trim();
+		if (seenKeys.has(key)) {
+			continue;
+		}
 		const lower = message.toLowerCase();
 
 		if (matchesCorrectionPattern(lower)) {
@@ -125,6 +130,8 @@ function extractFactsFromSession(data: SessionData, episodeId: string): Semantic
 				category: "user_preference",
 				tags: ["correction"],
 			});
+			seenKeys.add(key);
+			continue;
 		}
 
 		if (matchesPreferencePattern(lower)) {
@@ -143,6 +150,7 @@ function extractFactsFromSession(data: SessionData, episodeId: string): Semantic
 				category: "user_preference",
 				tags: ["preference"],
 			});
+			seenKeys.add(key);
 		}
 	}
 
