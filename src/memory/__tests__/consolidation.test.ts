@@ -135,6 +135,51 @@ describe("consolidateSession", () => {
 		expect(storedFacts.length).toBe(0);
 	});
 
+	test("duplicate identical user messages produce a single fact", async () => {
+		const { memory, storedFacts } = createMockMemory();
+		const data = makeTestSessionData({
+			userMessages: [
+				"Actually, the staging server is on port 3001 not 3000",
+				"Actually, the staging server is on port 3001 not 3000",
+				"Actually, the staging server is on port 3001 not 3000",
+			],
+		});
+
+		const result = await consolidateSession(memory, data);
+
+		expect(result.factsExtracted).toBe(1);
+		expect(storedFacts.length).toBe(1);
+	});
+
+	test("a message matching both correction and preference patterns produces a single fact", async () => {
+		const { memory, storedFacts } = createMockMemory();
+		const data = makeTestSessionData({
+			userMessages: ["No, make sure to use feature branches from now on"],
+		});
+
+		const result = await consolidateSession(memory, data);
+
+		expect(result.factsExtracted).toBe(1);
+		expect(storedFacts.length).toBe(1);
+		expect(storedFacts[0].tags).toContain("correction");
+	});
+
+	test("dedup is case- and whitespace-insensitive within a session", async () => {
+		const { memory, storedFacts } = createMockMemory();
+		const data = makeTestSessionData({
+			userMessages: [
+				"I prefer PRs over direct pushes",
+				"  I PREFER PRs over direct pushes  ",
+				"i prefer PRs over direct pushes",
+			],
+		});
+
+		const result = await consolidateSession(memory, data);
+
+		expect(result.factsExtracted).toBe(1);
+		expect(storedFacts.length).toBe(1);
+	});
+
 	test("episode detail includes tools and files", async () => {
 		const { memory, storedEpisodes } = createMockMemory();
 		const data = makeTestSessionData({
