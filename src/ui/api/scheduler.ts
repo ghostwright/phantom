@@ -56,6 +56,10 @@ const PreviewSchema = z.object({
 	schedule: ScheduleInputSchema,
 });
 
+const ResumeSchema = z.object({
+	force: z.boolean().optional(),
+});
+
 function json(body: unknown, init?: ResponseInit): Response {
 	return new Response(JSON.stringify(body), {
 		...init,
@@ -268,10 +272,31 @@ function handlePause(deps: SchedulerApiDeps, id: string): Response {
 	return json({ job: updated });
 }
 
-function handleResume(deps: SchedulerApiDeps, id: string): Response {
+async function handleResume(req: Request, deps: SchedulerApiDeps, id: string): Promise<Response> {
 	const before = deps.scheduler.getJob(id);
 	if (!before) return errJson("Job not found", 404);
-	const updated = deps.scheduler.resumeJob(id);
+
+	// Body is optional for the paused → active path (backward compat with
+	// existing clients that POST with no body). Parse only when one is given.
+	let force = false;
+	const raw = await req.text();
+	if (raw.trim().length > 0) {
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(raw);
+		} catch {
+			return errJson("Invalid JSON body", 400);
+		}
+		const result = ResumeSchema.safeParse(parsed);
+		if (!result.success) return errJson(zodErrorMessage(result.error), 400);
+		force = result.data.force === true;
+	}
+
+	if (before.status === "failed" && !force) {
+		return errJson("Job is in status 'failed'. Pass {\"force\": true} to revive after investigating the failure.", 409);
+	}
+
+	const updated = deps.scheduler.resumeJob(id, { force });
 	if (!updated) return errJson("Job not found", 404);
 	writeAudit(deps.db, {
 		jobId: updated.id,
@@ -357,7 +382,7 @@ export async function handleSchedulerApi(req: Request, url: URL, deps: Scheduler
 	const resumeMatch = pathname.match(/^\/ui\/api\/scheduler\/([^/]+)\/resume$/);
 	if (resumeMatch) {
 		if (req.method !== "POST") return errJson("Method not allowed", 405);
-		return handleResume(deps, resumeMatch[1]);
+		return handleResume(req, deps, resumeMatch[1]);
 	}
 
 	const runMatch = pathname.match(/^\/ui\/api\/scheduler\/([^/]+)\/run$/);

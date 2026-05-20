@@ -151,20 +151,30 @@ export class Scheduler {
 	}
 
 	/**
-	 * Flip a paused job back to active. Recomputes next_run_at from the stored
-	 * schedule so a job paused mid-interval resumes on a fresh cadence.
-	 * Resets consecutive_errors so a job paused in its backoff fan-out gets a
-	 * clean retry budget. Returns the updated job, or null if the id does not
-	 * exist.
+	 * Flip a paused or failed job back to active. Recomputes next_run_at from
+	 * the stored schedule so a job paused mid-interval resumes on a fresh
+	 * cadence. Resets consecutive_errors so a job paused in its backoff fan-out
+	 * gets a clean retry budget.
+	 *
+	 * Transition rules:
+	 *   paused → active: always allowed.
+	 *   failed → active: requires opts.force === true. Failures the executor
+	 *     marks terminal are usually transient (model-provider rate limits, a
+	 *     brief Slack outage), but the executor cannot tell transient from
+	 *     broken. force opts in the operator: they have judged the underlying
+	 *     cause cleared. Without force this stays a no-op so an accidental
+	 *     resume call cannot bypass the circuit-breaker.
+	 *   completed → active: never. A one-shot may have already deleted itself
+	 *     inline (executor.ts, delete_after_run path); re-activating after that
+	 *     point is a sharp edge.
+	 *
+	 * Returns the updated job, or null if the id does not exist.
 	 */
-	resumeJob(id: string): ScheduledJob | null {
+	resumeJob(id: string, opts?: { force?: boolean }): ScheduledJob | null {
 		const job = this.getJob(id);
 		if (!job) return null;
-		// Only paused jobs may be resumed. Failed and completed are terminal
-		// states; force-reviving them would bypass the lifecycle (e.g.,
-		// re-running a one-shot that already deleted itself, or restarting a
-		// circuit-broken job without addressing the failure).
-		if (job.status !== "paused") return job;
+		const allowed = job.status === "paused" || (job.status === "failed" && opts?.force === true);
+		if (!allowed) return job;
 		const nextRun = computeNextRunAt(job.schedule);
 		const nextRunIso = nextRun ? nextRun.toISOString() : null;
 		this.db.run(
@@ -173,7 +183,7 @@ export class Scheduler {
 					next_run_at = ?,
 					consecutive_errors = 0,
 					updated_at = datetime('now')
-				WHERE id = ? AND status = 'paused'`,
+				WHERE id = ? AND status IN ('paused', 'failed')`,
 			[nextRunIso, id],
 		);
 		this.armTimer();

@@ -410,7 +410,7 @@ describe("Scheduler", () => {
 		expect(resumed).toBeNull();
 	});
 
-	test("resumeJob is a no-op on a non-paused job (active, failed, completed)", () => {
+	test("resumeJob without force is a no-op on a non-paused job (active, failed, completed)", () => {
 		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
 		const job = scheduler.createJob({
 			name: "ActiveJob",
@@ -429,6 +429,58 @@ describe("Scheduler", () => {
 		db.run("UPDATE scheduled_jobs SET status = 'completed' WHERE id = ?", [job.id]);
 		const stillCompleted = scheduler.resumeJob(job.id);
 		expect(stillCompleted?.status).toBe("completed");
+	});
+
+	test("resumeJob({force:true}) revives a failed job and resets the error counter", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "CircuitBroken",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Retry me",
+		});
+		// Mirror the executor circuit-breaker terminal state: status=failed,
+		// next_run_at cleared, consecutive_errors at the cap.
+		db.run("UPDATE scheduled_jobs SET status = 'failed', next_run_at = NULL, consecutive_errors = 10 WHERE id = ?", [
+			job.id,
+		]);
+		const failed = scheduler.getJob(job.id);
+		expect(failed?.status).toBe("failed");
+		expect(failed?.consecutiveErrors).toBe(10);
+		expect(failed?.nextRunAt).toBeNull();
+
+		const revived = scheduler.resumeJob(job.id, { force: true });
+		expect(revived?.status).toBe("active");
+		expect(revived?.consecutiveErrors).toBe(0);
+		expect(revived?.nextRunAt).toBeTruthy();
+		const nextMs = revived?.nextRunAt ? new Date(revived.nextRunAt).getTime() : 0;
+		expect(nextMs).toBeGreaterThan(Date.now() - 5_000);
+		expect(nextMs).toBeLessThan(Date.now() + 120_000);
+	});
+
+	test("resumeJob({force:true}) still refuses to revive a completed job", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "DoneOnce",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Done",
+		});
+		db.run("UPDATE scheduled_jobs SET status = 'completed' WHERE id = ?", [job.id]);
+		const result = scheduler.resumeJob(job.id, { force: true });
+		expect(result?.status).toBe("completed");
+	});
+
+	test("resumeJob({force:true}) on a paused job behaves like the unforced path", () => {
+		const scheduler = new Scheduler({ db, runtime: mockRuntime as never });
+		const job = scheduler.createJob({
+			name: "PausedPlusForce",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "Go",
+		});
+		scheduler.pauseJob(job.id);
+		db.run("UPDATE scheduled_jobs SET consecutive_errors = 3 WHERE id = ?", [job.id]);
+		const resumed = scheduler.resumeJob(job.id, { force: true });
+		expect(resumed?.status).toBe("active");
+		expect(resumed?.consecutiveErrors).toBe(0);
 	});
 
 	test("createJob honors enabled=false by inserting an inactive row", () => {
