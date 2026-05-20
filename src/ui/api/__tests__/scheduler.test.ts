@@ -337,6 +337,63 @@ describe("scheduler API", () => {
 		expect(res.status).toBe(400);
 	});
 
+	test("POST /:id/resume on a failed job without force returns 409", async () => {
+		const job = scheduler.createJob({
+			name: "broken-circuit",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "fire",
+		});
+		db.run("UPDATE scheduled_jobs SET status = 'failed' WHERE id = ?", [job.id]);
+		const res = await handleUiRequest(req(`/ui/api/scheduler/${job.id}/resume`, { method: "POST" }));
+		expect(res.status).toBe(409);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toMatch(/force/i);
+		const stillFailed = scheduler.getJob(job.id);
+		expect(stillFailed?.status).toBe("failed");
+	});
+
+	test("POST /:id/resume on a failed job with {force:true} revives it", async () => {
+		const job = scheduler.createJob({
+			name: "rate-limited",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "fire",
+		});
+		db.run("UPDATE scheduled_jobs SET status = 'failed', next_run_at = NULL, consecutive_errors = 10 WHERE id = ?", [
+			job.id,
+		]);
+		const res = await handleUiRequest(
+			req(`/ui/api/scheduler/${job.id}/resume`, {
+				method: "POST",
+				body: JSON.stringify({ force: true }),
+			}),
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { job: { status: string; consecutiveErrors: number } };
+		expect(body.job.status).toBe("active");
+		expect(body.job.consecutiveErrors).toBe(0);
+		const audit = db
+			.query(
+				"SELECT action, previous_status, new_status FROM scheduler_audit_log WHERE job_id = ? ORDER BY id DESC LIMIT 1",
+			)
+			.get(job.id) as { action: string; previous_status: string; new_status: string };
+		expect(audit.action).toBe("resume");
+		expect(audit.previous_status).toBe("failed");
+		expect(audit.new_status).toBe("active");
+	});
+
+	test("POST /:id/resume tolerates an empty body for the paused → active path", async () => {
+		const job = scheduler.createJob({
+			name: "paused-no-body",
+			schedule: { kind: "every", intervalMs: 60_000 },
+			task: "fire",
+		});
+		scheduler.pauseJob(job.id);
+		const res = await handleUiRequest(req(`/ui/api/scheduler/${job.id}/resume`, { method: "POST" }));
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { job: { status: string } };
+		expect(body.job.status).toBe("active");
+	});
+
 	test("GET /:id/audit returns entries in descending order", async () => {
 		const job = scheduler.createJob({
 			name: "audited",
