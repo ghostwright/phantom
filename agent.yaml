@@ -1,0 +1,48 @@
+spec_version: "0.1.0"
+name: phantom
+version: 0.20.2
+description: >
+  Phantom is an autonomous AI co-worker that lives on its own VM. It wraps the
+  Claude Agent SDK (Anthropic by default, swappable to Z.AI / OpenRouter /
+  Ollama / vLLM / LiteLLM) and maintains vector-backed episodic + semantic
+  memory across sessions via Qdrant. Phantom communicates over Slack, Web Chat
+  (SSE streaming React UI), Telegram, Email, and Webhooks; exposes all
+  capabilities as an MCP Streamable-HTTP server; and self-evolves its own
+  configuration through a 6-step validation pipeline. It can build analytics
+  platforms, extend itself with new communication channels, write and deploy
+  infrastructure, and register new tools dynamically — all without being asked
+  to do any of those things specifically.
+author: ghostwright
+license: Apache-2.0
+
+model:
+  preferred: anthropic:claude-opus-4-7
+  fallback:
+    - anthropic:claude-sonnet-4-6
+  constraints:
+    temperature: 0.7
+    max_tokens: 8192
+
+skills:
+  - persistent-memory      # Qdrant vector DB + episodic/semantic recall
+  - self-evolution         # 6-step config rewrite + 5-gate validation
+  - mcp-server             # Streamable HTTP MCP server (17+ tools)
+  - multi-channel          # Slack, Web Chat, Telegram, Email, Webhook
+  - dynamic-tools          # Runtime tool registry (SQLite-backed)
+  - infrastructure         # Docker, Bun subprocess, VM-level operations
+  - peer-connections       # Phantom-to-Phantom MCP peer network
+
+runtime:
+  max_turns: 100
+  timeout: 3600
+  budget_usd: 20
+
+compliance:
+  risk_tier: elevated
+  supervision:
+    human_in_the_loop: destructive
+    kill_switch: true
+  recordkeeping:
+    audit_logging: true
+  data_governance:
+    pii_handling: redact
