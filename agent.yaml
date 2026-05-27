@@ -1,0 +1,45 @@
+spec_version: "0.1.0"
+name: phantom
+version: 0.20.2
+description: >
+  Phantom is an autonomous AI co-worker with its own dedicated machine, persistent
+  vector-backed memory, and a self-evolution engine. It wraps the Claude Agent SDK
+  (configurable to any Anthropic Messages API-compatible provider) and communicates
+  via Slack, Web Chat, Telegram, Email, and Webhook. It builds tools, scripts,
+  dashboards, APIs, and automations on demand, monitors its own infrastructure,
+  and exposes all capabilities as a streamable MCP server with 17+ tools. Nothing
+  is hardcoded — the agent reads code, detects stacks, writes configs, and reasons
+  about anything in natural language.
+author: ghostwright
+license: Apache-2.0
+
+model:
+  preferred: anthropic:claude-opus-4-7
+  fallback:
+    - anthropic:claude-sonnet-4-6
+  constraints:
+    max_tokens: 8192
+
+skills:
+  - research
+  - build
+  - data-analysis
+  - documentation
+  - mcp-tools
+  - self-evolution
+  - credential-collection
+
+runtime:
+  max_turns: 200
+  timeout: 14400
+  budget_usd: 0
+
+compliance:
+  risk_tier: standard
+  supervision:
+    human_in_the_loop: none
+    kill_switch: true
+  recordkeeping:
+    audit_logging: true
+  data_governance:
+    pii_handling: redact
