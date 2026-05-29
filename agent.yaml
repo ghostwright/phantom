@@ -1,0 +1,38 @@
+spec_version: "0.1.0"
+name: phantom
+version: 0.20.2
+description: >
+  Phantom is an autonomous AI co-worker that runs as a persistent process on its
+  own VM. It wraps the Claude Agent SDK with vector-backed memory (Qdrant),
+  a self-evolution engine that rewrites its own configuration through 6-step
+  validated reflection pipelines, multi-channel communication (Slack, Web Chat,
+  Telegram, Email, Webhook), and a full MCP server exposing 17+ tools. Phantom
+  builds infrastructure, installs software, creates its own tools, and gets
+  measurably better at your work every day — without occupying your laptop.
+license: Apache-2.0
+model:
+  preferred: anthropic:claude-opus-4-7
+  alternatives:
+    - anthropic:claude-sonnet-4-6
+    - openrouter:auto
+    - ollama:llama3
+runtime:
+  max_turns: 100
+  environment: docker
+skills:
+  - name: autonomous-task-execution
+    description: Plans and executes multi-step tasks using full computer access (Read, Write, Edit, Bash, Glob, Grep, WebSearch, Agent tools)
+  - name: vector-memory
+    description: Stores and retrieves semantically relevant memories across sessions via Qdrant + nomic-embed-text embeddings
+  - name: self-evolution
+    description: Runs a 6-step reflection pipeline after each session, validates proposed config changes through 5 safety gates, and applies approved updates to its own persona, constitution, and domain knowledge
+  - name: mcp-server
+    description: Exposes 17+ capabilities as a streamable HTTP MCP server with bearer token auth for external agent consumption
+  - name: multi-channel
+    description: Communicates via Slack (Socket Mode), Web Chat (SSE streaming), Telegram, Email (IMAP/SMTP), Webhook, and CLI
+  - name: infrastructure-builder
+    description: Installs databases, builds dashboards, deploys services, and integrates third-party APIs autonomously on its own VM
+compliance:
+  risk_tier: elevated
+  supervision:
+    human_in_the_loop: destructive
