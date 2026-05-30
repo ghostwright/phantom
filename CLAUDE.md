@@ -311,7 +311,7 @@ The agent's first action on every fresh tenant is `do_first_hour_of_work`, a sin
 
 **Factory pattern for MCP servers:** The SDK connects each MCP server instance to one transport and rejects reuse. In-process MCP servers must be recreated per query() call. The registries they wrap are singletons, but the MCP server wrapper is new each time.
 
-**Docker socket mount (not DinD):** Agent creates sibling containers via the host Docker daemon. Docker-in-Docker requires --privileged mode. This matches CI systems (GitHub Actions, Jenkins). The socket is root-equivalent access, which is acceptable because the agent already has full shell access.
+**Docker socket mount (not DinD):** Agent creates sibling containers via the host Docker daemon. Docker-in-Docker requires --privileged mode. This matches CI systems (GitHub Actions, Jenkins). The socket is root-equivalent access, which is acceptable because the agent already has full shell access. Sibling containers default to the `bridge` network and are unreachable from phantom; attach with `--network phantom_phantom-net` at launch (or `docker network connect phantom_phantom-net <container>` after the fact) — see [docs/getting-started.md](docs/getting-started.md#networking-for-sibling-containers).
 
 **Tailwind v4 Browser CDN:** No build step for agent-generated pages. The agent creates HTML files in public/ and they render immediately. Theme variable declarations go in `<style type="text/tailwindcss">`, custom CSS referencing those variables goes in a plain `<style>` block.
 

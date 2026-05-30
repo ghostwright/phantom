@@ -288,6 +288,29 @@ echo "DOCKER_GID=YOUR_GID_HERE" >> .env
 docker compose down && docker compose up -d
 ```
 
+### Networking for sibling containers
+
+The Phantom stack runs on a private Docker bridge network named `phantom_phantom-net`. A sibling container created with a plain `docker run` lands on the default `bridge` network instead, and the two bridges have no route between them — phantom cannot reach the new container even though both use the same Docker daemon.
+
+To make a sibling container reachable, attach it to `phantom_phantom-net` at launch:
+
+```bash
+docker run -d --name pg-repro \
+  --network phantom_phantom-net \
+  -e POSTGRES_PASSWORD=postgres postgres:16
+
+# From inside phantom, the container is reachable by name:
+pg_isready -h pg-repro -p 5432
+```
+
+For an already-running container on the default bridge, connect it after the fact:
+
+```bash
+docker network connect phantom_phantom-net <container>
+```
+
+On `phantom_phantom-net`, container names resolve via Docker's embedded DNS, so addressing by `<container-name>:<port>` works without an IP lookup. If a sibling needs to bind a port for the host instead (e.g. for browser access from outside the VM), leave it on `bridge` and use `-p` port mapping; expect to lose reachability from phantom in that mode.
+
 ### Optional: HTTPS with a domain
 
 If you want Phantom accessible on a public domain (e.g., `phantom.yourdomain.com`):
