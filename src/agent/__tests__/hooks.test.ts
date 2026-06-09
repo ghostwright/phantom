@@ -109,6 +109,59 @@ describe("createDangerousCommandBlocker", () => {
 		expect(result).toHaveProperty("decision", "block");
 	});
 
+	test("blocks git push -f short flag", async () => {
+		const hook = createDangerousCommandBlocker();
+		const callback = hook.hooks[0];
+
+		const result = await callback(
+			makeHookInput({
+				hook_event_name: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: { command: "git push -f origin main" },
+			}),
+			undefined,
+			{ signal: new AbortController().signal },
+		);
+
+		expect(result).toHaveProperty("decision", "block");
+	});
+
+	test("blocks git push with +refspec prefix", async () => {
+		const hook = createDangerousCommandBlocker();
+		const callback = hook.hooks[0];
+
+		const result = await callback(
+			makeHookInput({
+				hook_event_name: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: { command: "git push origin +main:main" },
+			}),
+			undefined,
+			{ signal: new AbortController().signal },
+		);
+
+		expect(result).toHaveProperty("decision", "block");
+	});
+
+	test("blocks git push with quoted +refspec prefix", async () => {
+		const hook = createDangerousCommandBlocker();
+		const callback = hook.hooks[0];
+
+		const result = await callback(
+			makeHookInput({
+				hook_event_name: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: {
+					command: 'git push origin "+HEAD:refs/heads/main"',
+				},
+			}),
+			undefined,
+			{ signal: new AbortController().signal },
+		);
+
+		expect(result).toHaveProperty("decision", "block");
+	});
+
 	test("blocks docker system prune", async () => {
 		const hook = createDangerousCommandBlocker();
 		const callback = hook.hooks[0];
