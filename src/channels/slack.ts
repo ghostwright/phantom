@@ -1,4 +1,5 @@
 import { App, type LogLevel, SocketModeReceiver } from "@slack/bolt";
+import { errorMessage } from "../shared/strings.ts";
 import type { SlackBlock } from "./feedback.ts";
 import { registerSlackActions } from "./slack-actions.ts";
 import {
@@ -242,7 +243,7 @@ export class SlackChannel implements Channel {
 			// down tenant even though no `disconnected` event ever fired
 			// (the SocketModeClient never made it past handshake).
 			this.metrics.recordState("error");
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			console.error(`[slack] Failed to connect: ${msg}`);
 			throw err;
 		}
@@ -254,7 +255,7 @@ export class SlackChannel implements Channel {
 		try {
 			await this.app.stop();
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			console.warn(`[slack] Error during disconnect: ${msg}`);
 		}
 
@@ -351,7 +352,7 @@ export class SlackChannel implements Channel {
 			try {
 				await this.messageHandler(inbound);
 			} catch (err: unknown) {
-				const msg = err instanceof Error ? err.message : String(err);
+				const msg = errorMessage(err);
 				console.error(`[slack] Error handling app_mention: ${msg}`);
 			}
 		});
@@ -405,7 +406,7 @@ export class SlackChannel implements Channel {
 			try {
 				await this.messageHandler(inbound);
 			} catch (err: unknown) {
-				const errMsg = err instanceof Error ? err.message : String(err);
+				const errMsg = errorMessage(err);
 				console.error(`[slack] Error handling DM: ${errMsg}`);
 			}
 		});

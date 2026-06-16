@@ -1,3 +1,4 @@
+import { escapeHtml } from "../shared/strings.ts";
 import type { SecretField, SecretRequest } from "./store.ts";
 
 /**
@@ -309,10 +310,4 @@ function buildFieldCard(field: SecretField): string {
       </div>`;
 }
 
-function escapeHtml(text: string): string {
-	return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
-function escapeAttr(text: string): string {
-	return text.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
+const escapeAttr = escapeHtml;

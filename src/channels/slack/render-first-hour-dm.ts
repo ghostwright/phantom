@@ -1,3 +1,5 @@
+import { truncate } from "../../shared/strings.ts";
+
 // Block Kit renderer for the do_first_hour_of_work DM (architect §5).
 //
 // Shape: 1 header + 1 markdown summary + N draft sections (each with 3
@@ -177,9 +179,4 @@ export function renderFirstHourDmFallbackText(persona: PersonaWorkPlan, draftCou
 	}
 	const tail = draftCount === 1 ? "1 item" : `${draftCount} items`;
 	return `${persona.intro_line} I drafted ${tail} for you. ${persona.footer_line}`;
-}
-
-function truncate(s: string, max: number): string {
-	if (s.length <= max) return s;
-	return `${s.slice(0, Math.max(0, max - 3))}...`;
 }

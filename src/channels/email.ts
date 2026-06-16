@@ -5,6 +5,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { errorMessage } from "../shared/strings.ts";
 import type { Channel, ChannelCapabilities, InboundMessage, OutboundMessage, SentMessage } from "./types.ts";
 
 export type EmailChannelConfig = {
@@ -91,7 +92,7 @@ export class EmailChannel implements Channel {
 			this.idleLoopPromise = this.startIdleLoop();
 		} catch (err: unknown) {
 			this.connectionState = "error";
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			console.error(`[email] Failed to connect: ${msg}`);
 			throw err;
 		}
@@ -113,7 +114,7 @@ export class EmailChannel implements Channel {
 		try {
 			await this.imapClient?.logout();
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			console.warn(`[email] Error during IMAP disconnect: ${msg}`);
 		}
 
@@ -182,7 +183,7 @@ export class EmailChannel implements Channel {
 					try {
 						await this.imapClient.idle({ abort: this.idleAbort.signal });
 					} catch (err: unknown) {
-						const msg = err instanceof Error ? err.message : String(err);
+						const msg = errorMessage(err);
 						if (msg.includes("abort")) break;
 						console.warn(`[email] IDLE error: ${msg}`);
 						break;
@@ -195,7 +196,7 @@ export class EmailChannel implements Channel {
 				lock.release();
 			}
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			console.error(`[email] IDLE loop error: ${msg}`);
 		}
 	}
@@ -265,12 +266,12 @@ export class EmailChannel implements Channel {
 				try {
 					await this.messageHandler(inbound);
 				} catch (err: unknown) {
-					const errMsg = err instanceof Error ? err.message : String(err);
+					const errMsg = errorMessage(err);
 					console.error(`[email] Error handling email from ${fromAddress}: ${errMsg}`);
 				}
 			}
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			console.warn(`[email] Error processing unread: ${msg}`);
 		}
 	}

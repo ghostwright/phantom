@@ -4,6 +4,7 @@ import { query } from "../agent/agent-sdk.ts";
 import { getThinkingConfig } from "../agent/thinking-config.ts";
 import { buildAgentRuntimeEnv, resolveAgentRuntimeModel } from "../config/providers.ts";
 import type { PhantomConfig } from "../config/types.ts";
+import { errorMessage } from "../shared/strings.ts";
 import type { EvolutionConfig } from "./config.ts";
 import { runInvariantCheck } from "./invariant-check.ts";
 import { JUDGE_MODEL_HAIKU, JUDGE_MODEL_OPUS, JUDGE_MODEL_SONNET } from "./judge-models.ts";
@@ -182,7 +183,7 @@ export async function runReflectionSubprocess(input: ReflectionSubprocessInput):
 				abortSignal: controller.signal,
 			});
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			queryResult = {
 				responseText: "",
 				costUsd: 0,
@@ -350,7 +351,7 @@ export async function runReflectionSubprocess(input: ReflectionSubprocessInput):
 	try {
 		return await runTier("haiku", null);
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		try {
 			restoreSnapshot(input.config, snapshot);
 		} catch {
@@ -415,7 +416,7 @@ function appendEvolutionLog(config: EvolutionConfig, entry: EvolutionLogEntry): 
 		if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 		appendFileSync(logPath, `${JSON.stringify(entry)}\n`, "utf-8");
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		console.warn(`[evolution] Failed to append evolution log: ${msg}`);
 	}
 }
@@ -645,7 +646,7 @@ async function defaultRunner(input: SpawnQueryInput): Promise<SpawnQueryResult> 
 			}
 		}
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return {
 			responseText,
 			costUsd,

@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 import { buildAgentRuntimeEnv, resolveAgentRuntimeModel } from "../config/providers.ts";
 import type { PhantomConfig } from "../config/types.ts";
+import { truncate } from "../shared/strings.ts";
 import { query } from "./agent-sdk.ts";
 import { extractTextFromMessage } from "./message-utils.ts";
 import { getThinkingConfig } from "./thinking-config.ts";
@@ -363,9 +364,4 @@ function formatZodError(error: z.ZodError): string {
 	});
 	const suffix = error.issues.length > 3 ? ` (+${error.issues.length - 3} more)` : "";
 	return `${issues.join("; ")}${suffix}`;
-}
-
-function truncate(text: string, max: number): string {
-	if (text.length <= max) return text;
-	return `${text.slice(0, max)}...`;
 }

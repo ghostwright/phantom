@@ -1,11 +1,3 @@
-// Minimal HTML entity escape for the five characters that matter in
-// quoted attributes and element content. Used by server-side page
-// generators to defend against operator-supplied brand strings.
-export function escapeHtml(text: string): string {
-	return text
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/'/g, "&#39;");
-}
+// Re-export the canonical escapeHtml from shared/strings.ts so existing
+// callers that import from "src/ui/html.ts" continue to work unchanged.
+export { escapeHtml } from "../shared/strings.ts";

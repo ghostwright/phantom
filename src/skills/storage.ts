@@ -6,6 +6,7 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { errorMessage } from "../shared/strings.ts";
 import {
 	MAX_BODY_BYTES,
 	type ParseResult,
@@ -93,7 +94,7 @@ export function listSkills(): ListResult {
 	try {
 		entries = readdirSync(root);
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { skills, errors: [{ name: "", error: `Failed to list skills root: ${msg}` }] };
 	}
 
@@ -111,7 +112,7 @@ export function listSkills(): ListResult {
 			raw = readFileSync(skillFile, "utf-8");
 			stats = statSync(skillFile);
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			errors.push({ name: entry, error: `Failed to read: ${msg}` });
 			continue;
 		}
@@ -147,7 +148,7 @@ export function readSkill(name: string): ReadResult {
 	try {
 		file = resolveUserSkillPath(name).file;
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 422, error: msg };
 	}
 	if (!existsSync(file)) {
@@ -159,7 +160,7 @@ export function readSkill(name: string): ReadResult {
 		raw = readFileSync(file, "utf-8");
 		stats = statSync(file);
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 500, error: `Failed to read skill: ${msg}` };
 	}
 	const parsed: ParseResult = parseFrontmatter(raw);
@@ -221,7 +222,7 @@ export function writeSkill(input: WriteInput, options: { mustExist: boolean }): 
 	try {
 		file = resolveUserSkillPath(name).file;
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 422, error: msg };
 	}
 
@@ -250,7 +251,7 @@ export function writeSkill(input: WriteInput, options: { mustExist: boolean }): 
 	try {
 		writeAtomic(file, serialized);
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 500, error: `Failed to write skill: ${msg}` };
 	}
 
@@ -276,7 +277,7 @@ export function deleteSkill(name: string): DeleteResult {
 		dir = r.dir;
 		file = r.file;
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 422, error: msg };
 	}
 	if (!existsSync(file)) {
@@ -299,7 +300,7 @@ export function deleteSkill(name: string): DeleteResult {
 			// directory not empty or missing; non-fatal
 		}
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 500, error: `Failed to delete skill: ${msg}` };
 	}
 	return { ok: true, deleted: name, previousBody };

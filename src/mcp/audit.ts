@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { truncate } from "../shared/strings.ts";
 import type { AuditEntry } from "./types.ts";
 
 const CREATE_TABLE = `CREATE TABLE IF NOT EXISTS mcp_audit (
@@ -56,9 +57,4 @@ export class AuditLogger {
 			.query("SELECT * FROM mcp_audit WHERE client_name = ? ORDER BY id DESC LIMIT ?")
 			.all(clientName, limit) as AuditEntry[];
 	}
-}
-
-function truncate(str: string, maxLen: number): string {
-	if (str.length <= maxLen) return str;
-	return `${str.slice(0, maxLen - 3)}...`;
 }

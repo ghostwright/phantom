@@ -1,4 +1,16 @@
 import type { Database } from "bun:sqlite";
+import { isRecord } from "../shared/strings.ts";
+import { truncate } from "../shared/strings.ts";
+import {
+	normalizePagePath,
+	normalizePageToolName,
+	normalizePageUrl,
+	numberField,
+	parseJsonRecord,
+	stringField,
+	urlFromPath,
+	urlFromText,
+} from "./page-tools.ts";
 import { redactSensitiveText } from "./redaction.ts";
 import type { SessionErrorSubtype, StopReason } from "./types.ts";
 import type { ChatWireFrame } from "./types.ts";
@@ -140,10 +152,7 @@ const MAX_SUMMARY_TEXT = 240;
 const MAX_OUTPUT_SUMMARY_TEXT = 360;
 const MAX_COLLECTION_ITEMS = 25;
 const MAX_INPUT_PARTS = 3;
-const PAGE_TOOL_NAMES = ["phantom_create_page", "phantom_preview_page"] as const;
 const MAX_ARTIFACT_TITLE = 90;
-
-type PageToolName = (typeof PAGE_TOOL_NAMES)[number];
 
 type PageArtifactInput = {
 	path?: string;
@@ -539,7 +548,7 @@ export class DurableRunTimelineBuilder {
 
 	private captureArtifactInput(tool: DurableRunTimelineToolSummary, toolCallId: string, input: unknown): void {
 		if (!normalizePageToolName(tool.name)) return;
-		const record = recordFromUnknown(input);
+		const record = isRecord(input) ? input : undefined;
 		if (!record) return;
 		const path = normalizePagePath(stringField(record, "path"));
 		const title = stringField(record, "title");
@@ -638,7 +647,7 @@ function parseRunTimelineSummary(summaryJson: string, row: ChatRunTimelineRow): 
 }
 
 function isRunTimelineSummary(value: unknown): value is DurableRunTimelineSummary {
-	if (!isObject(value)) return false;
+	if (!isRecord(value)) return false;
 	return (
 		value.schemaVersion === 1 &&
 		typeof value.status === "string" &&
@@ -670,7 +679,7 @@ function summarizeToolInput(input: unknown): string | undefined {
 		}
 		return "Input captured.";
 	}
-	if (!isObject(input)) return undefined;
+	if (!isRecord(input)) return undefined;
 
 	const parts: string[] = [];
 	for (const key of ["command", "cmd"]) {
@@ -708,80 +717,6 @@ function summarizeToolOutput(status: "success" | "error", output: string | undef
 	if (status === "error") return "Tool returned an error.";
 	if (typeof output !== "string" || output.length === 0) return undefined;
 	return "Tool produced output.";
-}
-
-function normalizePageToolName(toolName: string | undefined): PageToolName | undefined {
-	if (!toolName) return undefined;
-	for (const pageToolName of PAGE_TOOL_NAMES) {
-		if (toolName === pageToolName || toolName.endsWith(`__${pageToolName}`) || toolName.endsWith(`:${pageToolName}`)) {
-			return pageToolName;
-		}
-	}
-	return undefined;
-}
-
-function parseJsonRecord(value: string | undefined): Record<string, unknown> | undefined {
-	if (!value) return undefined;
-	try {
-		return recordFromUnknown(JSON.parse(value));
-	} catch {
-		return undefined;
-	}
-}
-
-function recordFromUnknown(value: unknown): Record<string, unknown> | undefined {
-	if (!isObject(value)) return undefined;
-	return value;
-}
-
-function stringField(record: Record<string, unknown> | undefined, key: string): string | undefined {
-	const value = record?.[key];
-	if (typeof value !== "string") return undefined;
-	const trimmed = value.trim();
-	return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function numberField(record: Record<string, unknown> | undefined, key: string): number | undefined {
-	const value = record?.[key];
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function normalizePageUrl(value: string | undefined): string | undefined {
-	if (!value) return undefined;
-	const trimmed = stripTrailingPunctuation(value.trim());
-	if (!trimmed.includes("/ui/")) return undefined;
-	if (trimmed.includes("/ui/login") || trimmed.includes("magic=") || hasSensitiveQuery(trimmed)) return undefined;
-	return trimmed;
-}
-
-function normalizePagePath(value: string | undefined): string | undefined {
-	if (!value) return undefined;
-	const cleaned = value.trim().replace(/^\/+/, "").replace(/^ui\//, "");
-	if (!cleaned || cleaned.includes("..") || cleaned.includes("\0") || cleaned.startsWith("login")) return undefined;
-	return cleaned;
-}
-
-function urlFromPath(path: string | undefined): string | undefined {
-	return path ? `/ui/${path}` : undefined;
-}
-
-function urlFromText(value: string | undefined): string | undefined {
-	if (!value) return undefined;
-	const match = value.match(/(?:https?:\/\/[^\s"']*\/ui\/[^\s"']+|\/ui\/[^\s"']+)/);
-	return normalizePageUrl(match?.[0]);
-}
-
-function stripTrailingPunctuation(value: string): string {
-	return value.replace(/[),.;]+$/g, "");
-}
-
-function hasSensitiveQuery(value: string): boolean {
-	return /[?&](?:api[_-]?key|token|secret|password|access_token|code|magic)=/i.test(value);
-}
-
-function truncate(value: string, maxLength: number): string {
-	if (value.length <= maxLength) return value;
-	return `${value.slice(0, maxLength - 3)}...`;
 }
 
 function summarizeCommand(command: string): string | undefined {
@@ -822,10 +757,6 @@ function safeNonNegativeNumber(value: number | undefined): number | undefined {
 
 function isTruncated(value: string | undefined, maxLength: number): boolean {
 	return typeof value === "string" && (value.length > maxLength || redact(value).length > maxLength);
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isSensitiveKey(key: string): boolean {

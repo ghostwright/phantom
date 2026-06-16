@@ -7,6 +7,7 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { errorMessage } from "../shared/strings.ts";
 import {
 	MAX_BODY_BYTES,
 	type ParseResult,
@@ -80,7 +81,7 @@ export function listSubagents(): ListResult {
 	try {
 		entries = readdirSync(root);
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { subagents, errors: [{ name: "", error: `Failed to list subagents root: ${msg}` }] };
 	}
 
@@ -97,7 +98,7 @@ export function listSubagents(): ListResult {
 			raw = readFileSync(file, "utf-8");
 			stats = statSync(file);
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			errors.push({ name, error: `Failed to read: ${msg}` });
 			continue;
 		}
@@ -125,7 +126,7 @@ export function readSubagent(name: string): ReadResult {
 	try {
 		file = resolveUserSubagentPath(name).file;
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 422, error: msg };
 	}
 	if (!existsSync(file)) {
@@ -137,7 +138,7 @@ export function readSubagent(name: string): ReadResult {
 		raw = readFileSync(file, "utf-8");
 		stats = statSync(file);
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 500, error: `Failed to read subagent: ${msg}` };
 	}
 	const parsed: ParseResult = parseFrontmatter(raw);
@@ -200,7 +201,7 @@ export function writeSubagent(input: WriteInput, options: { mustExist: boolean }
 	try {
 		file = resolveUserSubagentPath(name).file;
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 422, error: msg };
 	}
 
@@ -229,7 +230,7 @@ export function writeSubagent(input: WriteInput, options: { mustExist: boolean }
 	try {
 		writeAtomic(file, serialized);
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 500, error: `Failed to write subagent: ${msg}` };
 	}
 
@@ -252,7 +253,7 @@ export function deleteSubagent(name: string): DeleteResult {
 	try {
 		file = resolveUserSubagentPath(name).file;
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 422, error: msg };
 	}
 	if (!existsSync(file)) {
@@ -269,7 +270,7 @@ export function deleteSubagent(name: string): DeleteResult {
 	try {
 		rmSync(file, { force: true });
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 500, error: `Failed to delete subagent: ${msg}` };
 	}
 	return { ok: true, deleted: name, previousBody };

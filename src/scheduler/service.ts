@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import type { AgentRuntime } from "../agent/runtime.ts";
 import type { SlackTransport } from "../channels/slack-transport.ts";
+import { errorMessage } from "../shared/strings.ts";
 import { validateCreateInput } from "./create-validation.ts";
 import { executeJob } from "./executor.ts";
 import { type SchedulerHealthSummary, computeHealthSummary } from "./health.ts";
@@ -191,7 +192,7 @@ export class Scheduler {
 			try {
 				jobs.push(rowToJob(row));
 			} catch (err: unknown) {
-				const msg = err instanceof Error ? err.message : String(err);
+				const msg = errorMessage(err);
 				console.error(`[scheduler] Failed to parse row ${row.id} (${row.name ?? "?"}): ${msg}`);
 			}
 		}
@@ -204,7 +205,7 @@ export class Scheduler {
 		try {
 			return rowToJob(row);
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			console.error(`[scheduler] Failed to parse row ${row.id}: ${msg}`);
 			return null;
 		}
@@ -297,7 +298,7 @@ export class Scheduler {
 				try {
 					job = rowToJob(row);
 				} catch (err: unknown) {
-					const msg = err instanceof Error ? err.message : String(err);
+					const msg = errorMessage(err);
 					console.error(`[scheduler] Skipping unparsable row ${row.id}: ${msg}`);
 					continue;
 				}
@@ -306,7 +307,7 @@ export class Scheduler {
 					const status = result.startsWith("Error:") ? "error" : "completed";
 					this.fireJobCompleteCallbacks(job.name, status);
 				} catch (err: unknown) {
-					const msg = err instanceof Error ? err.message : String(err);
+					const msg = errorMessage(err);
 					console.error(`[scheduler] Job ${job.id} (${job.name}) failed: ${msg}`);
 					this.fireJobCompleteCallbacks(job.name, "error");
 				}
@@ -338,7 +339,7 @@ export class Scheduler {
 	private notifyOwner(text: string): void {
 		if (this.slackChannel && this.ownerUserId) {
 			this.slackChannel.sendDm(this.ownerUserId, text).catch((err: unknown) => {
-				const msg = err instanceof Error ? err.message : String(err);
+				const msg = errorMessage(err);
 				console.error(`[scheduler] Failed to notify owner: ${msg}`);
 			});
 			return;

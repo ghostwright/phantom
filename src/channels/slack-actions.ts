@@ -7,6 +7,7 @@
  */
 
 import type { App } from "@slack/bolt";
+import { errorMessage } from "../shared/strings.ts";
 import { FEEDBACK_ACTION_IDS, buildFeedbackAckBlocks, emitFeedback, parseFeedbackAction } from "./feedback.ts";
 import {
 	MORNING_BRIEF_LOCK_ACTION_ID,
@@ -138,7 +139,7 @@ export function registerSlackActions(app: App): void {
 					blocks: [...cleaned, ...ackBlocks],
 				} as unknown as Parameters<typeof client.chat.update>[0]);
 			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
+				const msg = errorMessage(err);
 				console.warn(`[slack] Failed to update feedback buttons: ${msg}`);
 			}
 		});
@@ -191,7 +192,7 @@ export function registerSlackActions(app: App): void {
 				],
 			} as unknown as Parameters<typeof client.chat.update>[0]);
 		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			console.warn(`[slack] Failed to update action buttons: ${msg}`);
 		}
 
@@ -259,7 +260,7 @@ export function registerSlackActions(app: App): void {
 					],
 				} as unknown as Parameters<typeof client.chat.update>[0]);
 			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
+				const msg = errorMessage(err);
 				console.warn(`[slack] Failed to update morning-brief buttons: ${msg}`);
 			}
 
@@ -267,7 +268,7 @@ export function registerSlackActions(app: App): void {
 				try {
 					await morningBriefRecorder({ userId, channel: channelId, choice: meta.choice, clickedAt: Date.now() });
 				} catch (err) {
-					const msg = err instanceof Error ? err.message : String(err);
+					const msg = errorMessage(err);
 					console.warn(`[slack] morning-brief recorder failed: ${msg}`);
 				}
 			} else {
@@ -315,7 +316,7 @@ export function registerSlackActions(app: App): void {
 					clickedAt: Date.now(),
 				});
 			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
+				const msg = errorMessage(err);
 				console.warn(`[slack] first-hour draft recorder failed: ${msg}`);
 			}
 		} else {
@@ -346,7 +347,7 @@ export function registerSlackActions(app: App): void {
 				blocks: updatedBlocks,
 			} as unknown as Parameters<typeof client.chat.update>[0]);
 		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			console.warn(`[slack] Failed to update first-hour draft buttons: ${msg}`);
 		}
 	});

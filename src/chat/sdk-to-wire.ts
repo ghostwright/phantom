@@ -3,6 +3,7 @@
 // handlers. The assistant and stream_event handlers live in
 // sdk-to-wire-handlers.ts to keep both files under 300 lines.
 
+import { isRecord } from "../shared/strings.ts";
 import { type TranslationContext, handleAssistant, handleStreamEvent } from "./sdk-to-wire-handlers.ts";
 import type { ChatWireFrame, StopReason, ToolCallResultFrame, ToolCallRunningFrame } from "./types.ts";
 
@@ -137,10 +138,6 @@ function handleSystem(msg: Record<string, unknown>, ctx: TranslationContext): Ch
 
 const TOOL_RESULT_OUTPUT_LIMIT = 12_000;
 const SAFE_TOOL_ERROR_MESSAGE = "Tool returned an error. Details are hidden for safety.";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function safeToolResultText(content: unknown): string | undefined {
 	if (typeof content === "string") return content;

@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { isRecord } from "../shared/strings.ts";
 import { redactSensitiveText } from "./redaction.ts";
 
 export type ChatTranscriptRole = "user" | "assistant" | "all";
@@ -238,10 +239,6 @@ function attachmentSummary(
 
 function normalizeWhitespace(value: string): string {
 	return value.replace(/\s+/g, " ").trim();
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {

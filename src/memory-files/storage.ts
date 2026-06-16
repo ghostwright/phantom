@@ -4,6 +4,7 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative as relPath } from "node:path";
+import { errorMessage } from "../shared/strings.ts";
 import {
 	EXCLUDED_TOP_DIRS,
 	EXCLUDED_TOP_FILES,
@@ -148,7 +149,7 @@ export function readMemoryFile(relative: string): ReadResult {
 		try {
 			absolute = resolvePhantomConfigMemoryPath(relative).absolute;
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			return { ok: false, status: 422, error: msg };
 		}
 		if (!existsSync(absolute)) {
@@ -160,7 +161,7 @@ export function readMemoryFile(relative: string): ReadResult {
 			content = readFileSync(absolute, "utf-8");
 			stats = statSync(absolute);
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			return { ok: false, status: 500, error: `Failed to read memory file: ${msg}` };
 		}
 		const tail = relative.slice(PHANTOM_CONFIG_VIRTUAL_PREFIX.length);
@@ -182,7 +183,7 @@ export function readMemoryFile(relative: string): ReadResult {
 	try {
 		absolute = resolveMemoryFilePath(relative).absolute;
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 422, error: msg };
 	}
 	if (!existsSync(absolute)) {
@@ -194,7 +195,7 @@ export function readMemoryFile(relative: string): ReadResult {
 		content = readFileSync(absolute, "utf-8");
 		stats = statSync(absolute);
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 500, error: `Failed to read memory file: ${msg}` };
 	}
 	return {
@@ -248,7 +249,7 @@ export function writeMemoryFile(input: WriteInput, options: { mustExist: boolean
 	try {
 		absolute = resolveMemoryFilePath(input.path).absolute;
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 422, error: msg };
 	}
 
@@ -269,7 +270,7 @@ export function writeMemoryFile(input: WriteInput, options: { mustExist: boolean
 	try {
 		writeAtomic(absolute, input.content);
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 500, error: `Failed to write memory file: ${msg}` };
 	}
 
@@ -293,7 +294,7 @@ export function deleteMemoryFile(relative: string): DeleteResult {
 	try {
 		absolute = resolveMemoryFilePath(relative).absolute;
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 422, error: msg };
 	}
 	if (!existsSync(absolute)) {
@@ -308,7 +309,7 @@ export function deleteMemoryFile(relative: string): DeleteResult {
 	try {
 		rmSync(absolute, { force: true });
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, status: 500, error: `Failed to delete memory file: ${msg}` };
 	}
 	return { ok: true, deleted: relative, previousContent };

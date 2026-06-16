@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { dirname, join } from "node:path";
 import { JudgeSubprocessError } from "../agent/judge-query.ts";
 import type { AgentRuntime } from "../agent/runtime.ts";
+import { truncate } from "../shared/strings.ts";
 import type { EvolutionConfig } from "./config.ts";
 import { GateJudgeResult, type GateJudgeResultType, gateJudgePrompt } from "./gate-prompt.ts";
 import type { GateDecision } from "./gate-types.ts";
@@ -179,11 +180,6 @@ export function recordGateDecision(config: EvolutionConfig, decision: GateDecisi
 		const msg = err instanceof Error ? err.message : String(err);
 		console.warn(`[evolution] Failed to record gate stats: ${msg}`);
 	}
-}
-
-function truncate(text: string, max: number): string {
-	if (text.length <= max) return text;
-	return `${text.slice(0, max)}...`;
 }
 
 function inferChannelType(sessionKey: string): string {

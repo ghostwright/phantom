@@ -4,6 +4,7 @@
  * MarkdownV2 formatting, and command handling.
  */
 
+import { errorMessage } from "../shared/strings.ts";
 import type { Channel, ChannelCapabilities, InboundMessage, OutboundMessage, SentMessage } from "./types.ts";
 
 type TelegrafBot = {
@@ -91,7 +92,7 @@ export class TelegramChannel implements Channel {
 			console.log("[telegram] Bot connected via long polling");
 		} catch (err: unknown) {
 			this.connectionState = "error";
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			console.error(`[telegram] Failed to connect: ${msg}`);
 			throw err;
 		}
@@ -109,7 +110,7 @@ export class TelegramChannel implements Channel {
 		try {
 			this.bot?.stop();
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			console.warn(`[telegram] Error during disconnect: ${msg}`);
 		}
 
@@ -190,7 +191,7 @@ export class TelegramChannel implements Channel {
 				parse_mode: "MarkdownV2",
 			});
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			// "message is not modified" is expected when text hasn't changed
 			if (!msg.includes("message is not modified")) {
 				console.warn(`[telegram] Failed to edit message: ${msg}`);
@@ -243,7 +244,7 @@ export class TelegramChannel implements Channel {
 			try {
 				await this.messageHandler(inbound);
 			} catch (err: unknown) {
-				const msg = err instanceof Error ? err.message : String(err);
+				const msg = errorMessage(err);
 				console.error(`[telegram] Error handling message: ${msg}`);
 			}
 		});
@@ -281,7 +282,7 @@ export class TelegramChannel implements Channel {
 			try {
 				await this.messageHandler(inbound);
 			} catch (err: unknown) {
-				const msg = err instanceof Error ? err.message : String(err);
+				const msg = errorMessage(err);
 				console.error(`[telegram] Error handling callback: ${msg}`);
 			}
 		});

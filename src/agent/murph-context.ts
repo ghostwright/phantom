@@ -1,3 +1,5 @@
+import { isRecord } from "../shared/strings.ts";
+
 export type MurphContextTransform = (messages: unknown[], signal?: AbortSignal) => Promise<unknown[]> | unknown[];
 export type MurphContextSource = string | undefined | (() => string | undefined | Promise<string | undefined>);
 
@@ -72,10 +74,6 @@ function isPhantomContextMessage(message: unknown): boolean {
 
 function hasRole(message: unknown, role: string): boolean {
 	return isRecord(message) && message.role === role;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return value !== null && typeof value === "object";
 }
 
 function textField(record: Record<string, unknown>): string {

@@ -1,3 +1,4 @@
+import { truncate } from "../shared/strings.ts";
 import type { EvolutionConfig } from "./config.ts";
 import type { InvariantFailure, InvariantResult, SubprocessSentinel } from "./types.ts";
 import type { DirectorySnapshot } from "./versioning.ts";
@@ -411,5 +412,5 @@ function isNearDuplicate(a: string, b: string): boolean {
 }
 
 function truncateForLog(text: string): string {
-	return text.length > 80 ? `${text.slice(0, 80)}...` : text;
+	return truncate(text, 80);
 }

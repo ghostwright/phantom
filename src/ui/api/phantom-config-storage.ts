@@ -9,6 +9,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { EvolutionUiConfigSchema, PermissionsConfigSchema } from "../../config/schemas.ts";
+import { errorMessage } from "../../shared/strings.ts";
 import type {
 	AppliedChange,
 	PhantomConfigForUi,
@@ -39,14 +40,14 @@ export function readYamlFile(path: string): ReadResult<Record<string, unknown>> 
 	try {
 		raw = readFileSync(path, "utf-8");
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, error: `Failed to read ${path}: ${msg}` };
 	}
 	let parsed: unknown;
 	try {
 		parsed = parseYaml(raw);
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, error: `Invalid YAML at ${path}: ${msg}` };
 	}
 	if (parsed == null) return { ok: true, value: {} };
@@ -62,14 +63,14 @@ export function readJsonFile(path: string): ReadResult<Record<string, unknown>> 
 	try {
 		raw = readFileSync(path, "utf-8");
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, error: `Failed to read ${path}: ${msg}` };
 	}
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(raw);
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { ok: false, error: `Invalid JSON at ${path}: ${msg}` };
 	}
 	if (parsed == null) return { ok: true, value: {} };

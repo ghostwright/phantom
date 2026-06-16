@@ -66,6 +66,7 @@ import { Scheduler } from "./scheduler/service.ts";
 import { createSchedulerToolServer } from "./scheduler/tool.ts";
 import { getSecretRequest } from "./secrets/store.ts";
 import { createSecretToolServer } from "./secrets/tools.ts";
+import { errorMessage } from "./shared/strings.ts";
 import { reportAgentReady } from "./tenancy/heartbeat.ts";
 import { createBrowserToolServer } from "./ui/browser-mcp.ts";
 import { setLoginPageAgentName } from "./ui/login-page.ts";
@@ -168,7 +169,7 @@ async function main(): Promise<void> {
 			`[evolution] Cadence started (cadence=${cadenceConfig.cadenceMinutes}min, demand_trigger=${cadenceConfig.demandTriggerDepth})`,
 		);
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		console.warn(`[evolution] Failed to initialize: ${msg}. Running without self-evolution.`);
 	}
 
@@ -218,7 +219,7 @@ async function main(): Promise<void> {
 					}
 				})
 				.catch((err: unknown) => {
-					const errMsg = err instanceof Error ? err.message : String(err);
+					const errMsg = errorMessage(err);
 					console.warn(`[feedback] Evolution from feedback failed: ${errMsg}`);
 				});
 		}
@@ -309,7 +310,7 @@ async function main(): Promise<void> {
 			`[mcp] MCP server initialized (dynamic tools + scheduler + reflective + web UI + secrets + preview + browser${emailStatus} wired to agent)`,
 		);
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		console.warn(`[mcp] Failed to initialize MCP server: ${msg}. Running without MCP.`);
 	}
 
@@ -527,7 +528,7 @@ async function main(): Promise<void> {
 		});
 		console.log("[push] Web Push notifications initialized");
 	} catch (err: unknown) {
-		const pushMsg = err instanceof Error ? err.message : String(err);
+		const pushMsg = errorMessage(err);
 		console.warn(`[push] Failed to initialize: ${pushMsg}. Running without push notifications.`);
 	}
 
@@ -621,7 +622,7 @@ async function main(): Promise<void> {
 					removeReaction: (emoji) => sc.removeReaction(ch, mts, emoji),
 				},
 				onError: (err) => {
-					const errMsg = err instanceof Error ? err.message : String(err);
+					const errMsg = errorMessage(err);
 					console.warn(`[slack] Reaction error: ${errMsg}`);
 				},
 			});
@@ -643,7 +644,7 @@ async function main(): Promise<void> {
 					await sc.updateWithFeedback(ch, messageId, text);
 				},
 				onError: (err) => {
-					const errMsg = err instanceof Error ? err.message : String(err);
+					const errMsg = errorMessage(err);
 					console.warn(`[slack] Progress stream error: ${errMsg}`);
 				},
 			});
@@ -753,7 +754,7 @@ async function main(): Promise<void> {
 					}
 				})
 				.catch((err: unknown) => {
-					const errMsg = err instanceof Error ? err.message : String(err);
+					const errMsg = errorMessage(err);
 					console.warn(`[memory] Consolidation failed: ${errMsg}`);
 				});
 		}
@@ -786,7 +787,7 @@ async function main(): Promise<void> {
 					}
 				})
 				.catch((err: unknown) => {
-					const errMsg = err instanceof Error ? err.message : String(err);
+					const errMsg = errorMessage(err);
 					console.warn(`[evolution] Post-session evolution failed: ${errMsg}`);
 				});
 		}
@@ -835,7 +836,7 @@ async function main(): Promise<void> {
 	if (!slackChannel) {
 		const { handleFirstRun } = await import("./chat/first-run.ts");
 		handleFirstRun(db, config).catch((err: unknown) => {
-			const firstRunMsg = err instanceof Error ? err.message : String(err);
+			const firstRunMsg = errorMessage(err);
 			console.warn(`[first-run] Failed: ${firstRunMsg}`);
 		});
 	}
@@ -853,7 +854,7 @@ async function main(): Promise<void> {
 			const nt = notificationTriggers;
 			scheduler.onJobComplete((jobName, status) => {
 				nt.onScheduledJobResult(jobName, status).catch((err: unknown) => {
-					const msg = err instanceof Error ? err.message : String(err);
+					const msg = errorMessage(err);
 					console.warn(`[push] Scheduler trigger failed: ${msg}`);
 				});
 			});
@@ -880,7 +881,7 @@ async function main(): Promise<void> {
 
 		// Non-blocking: wake the agent, let it decide what to say (Cardinal Rule)
 		runtime.handleMessage("slack", conversationId, prompt).catch((err: unknown) => {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			console.warn(`[secrets] Failed to wake agent after secret save: ${msg}`);
 		});
 	});
@@ -987,7 +988,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-	const msg = err instanceof Error ? err.message : String(err);
+	const msg = errorMessage(err);
 	console.error(`[phantom] Fatal: ${msg}`);
 	process.exit(1);
 });

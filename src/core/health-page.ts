@@ -1,5 +1,6 @@
 import type { MemoryHealth } from "../memory/types.ts";
 import type { SchedulerHealthSummary } from "../scheduler/health.ts";
+import { escapeHtml } from "../shared/strings.ts";
 
 export type HealthPayload = {
 	status: string;
@@ -16,15 +17,6 @@ export type HealthPayload = {
 	peers?: Record<string, { healthy: boolean; latencyMs: number; error?: string }>;
 	scheduler?: SchedulerHealthSummary;
 };
-
-function escapeHtml(value: string): string {
-	return value
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/'/g, "&#39;");
-}
 
 function humanUptime(seconds: number): string {
 	if (typeof seconds !== "number" || seconds < 0) return "-";

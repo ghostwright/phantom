@@ -19,6 +19,7 @@ import { listPluginAudit, recordPluginInstall } from "../../plugins/audit.ts";
 import { type FetchMarketplaceFn, getCatalog } from "../../plugins/marketplace.ts";
 import { OFFICIAL_MARKETPLACE_ID, formatPluginKey, parsePluginKey } from "../../plugins/paths.ts";
 import { installPlugin, listEnabledPlugins, uninstallPlugin } from "../../plugins/settings-io.ts";
+import { errorMessage } from "../../shared/strings.ts";
 
 export type PluginsApiDeps = {
 	db: Database;
@@ -43,7 +44,7 @@ async function readJson(req: Request): Promise<unknown | { __error: string }> {
 	try {
 		return await req.json();
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		return { __error: `Invalid JSON body: ${msg}` };
 	}
 }
@@ -121,7 +122,7 @@ export async function handlePluginsApi(req: Request, url: URL, deps: PluginsApiD
 				from_stale_cache: catalog.from_stale_cache,
 			});
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			return json({ error: msg }, { status: 502 });
 		}
 	}
@@ -150,7 +151,7 @@ export async function handlePluginsApi(req: Request, url: URL, deps: PluginsApiD
 		try {
 			key = formatPluginKey(plugin, marketplace ?? OFFICIAL_MARKETPLACE_ID);
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			return json({ error: msg }, { status: 422 });
 		}
 
@@ -176,7 +177,7 @@ export async function handlePluginsApi(req: Request, url: URL, deps: PluginsApiD
 			sourceType = entry.source_type;
 			sourceUrl = entry.source_url;
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			return json({ error: `Marketplace unreachable: ${msg}` }, { status: 502 });
 		}
 
@@ -244,7 +245,7 @@ export async function handlePluginsApi(req: Request, url: URL, deps: PluginsApiD
 				})),
 			});
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			return json({ error: `Marketplace unreachable: ${msg}` }, { status: 502 });
 		}
 	}

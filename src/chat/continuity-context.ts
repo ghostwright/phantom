@@ -1,11 +1,21 @@
+import { isRecord } from "../shared/strings.ts";
+import { truncate } from "../shared/strings.ts";
 import type { ChatEventLog, ChatStreamEvent } from "./event-log.ts";
+import {
+	normalizePagePath,
+	normalizePageToolName,
+	normalizePageUrl,
+	numberField,
+	parseJsonRecord,
+	stringField,
+	urlFromText,
+} from "./page-tools.ts";
 import type { ChatRunTimelineStore, DurableRunTimelineArtifactSummary } from "./run-timeline.ts";
 
 const DEFAULT_EVENT_SCAN_LIMIT = 5000;
 const MAX_ARTIFACTS = 8;
 const MAX_COMPACTIONS = 3;
 const MAX_LABEL_LENGTH = 90;
-const PAGE_TOOLS = new Set(["phantom_create_page", "phantom_preview_page"]);
 
 type BuildChatContinuityContextInput = {
 	sessionId: string;
@@ -134,7 +144,7 @@ function artifactFromTool(tool: ToolAccumulator): PageArtifact | undefined {
 	const toolName = normalizePageToolName(tool.toolName);
 	if (!toolName) return undefined;
 
-	const input = recordFromUnknown(tool.input);
+	const input = isRecord(tool.input) ? tool.input : undefined;
 	const output = parseJsonRecord(tool.output);
 	const path = normalizePagePath(stringField(output, "path") ?? stringField(input, "path"));
 	const url = normalizePageUrl(
@@ -182,16 +192,6 @@ function timelineArtifactFromSummary(artifact: DurableRunTimelineArtifactSummary
 	};
 }
 
-function normalizePageToolName(toolName: string | undefined): string | undefined {
-	if (!toolName) return undefined;
-	for (const pageToolName of PAGE_TOOLS) {
-		if (toolName === pageToolName || toolName.endsWith(`__${pageToolName}`) || toolName.endsWith(`:${pageToolName}`)) {
-			return pageToolName;
-		}
-	}
-	return undefined;
-}
-
 function dedupeArtifacts(artifacts: PageArtifact[]): PageArtifact[] {
 	const byKey = new Map<string, PageArtifact>();
 	for (const artifact of artifacts) {
@@ -202,69 +202,5 @@ function dedupeArtifacts(artifacts: PageArtifact[]): PageArtifact[] {
 }
 
 function parsePayload(event: ChatStreamEvent): Record<string, unknown> | undefined {
-	try {
-		const parsed = JSON.parse(event.payload_json);
-		return recordFromUnknown(parsed);
-	} catch {
-		return undefined;
-	}
-}
-
-function parseJsonRecord(value: string | undefined): Record<string, unknown> | undefined {
-	if (!value) return undefined;
-	try {
-		return recordFromUnknown(JSON.parse(value));
-	} catch {
-		return undefined;
-	}
-}
-
-function recordFromUnknown(value: unknown): Record<string, unknown> | undefined {
-	if (value === null || typeof value !== "object" || Array.isArray(value)) {
-		return undefined;
-	}
-	return value as Record<string, unknown>;
-}
-
-function stringField(record: Record<string, unknown> | undefined, key: string): string | undefined {
-	const value = record?.[key];
-	if (typeof value !== "string") return undefined;
-	const trimmed = value.trim();
-	return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function numberField(record: Record<string, unknown> | undefined, key: string): number | undefined {
-	const value = record?.[key];
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function normalizePageUrl(url: string | undefined): string | undefined {
-	const trimmed = stripTrailingPunctuation(url?.trim() ?? "");
-	if (!trimmed || !trimmed.includes("/ui/") || trimmed.includes("/ui/login") || trimmed.includes("magic=")) {
-		return undefined;
-	}
-	return trimmed;
-}
-
-function normalizePagePath(path: string | undefined): string | undefined {
-	const cleaned = path?.trim().replace(/^\/+/, "").replace(/^ui\//, "");
-	if (!cleaned || cleaned.includes("..") || cleaned.includes("\0") || cleaned.startsWith("login")) {
-		return undefined;
-	}
-	return cleaned;
-}
-
-function urlFromText(text: string | undefined): string | undefined {
-	if (!text) return undefined;
-	const match = text.match(/https?:\/\/[^\s"']+\/ui\/[^\s"']+|\/ui\/[^\s"']+/);
-	return normalizePageUrl(match?.[0]);
-}
-
-function stripTrailingPunctuation(value: string): string {
-	return value.replace(/[),.;]+$/g, "");
-}
-
-function truncate(value: string, maxLength: number): string {
-	if (value.length <= maxLength) return value;
-	return `${value.slice(0, maxLength - 3)}...`;
+	return parseJsonRecord(event.payload_json);
 }

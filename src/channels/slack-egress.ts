@@ -11,6 +11,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { App } from "@slack/bolt";
+import { errorMessage } from "../shared/strings.ts";
 import type { SlackBlock } from "./feedback.ts";
 import { buildFeedbackBlocks } from "./feedback.ts";
 import { splitMessage, toSlackMarkdown, truncateForSlack } from "./slack-formatter.ts";
@@ -57,7 +58,7 @@ export async function egressPostToChannel(ctx: EgressContext, channelId: string,
 			const result = await ctx.client.chat.postMessage({ channel: channelId, text: chunk });
 			lastTs = result.ts ?? null;
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			console.error(`[${ctx.logTag}] Failed to post to channel ${channelId}: ${msg}`);
 			return null;
 		}
@@ -97,12 +98,12 @@ export async function egressSendDm(
 			);
 			return result.ts ?? null;
 		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+			const msg = errorMessage(err);
 			console.error(`[${ctx.logTag}] Failed to post DM blocks to user ${userId}: ${msg}`);
 			return null;
 		}
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		console.error(`[${ctx.logTag}] Failed to send DM to user ${userId}: ${msg}`);
 		return null;
 	}
@@ -121,7 +122,7 @@ export async function egressPostThinking(
 		});
 		return result.ts ?? null;
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		console.warn(`[${ctx.logTag}] Failed to post thinking indicator: ${msg}`);
 		return null;
 	}
@@ -145,7 +146,7 @@ export async function egressUpdateMessage(
 		if (blocks) updateArgs.blocks = blocks;
 		await ctx.client.chat.update(updateArgs as unknown as Parameters<typeof ctx.client.chat.update>[0]);
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		console.warn(`[${ctx.logTag}] Failed to update message: ${msg}`);
 	}
 }
@@ -165,7 +166,7 @@ export async function egressUpdateWithFeedback(
 		const updateArgs: Record<string, unknown> = { channel, ts, text: truncated, blocks };
 		await ctx.client.chat.update(updateArgs as unknown as Parameters<typeof ctx.client.chat.update>[0]);
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		console.warn(`[${ctx.logTag}] Failed to update message with feedback: ${msg}`);
 	}
 }
@@ -179,7 +180,7 @@ export async function egressAddReaction(
 	try {
 		await ctx.client.reactions.add({ channel, timestamp: messageTs, name: emoji });
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		if (!msg.includes("already_reacted")) {
 			console.warn(`[${ctx.logTag}] Failed to add reaction :${emoji}:: ${msg}`);
 		}
@@ -195,7 +196,7 @@ export async function egressRemoveReaction(
 	try {
 		await ctx.client.reactions.remove({ channel, timestamp: messageTs, name: emoji });
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		const msg = errorMessage(err);
 		if (!msg.includes("no_reaction")) {
 			console.warn(`[${ctx.logTag}] Failed to remove reaction :${emoji}:: ${msg}`);
 		}
