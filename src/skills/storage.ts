@@ -238,7 +238,9 @@ export function writeSkill(input: WriteInput, options: { mustExist: boolean }): 
 			} else {
 				previousBody = prevRaw;
 			}
-		} catch {
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`[skills] Failed to read previous skill content for ${name}: ${msg}`);
 			previousBody = null;
 		}
 	} else if (options.mustExist) {
@@ -287,7 +289,9 @@ export function deleteSkill(name: string): DeleteResult {
 		const prevRaw = readFileSync(file, "utf-8");
 		const prevParsed = parseFrontmatter(prevRaw);
 		previousBody = prevParsed.ok ? prevParsed.parsed.body : prevRaw;
-	} catch {
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		console.warn(`[skills] Failed to read previous skill content for ${name}: ${msg}`);
 		previousBody = null;
 	}
 	try {

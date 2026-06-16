@@ -76,7 +76,9 @@ export function parseEnvelope(text: string): LlmTurnResult {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(json);
-	} catch {
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		console.warn(`[first-hour] envelope JSON parse failed: ${msg}`);
 		return {
 			pulls_executed: [],
 			saved_drafts: [],

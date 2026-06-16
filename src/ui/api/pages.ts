@@ -156,7 +156,10 @@ async function extractTitle(absolutePath: string, rel: string): Promise<string> 
 				return decoded.slice(0, MAX_TITLE_LEN);
 			}
 		}
-	} catch {}
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		console.warn(`[pages] Failed to extract title from ${rel}: ${msg}`);
+	}
 	return filenameTitle(rel).slice(0, MAX_TITLE_LEN);
 }
 

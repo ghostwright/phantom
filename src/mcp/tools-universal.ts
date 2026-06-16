@@ -257,7 +257,11 @@ async function searchMemoryCore(
 	const results: Record<string, unknown[]> = {};
 
 	if (options.memoryType === "all" || options.memoryType === "episodic") {
-		const episodes = await deps.memory.recallEpisodes(options.query, { limit: options.limit }).catch(() => []);
+		const episodes = await deps.memory.recallEpisodes(options.query, { limit: options.limit }).catch((err: unknown) => {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`[mcp] memory_search recallEpisodes failed: ${msg}`);
+			return [];
+		});
 		const daysBack = options.daysBack;
 		if (daysBack != null && daysBack > 0) {
 			const cutoff = Date.now() - daysBack * 24 * 60 * 60 * 1000;
@@ -273,10 +277,18 @@ async function searchMemoryCore(
 		}
 	}
 	if (options.memoryType === "all" || options.memoryType === "semantic") {
-		results.facts = await deps.memory.recallFacts(options.query, { limit: options.limit }).catch(() => []);
+		results.facts = await deps.memory.recallFacts(options.query, { limit: options.limit }).catch((err: unknown) => {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`[mcp] memory_search recallFacts failed: ${msg}`);
+			return [];
+		});
 	}
 	if (options.memoryType === "all" || options.memoryType === "procedural") {
-		const proc = await deps.memory.findProcedure(options.query).catch(() => null);
+		const proc = await deps.memory.findProcedure(options.query).catch((err: unknown) => {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`[mcp] memory_search findProcedure failed: ${msg}`);
+			return null;
+		});
 		results.procedures = proc ? [proc] : [];
 	}
 

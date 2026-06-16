@@ -37,7 +37,11 @@ function registerHealthResource(server: McpServer, deps: ResourceDependencies): 
 		},
 		async (): Promise<ReadResourceResult> => {
 			const memoryHealth = deps.memory
-				? await deps.memory.healthCheck().catch(() => ({ qdrant: false, ollama: false }))
+				? await deps.memory.healthCheck().catch((err: unknown) => {
+						const msg = err instanceof Error ? err.message : String(err);
+						console.warn(`[mcp] health resource memory check failed: ${msg}`);
+						return { qdrant: false, ollama: false };
+					})
 				: { qdrant: false, ollama: false };
 
 			const uptimeSeconds = Math.floor((Date.now() - deps.startedAt) / 1000);
@@ -284,7 +288,11 @@ function registerMemoryRecentResource(server: McpServer, deps: ResourceDependenc
 				};
 			}
 
-			const episodes = await deps.memory.recallEpisodes("recent activity", { limit: 10 }).catch(() => []);
+			const episodes = await deps.memory.recallEpisodes("recent activity", { limit: 10 }).catch((err: unknown) => {
+				const msg = err instanceof Error ? err.message : String(err);
+				console.warn(`[mcp] memory-recent recallEpisodes failed: ${msg}`);
+				return [];
+			});
 			return {
 				contents: [
 					{
@@ -318,7 +326,11 @@ function registerMemoryDomainResource(server: McpServer, deps: ResourceDependenc
 				return { contents: [{ uri: uri.href, text: JSON.stringify({ facts: [], available: false }) }] };
 			}
 
-			const facts = await deps.memory.recallFacts(topic as string, { limit: 20 }).catch(() => []);
+			const facts = await deps.memory.recallFacts(topic as string, { limit: 20 }).catch((err: unknown) => {
+				const msg = err instanceof Error ? err.message : String(err);
+				console.warn(`[mcp] memory-domain recallFacts failed: ${msg}`);
+				return [];
+			});
 			return {
 				contents: [
 					{

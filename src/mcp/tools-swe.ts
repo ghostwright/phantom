@@ -56,8 +56,9 @@ function registerCodebaseQuery(server: McpServer, deps: ToolDependencies): void 
 							timestamp: e.started_at,
 						}));
 					}
-				} catch {
-					// Memory unavailable, continue without it
+				} catch (err: unknown) {
+					const msg = err instanceof Error ? err.message : String(err);
+					console.warn(`[mcp] codebase_query recallEpisodes failed: ${msg}`);
 				}
 
 				try {
@@ -68,8 +69,9 @@ function registerCodebaseQuery(server: McpServer, deps: ToolDependencies): void 
 							confidence: f.confidence,
 						}));
 					}
-				} catch {
-					// Memory unavailable, continue without it
+				} catch (err: unknown) {
+					const msg = err instanceof Error ? err.message : String(err);
+					console.warn(`[mcp] codebase_query recallFacts failed: ${msg}`);
 				}
 			}
 
@@ -280,8 +282,9 @@ function registerRepoInfo(server: McpServer, deps: ToolDependencies): void {
 							fact: f.natural_language,
 						}));
 					}
-				} catch {
-					// Continue without memory
+				} catch (err: unknown) {
+					const msg = err instanceof Error ? err.message : String(err);
+					console.warn(`[mcp] repo_info recallFacts failed: ${msg}`);
 				}
 			}
 

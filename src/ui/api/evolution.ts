@@ -125,7 +125,9 @@ function buildOverview(deps: EvolutionApiDeps): OverviewResponse {
 	if (deps.queue) {
 		try {
 			poisonCount = deps.queue.listPoisonPile().length;
-		} catch {
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`[evolution] Failed to read poison pile: ${msg}`);
 			poisonCount = 0;
 		}
 	}
@@ -207,7 +209,9 @@ function readFilePreview(configDir: string, relPath: string): { content: string;
 	let size = 0;
 	try {
 		size = statSync(absolute).size;
-	} catch {
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		console.warn(`[evolution] stat failed for ${relPath}: ${msg}`);
 		size = 0;
 	}
 	try {
@@ -215,7 +219,9 @@ function readFilePreview(configDir: string, relPath: string): { content: string;
 		const cap = FILE_PREVIEW_BYTE_CAP;
 		const sliced = raw.length <= cap ? raw : raw.subarray(0, cap);
 		return { content: sliced.toString("utf-8"), size };
-	} catch {
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		console.warn(`[evolution] read failed for ${relPath}: ${msg}`);
 		return { content: "", size };
 	}
 }

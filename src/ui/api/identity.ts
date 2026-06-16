@@ -54,7 +54,9 @@ function readMetaSync(): AvatarMeta | null {
 		const parsed = JSON.parse(text) as AvatarMeta;
 		if (!parsed || typeof parsed.ext !== "string" || typeof parsed.mime !== "string") return null;
 		return parsed;
-	} catch {
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		console.warn(`[identity] Failed to read avatar meta: ${msg}`);
 		return null;
 	}
 }
@@ -173,7 +175,10 @@ export async function handleAvatarPost(req: Request): Promise<Response> {
 	} catch (err: unknown) {
 		try {
 			if (existsSync(tmpFile)) unlinkSync(tmpFile);
-		} catch {}
+		} catch (cleanupErr: unknown) {
+			const cleanupMsg = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+			console.warn(`[identity] Failed to clean up tmp avatar file: ${cleanupMsg}`);
+		}
 		const msg = err instanceof Error ? err.message : String(err);
 		return errJson(`Avatar write failed: ${msg}`, 500);
 	}
@@ -184,7 +189,10 @@ export async function handleAvatarPost(req: Request): Promise<Response> {
 	} catch (err: unknown) {
 		try {
 			if (existsSync(tmpMeta)) unlinkSync(tmpMeta);
-		} catch {}
+		} catch (cleanupErr: unknown) {
+			const cleanupMsg = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+			console.warn(`[identity] Failed to clean up tmp meta file: ${cleanupMsg}`);
+		}
 		const msg = err instanceof Error ? err.message : String(err);
 		return errJson(`Avatar meta write failed: ${msg}`, 500);
 	}
@@ -196,7 +204,10 @@ export async function handleAvatarPost(req: Request): Promise<Response> {
 		if (entry.endsWith(".tmp")) continue;
 		try {
 			unlinkSync(resolve(dir, entry));
-		} catch {}
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`[identity] Failed to prune old avatar ${entry}: ${msg}`);
+		}
 	}
 
 	return Response.json({ ok: true, url: "/ui/avatar", size: bytes.byteLength, mime });
@@ -209,7 +220,10 @@ export function handleAvatarDelete(): Response {
 		if (!entry.startsWith("avatar.")) continue;
 		try {
 			unlinkSync(resolve(dir, entry));
-		} catch {}
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`[identity] Failed to delete avatar file ${entry}: ${msg}`);
+		}
 	}
 	return new Response(null, { status: 204 });
 }

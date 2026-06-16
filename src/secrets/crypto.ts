@@ -39,7 +39,9 @@ export function getEncryptionKey(): Buffer {
 		}
 		cachedKey = buf;
 		return cachedKey;
-	} catch {
+	} catch (err: unknown) {
+		const detail = err instanceof Error ? err.message : String(err);
+		console.warn(`[secrets] Could not load encryption key from ${keyPath}: ${detail}. Generating new key.`);
 		const key = randomBytes(KEY_LENGTH);
 		const dir = dirname(keyPath);
 		if (!existsSync(dir)) {

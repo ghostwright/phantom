@@ -25,7 +25,9 @@ export function computeNextRunAt(schedule: Schedule, afterMs: number = Date.now(
 			try {
 				const cron = new Cron(schedule.expr, { timezone: tz, mode: "5-part" });
 				return cron.nextRun(new Date(afterMs));
-			} catch {
+			} catch (err: unknown) {
+				const msg = err instanceof Error ? err.message : String(err);
+				console.warn(`[scheduler] Invalid cron "${schedule.expr}" (tz=${tz}): ${msg}`);
 				return null;
 			}
 		}

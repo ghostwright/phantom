@@ -51,9 +51,14 @@ export type SlackProfileClient = {
  * All API calls are best-effort - failures degrade gracefully to null fields.
  */
 export async function profileOwner(client: SlackProfileClient, ownerUserId: string): Promise<OwnerProfile> {
+	const logWarn = (api: string) => (err: unknown) => {
+		const msg = err instanceof Error ? err.message : String(err);
+		console.warn(`[onboarding] Slack ${api} failed for ${ownerUserId}: ${msg}`);
+		return null;
+	};
 	const [userResult, teamResult, channelsResult] = await Promise.all([
-		client.users.info({ user: ownerUserId }).catch(() => null),
-		client.team.info().catch(() => null),
+		client.users.info({ user: ownerUserId }).catch(logWarn("users.info")),
+		client.team.info().catch(logWarn("team.info")),
 		client.users
 			.conversations({
 				user: ownerUserId,
@@ -61,7 +66,7 @@ export async function profileOwner(client: SlackProfileClient, ownerUserId: stri
 				exclude_archived: true,
 				limit: 100,
 			})
-			.catch(() => null),
+			.catch(logWarn("users.conversations")),
 	]);
 
 	const user = userResult?.user;

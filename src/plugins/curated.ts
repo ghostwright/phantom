@@ -37,7 +37,9 @@ export function loadCuratedOverlay(pathOverride?: string): CuratedOverlay {
 	let mtimeMs: number;
 	try {
 		mtimeMs = statSync(path).mtimeMs;
-	} catch {
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		console.warn(`[plugins] curated overlay stat failed (${path}): ${msg}`);
 		return DEFAULT_OVERLAY;
 	}
 

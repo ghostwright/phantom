@@ -101,7 +101,9 @@ export async function parseJobDescription(description: string, deps: ParseDeps =
 		const parsed = JobCreateInputSchema.safeParse(result.data);
 		if (!parsed.success) return { ok: false, status: 422, error: GENERIC_ERROR };
 		return { ok: true, proposal: parsed.data, warnings: [] };
-	} catch {
+	} catch (err: unknown) {
+		const detail = err instanceof Error ? err.message : String(err);
+		console.warn(`[scheduler] Sonnet parse failed: ${detail}`);
 		return { ok: false, status: 422, error: GENERIC_ERROR };
 	}
 }
