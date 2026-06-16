@@ -120,8 +120,9 @@ function buildWhere(filter: ListQuery): { clauses: string[]; params: Array<strin
 		params.push(status);
 	}
 	if (filter.q && filter.q.length > 0) {
-		clauses.push("(LOWER(s.conversation_id) LIKE ? OR LOWER(s.session_key) LIKE ?)");
-		const needle = `%${filter.q.toLowerCase()}%`;
+		clauses.push("(LOWER(s.conversation_id) LIKE ? ESCAPE '\\' OR LOWER(s.session_key) LIKE ? ESCAPE '\\')");
+		const escaped = filter.q.toLowerCase().replace(/[\\%_]/g, (ch) => `\\${ch}`);
+		const needle = `%${escaped}%`;
 		params.push(needle, needle);
 	}
 	return { clauses, params };

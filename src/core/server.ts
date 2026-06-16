@@ -130,6 +130,22 @@ function wantsHtml(acceptHeader: string | null): boolean {
 	return acceptHeader.toLowerCase().includes("text/html");
 }
 
+const SECURITY_HEADERS: Record<string, string> = {
+	"X-Content-Type-Options": "nosniff",
+	"X-Frame-Options": "DENY",
+	"Referrer-Policy": "strict-origin-when-cross-origin",
+	"Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+};
+
+function withSecurityHeaders(response: Response): Response {
+	for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
+		if (!response.headers.has(key)) {
+			response.headers.set(key, value);
+		}
+	}
+	return response;
+}
+
 export function startServer(config: PhantomConfig, startedAt: number): ReturnType<typeof Bun.serve> {
 	const mcpConfig = loadMcpConfig();
 	triggerAuth = new AuthMiddleware(mcpConfig);
@@ -138,201 +154,206 @@ export function startServer(config: PhantomConfig, startedAt: number): ReturnTyp
 		port: config.port,
 		idleTimeout: 60,
 		async fetch(req) {
-			const url = new URL(req.url);
-
-			if (url.pathname === "/health") {
-				const memory: MemoryHealth = memoryHealthProvider
-					? await memoryHealthProvider()
-					: { qdrant: false, ollama: false, configured: false };
-
-				const channels: Record<string, boolean> = channelHealthProvider ? channelHealthProvider() : {};
-
-				const allHealthy = memory.qdrant && memory.ollama;
-				const someHealthy = memory.qdrant || memory.ollama;
-				// Both up -> ok. One up -> degraded. Both down + configured -> down. Not configured -> ok.
-				const status = allHealthy ? "ok" : someHealthy ? "degraded" : memory.configured ? "down" : "ok";
-				const evolutionGeneration = evolutionVersionProvider ? evolutionVersionProvider() : 0;
-
-				const roleInfo = roleInfoProvider ? roleInfoProvider() : null;
-
-				const onboardingStatus = onboardingStatusProvider ? onboardingStatusProvider() : null;
-				const peers = peerHealthProvider ? peerHealthProvider() : null;
-				const scheduler = schedulerHealthProvider ? schedulerHealthProvider() : null;
-
-				const payload: HealthPayload = {
-					status,
-					uptime: Math.floor((Date.now() - startedAt) / 1000),
-					version: VERSION,
-					agent: config.name,
-					avatar_url: avatarUrlIfPresent(),
-					...(config.public_url ? { public_url: config.public_url } : {}),
-					role: roleInfo ?? { id: config.role, name: config.role },
-					channels,
-					memory,
-					evolution: { generation: evolutionGeneration },
-					...(onboardingStatus ? { onboarding: onboardingStatus } : {}),
-					...(peers && Object.keys(peers).length > 0 ? { peers } : {}),
-					...(scheduler ? { scheduler } : {}),
-				};
-
-				// ?format=json overrides content negotiation so the HTML page can
-				// re-fetch itself as JSON without juggling Accept headers.
-				const formatOverride = url.searchParams.get("format");
-				if (formatOverride !== "json" && req.method === "GET" && wantsHtml(req.headers.get("Accept"))) {
-					return new Response(renderHealthHtml(payload), {
-						headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
-					});
-				}
-
-				return Response.json(payload);
-			}
-
-			// Phase 18 PR-6: build-identity surface. Reads /etc/phantom-build-info
-			// at request-time (no in-process cache) and returns the JSON contents
-			// verbatim. Operators reconcile the response's `phantom_sha` against
-			// `phantomctl tenant get`'s `image_tag` to detect drift between what
-			// the host thinks is running and what the in-VM phantom actually
-			// loaded. Unauthenticated, matching the `/health` precedent: the
-			// build SHA is a public-repo value, and per-tenant isolation comes
-			// from the per-tenant URL behind Caddy. 404 when the file is absent
-			// so a misconfigured dev container surfaces a clean error rather
-			// than leaking other process state.
-			if (url.pathname === "/health/build-info" && req.method === "GET") {
-				const result = await readBuildInfo();
-				if (result.kind === "missing") {
-					return Response.json(
-						{
-							error: "build_info_unavailable",
-							message:
-								"phantom build-info file is not present on this filesystem; expected at /etc/phantom-build-info (set PHANTOM_BUILD_INFO_PATH to override)",
-						},
-						{ status: 404, headers: { "Cache-Control": "no-store" } },
-					);
-				}
-				if (result.kind === "malformed") {
-					return Response.json(
-						{ error: "build_info_malformed", message: result.error },
-						{ status: 500, headers: { "Cache-Control": "no-store" } },
-					);
-				}
-				return new Response(result.raw, {
-					headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
-				});
-			}
-
-			// Phase 8a: Prometheus metrics surface. Unauthenticated by design,
-			// matching the existing `/health` precedent: this server's tenant
-			// isolation comes from the per-tenant URL behind Caddy, not from
-			// per-route auth. Returns 503 when no registry is wired (the
-			// process started without a metrics provider).
-			if (url.pathname === "/metrics" && req.method === "GET") {
-				const provided = metricsRegistryProvider?.();
-				if (!provided) {
-					return new Response("metrics registry not configured", {
-						status: 503,
-						headers: { "Content-Type": "text/plain; charset=utf-8" },
-					});
-				}
-				const registries = Array.isArray(provided) ? provided : [provided];
-				if (registries.length === 0) {
-					return new Response("metrics registry not configured", {
-						status: 503,
-						headers: { "Content-Type": "text/plain; charset=utf-8" },
-					});
-				}
-				const dumps = await Promise.all(registries.map((r) => r.metrics()));
-				const body = dumps.join("\n");
-				return new Response(body, {
-					headers: {
-						"Content-Type": registries[0].contentType,
-						"Cache-Control": "no-store",
-					},
-				});
-			}
-
-			if (url.pathname === "/mcp") {
-				const mcpServer = mcpServerProvider?.();
-				if (!mcpServer) {
-					return Response.json(
-						{ jsonrpc: "2.0", error: { code: -32603, message: "MCP server not initialized" }, id: null },
-						{ status: 503 },
-					);
-				}
-				return mcpServer.handleRequest(req);
-			}
-
-			if (url.pathname === "/trigger" && req.method === "POST") {
-				return handleTrigger(req);
-			}
-
-			// Slack HTTP-mode ingress: phantom-slack-events on the gateway side
-			// forwards verified Slack events here through phantomd. The channel
-			// holds the per-tenant gateway signing secret; the helper returns
-			// `null` when this is not a Slack path, so we fall through to the
-			// remaining routes without overlap.
-			const slackResponse = await tryHandleSlackHttp(req);
-			if (slackResponse) return slackResponse;
-
-			if (url.pathname === "/webhook") {
-				if (!webhookHandler) {
-					return Response.json({ status: "error", message: "Webhook channel not configured" }, { status: 503 });
-				}
-				return webhookHandler(req);
-			}
-
-			if (url.pathname === "/login/email" && req.method === "POST") {
-				const publicUrl = config.public_url ?? `http://localhost:${config.port}`;
-				return handleEmailLogin(req, publicUrl, config.name, config.domain ?? "ghostwright.dev");
-			}
-
-			// Phase 6 PR-3 magic-link callback. The dashboard 302s the
-			// user's browser to /auth/magic?token=<x>; we validate
-			// server-side via the metadata gateway hop, mint a
-			// phantom_session cookie, and 302 to /chat. Every error
-			// path lands the user back on the dashboard with a
-			// ?magic_error= code (architect §6.3 + §8).
-			if (url.pathname === "/auth/magic") {
-				return handleAuthMagic(req);
-			}
-
-			// Public PWA/SW-scoped mirror of the operator avatar. Service
-			// workers cannot reliably reach /ui/* across the /chat/ scope, so
-			// we expose the same bytes under /chat/icon. Same headers as
-			// /ui/avatar.
-			if (url.pathname === "/chat/icon" && req.method === "GET") {
-				return handleAvatarGet(req);
-			}
-			if (url.pathname === "/chat/icon") {
-				return new Response("Method not allowed", { status: 405, headers: { Allow: "GET" } });
-			}
-
-			if (isChatRequestPath(url.pathname) && chatHandler) {
-				const response = await chatHandler(req);
-				if (response) return response;
-			}
-
-			// Public publishing surface. Agents drop HTML, XML, or assets
-			// under public/public/*. Served without auth so Googlebot,
-			// OpenGraph scrapers, and the open web can read them.
-			// Traversal-defended via path.resolve + containment check.
-			if (url.pathname === "/public" || url.pathname === "/public/" || url.pathname.startsWith("/public/")) {
-				return handlePublicRequest(url);
-			}
-
-			if (url.pathname.startsWith("/ui")) {
-				return handleUiRequest(req);
-			}
-
-			if (url.pathname === "/" || url.pathname === "") {
-				return Response.redirect("/ui/", 302);
-			}
-
-			return Response.json({ error: "Not found" }, { status: 404 });
+			const response = await handleRequest(req, config, startedAt);
+			return withSecurityHeaders(response);
 		},
 	});
 
 	console.log(`[phantom] HTTP server listening on port ${config.port}`);
 	return server;
+}
+
+async function handleRequest(req: Request, config: PhantomConfig, startedAt: number): Promise<Response> {
+	const url = new URL(req.url);
+
+	if (url.pathname === "/health") {
+		const memory: MemoryHealth = memoryHealthProvider
+			? await memoryHealthProvider()
+			: { qdrant: false, ollama: false, configured: false };
+
+		const channels: Record<string, boolean> = channelHealthProvider ? channelHealthProvider() : {};
+
+		const allHealthy = memory.qdrant && memory.ollama;
+		const someHealthy = memory.qdrant || memory.ollama;
+		// Both up -> ok. One up -> degraded. Both down + configured -> down. Not configured -> ok.
+		const status = allHealthy ? "ok" : someHealthy ? "degraded" : memory.configured ? "down" : "ok";
+		const evolutionGeneration = evolutionVersionProvider ? evolutionVersionProvider() : 0;
+
+		const roleInfo = roleInfoProvider ? roleInfoProvider() : null;
+
+		const onboardingStatus = onboardingStatusProvider ? onboardingStatusProvider() : null;
+		const peers = peerHealthProvider ? peerHealthProvider() : null;
+		const scheduler = schedulerHealthProvider ? schedulerHealthProvider() : null;
+
+		const payload: HealthPayload = {
+			status,
+			uptime: Math.floor((Date.now() - startedAt) / 1000),
+			version: VERSION,
+			agent: config.name,
+			avatar_url: avatarUrlIfPresent(),
+			...(config.public_url ? { public_url: config.public_url } : {}),
+			role: roleInfo ?? { id: config.role, name: config.role },
+			channels,
+			memory,
+			evolution: { generation: evolutionGeneration },
+			...(onboardingStatus ? { onboarding: onboardingStatus } : {}),
+			...(peers && Object.keys(peers).length > 0 ? { peers } : {}),
+			...(scheduler ? { scheduler } : {}),
+		};
+
+		// ?format=json overrides content negotiation so the HTML page can
+		// re-fetch itself as JSON without juggling Accept headers.
+		const formatOverride = url.searchParams.get("format");
+		if (formatOverride !== "json" && req.method === "GET" && wantsHtml(req.headers.get("Accept"))) {
+			return new Response(renderHealthHtml(payload), {
+				headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+			});
+		}
+
+		return Response.json(payload);
+	}
+
+	// Phase 18 PR-6: build-identity surface. Reads /etc/phantom-build-info
+	// at request-time (no in-process cache) and returns the JSON contents
+	// verbatim. Operators reconcile the response's `phantom_sha` against
+	// `phantomctl tenant get`'s `image_tag` to detect drift between what
+	// the host thinks is running and what the in-VM phantom actually
+	// loaded. Unauthenticated, matching the `/health` precedent: the
+	// build SHA is a public-repo value, and per-tenant isolation comes
+	// from the per-tenant URL behind Caddy. 404 when the file is absent
+	// so a misconfigured dev container surfaces a clean error rather
+	// than leaking other process state.
+	if (url.pathname === "/health/build-info" && req.method === "GET") {
+		const result = await readBuildInfo();
+		if (result.kind === "missing") {
+			return Response.json(
+				{
+					error: "build_info_unavailable",
+					message:
+						"phantom build-info file is not present on this filesystem; expected at /etc/phantom-build-info (set PHANTOM_BUILD_INFO_PATH to override)",
+				},
+				{ status: 404, headers: { "Cache-Control": "no-store" } },
+			);
+		}
+		if (result.kind === "malformed") {
+			return Response.json(
+				{ error: "build_info_malformed", message: result.error },
+				{ status: 500, headers: { "Cache-Control": "no-store" } },
+			);
+		}
+		return new Response(result.raw, {
+			headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
+		});
+	}
+
+	// Phase 8a: Prometheus metrics surface. Unauthenticated by design,
+	// matching the existing `/health` precedent: this server's tenant
+	// isolation comes from the per-tenant URL behind Caddy, not from
+	// per-route auth. Returns 503 when no registry is wired (the
+	// process started without a metrics provider).
+	if (url.pathname === "/metrics" && req.method === "GET") {
+		const provided = metricsRegistryProvider?.();
+		if (!provided) {
+			return new Response("metrics registry not configured", {
+				status: 503,
+				headers: { "Content-Type": "text/plain; charset=utf-8" },
+			});
+		}
+		const registries = Array.isArray(provided) ? provided : [provided];
+		if (registries.length === 0) {
+			return new Response("metrics registry not configured", {
+				status: 503,
+				headers: { "Content-Type": "text/plain; charset=utf-8" },
+			});
+		}
+		const dumps = await Promise.all(registries.map((r) => r.metrics()));
+		const body = dumps.join("\n");
+		return new Response(body, {
+			headers: {
+				"Content-Type": registries[0].contentType,
+				"Cache-Control": "no-store",
+			},
+		});
+	}
+
+	if (url.pathname === "/mcp") {
+		const mcpServer = mcpServerProvider?.();
+		if (!mcpServer) {
+			return Response.json(
+				{ jsonrpc: "2.0", error: { code: -32603, message: "MCP server not initialized" }, id: null },
+				{ status: 503 },
+			);
+		}
+		return mcpServer.handleRequest(req);
+	}
+
+	if (url.pathname === "/trigger" && req.method === "POST") {
+		return handleTrigger(req);
+	}
+
+	// Slack HTTP-mode ingress: phantom-slack-events on the gateway side
+	// forwards verified Slack events here through phantomd. The channel
+	// holds the per-tenant gateway signing secret; the helper returns
+	// `null` when this is not a Slack path, so we fall through to the
+	// remaining routes without overlap.
+	const slackResponse = await tryHandleSlackHttp(req);
+	if (slackResponse) return slackResponse;
+
+	if (url.pathname === "/webhook") {
+		if (!webhookHandler) {
+			return Response.json({ status: "error", message: "Webhook channel not configured" }, { status: 503 });
+		}
+		return webhookHandler(req);
+	}
+
+	if (url.pathname === "/login/email" && req.method === "POST") {
+		const publicUrl = config.public_url ?? `http://localhost:${config.port}`;
+		return handleEmailLogin(req, publicUrl, config.name, config.domain ?? "ghostwright.dev");
+	}
+
+	// Phase 6 PR-3 magic-link callback. The dashboard 302s the
+	// user's browser to /auth/magic?token=<x>; we validate
+	// server-side via the metadata gateway hop, mint a
+	// phantom_session cookie, and 302 to /chat. Every error
+	// path lands the user back on the dashboard with a
+	// ?magic_error= code (architect §6.3 + §8).
+	if (url.pathname === "/auth/magic") {
+		return handleAuthMagic(req);
+	}
+
+	// Public PWA/SW-scoped mirror of the operator avatar. Service
+	// workers cannot reliably reach /ui/* across the /chat/ scope, so
+	// we expose the same bytes under /chat/icon. Same headers as
+	// /ui/avatar.
+	if (url.pathname === "/chat/icon" && req.method === "GET") {
+		return handleAvatarGet(req);
+	}
+	if (url.pathname === "/chat/icon") {
+		return new Response("Method not allowed", { status: 405, headers: { Allow: "GET" } });
+	}
+
+	if (isChatRequestPath(url.pathname) && chatHandler) {
+		const response = await chatHandler(req);
+		if (response) return response;
+	}
+
+	// Public publishing surface. Agents drop HTML, XML, or assets
+	// under public/public/*. Served without auth so Googlebot,
+	// OpenGraph scrapers, and the open web can read them.
+	// Traversal-defended via path.resolve + containment check.
+	if (url.pathname === "/public" || url.pathname === "/public/" || url.pathname.startsWith("/public/")) {
+		return handlePublicRequest(url);
+	}
+
+	if (url.pathname.startsWith("/ui")) {
+		return handleUiRequest(req);
+	}
+
+	if (url.pathname === "/" || url.pathname === "") {
+		return Response.redirect("/ui/", 302);
+	}
+
+	return Response.json({ error: "Not found" }, { status: 404 });
 }
 
 function isChatRequestPath(pathname: string): boolean {

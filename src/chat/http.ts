@@ -201,7 +201,7 @@ async function handleCreateSession(req: Request, deps: ChatHandlerDeps): Promise
 }
 
 function handleListSessions(url: URL, deps: ChatHandlerDeps): Response {
-	const limit = Number(url.searchParams.get("limit")) || 50;
+	const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 50, 1), 200);
 	const cursor = url.searchParams.get("cursor") ?? undefined;
 	const status = (url.searchParams.get("status") as "active" | "archived" | "deleted") ?? "active";
 	const result = deps.sessionStore.list({ limit, cursor, status });
