@@ -22,12 +22,15 @@ import { getSessionCount, revokeAllSessions } from "../session.ts";
 
 type Cookie = { name: string; value: string; domain: string; path: string };
 type FakeContext = BrowserContext & { __cookies: Cookie[]; __closed: boolean };
-type FakeBrowser = Browser & { __contexts: FakeContext[]; __closed: boolean };
+type FakeBrowser = Browser & { __contexts: FakeContext[]; __closed: boolean; __disconnect: () => void };
 
-function makeFakeContext(): FakeContext {
+function makeFakeContext(parent: FakeBrowser): FakeContext {
 	const state = { __cookies: [] as Cookie[], __closed: false };
 	const ctx = {
 		...state,
+		// preview.ts reads context.browser() to test liveness before reusing a
+		// cached context, so the fake must report its parent (#146).
+		browser: () => parent,
 		addCookies: async (cookies: Cookie[]) => {
 			// Match Playwright semantics: replace any cookie with the same
 			// name+domain+path in place, otherwise append.
@@ -50,19 +53,30 @@ function makeFakeContext(): FakeContext {
 
 function makeFakeBrowser(): FakeBrowser {
 	const contexts: FakeContext[] = [];
-	const state = { __closed: false };
+	const state = { __closed: false, __connected: true };
 	const b = {
+		// preview.ts gates cache reuse on isConnected(); a crashed/killed
+		// browser process reports false and must trigger a relaunch (#146).
+		isConnected: () => state.__connected,
 		newContext: async () => {
-			const ctx = makeFakeContext();
+			const ctx = makeFakeContext(b);
 			contexts.push(ctx);
 			return ctx;
 		},
 		close: async () => {
 			state.__closed = true;
+			state.__connected = false;
 		},
 	} as unknown as FakeBrowser;
 	Object.defineProperty(b, "__contexts", { get: () => contexts });
 	Object.defineProperty(b, "__closed", { get: () => state.__closed });
+	// Simulate an out-of-band process death (renderer crash, OOM, kill) that
+	// disconnects the Browser without going through close().
+	Object.defineProperty(b, "__disconnect", {
+		value: () => {
+			state.__connected = false;
+		},
+	});
 	return b;
 }
 
@@ -109,6 +123,55 @@ describe("getOrCreatePreviewContext launch-failure recovery", () => {
 			const ctx = await getOrCreatePreviewContext();
 			expect(ctx).toBeDefined();
 			expect(calls).toBe(2);
+		} finally {
+			spy.mockRestore();
+		}
+	});
+});
+
+describe("crashed-browser recovery (#146)", () => {
+	test("getOrCreateBrowser relaunches after the cached browser disconnects", async () => {
+		const spy = spyOn(chromium, "launch");
+		try {
+			const browsers: FakeBrowser[] = [];
+			spy.mockImplementation(async () => {
+				const b = makeFakeBrowser();
+				browsers.push(b);
+				return b;
+			});
+
+			const first = (await getOrCreateBrowser()) as FakeBrowser;
+			// A warm cache hit while still connected must not relaunch.
+			expect(await getOrCreateBrowser()).toBe(first);
+			expect(browsers.length).toBe(1);
+
+			// Simulate the process dying out from under us (the #146 symptom).
+			first.__disconnect();
+
+			const second = (await getOrCreateBrowser()) as FakeBrowser;
+			expect(second).not.toBe(first);
+			expect(second.isConnected()).toBe(true);
+			expect(browsers.length).toBe(2);
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	test("getOrCreatePreviewContext rebuilds on a relaunched browser after a crash", async () => {
+		const spy = spyOn(chromium, "launch");
+		try {
+			spy.mockImplementation(async () => makeFakeBrowser());
+
+			const firstCtx = (await getOrCreatePreviewContext()) as FakeContext;
+			// Warm hit while the browser is alive returns the same context.
+			expect(await getOrCreatePreviewContext()).toBe(firstCtx);
+
+			// The browser behind the cached context dies.
+			(firstCtx.browser() as FakeBrowser).__disconnect();
+
+			const secondCtx = (await getOrCreatePreviewContext()) as FakeContext;
+			expect(secondCtx).not.toBe(firstCtx);
+			expect((secondCtx.browser() as FakeBrowser).isConnected()).toBe(true);
 		} finally {
 			spy.mockRestore();
 		}

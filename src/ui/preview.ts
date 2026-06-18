@@ -70,7 +70,16 @@ async function injectFreshPreviewCookie(ctx: BrowserContext): Promise<void> {
 
 export async function getOrCreateBrowser(): Promise<Browser> {
 	if (shuttingDown) throw new Error("preview subsystem is shutting down");
-	if (browser) return browser;
+	if (browser) {
+		// A cached Browser is only reusable while its process is still alive.
+		// A renderer/browser crash, an OOM kill, or an external process sweep
+		// disconnects the Browser without clearing this reference, and every
+		// later call would otherwise hand back a dead handle that fails for the
+		// rest of the process lifetime (#146). Drop the stale reference on
+		// disconnect so the launch path below relaunches a fresh process.
+		if (browser.isConnected()) return browser;
+		browser = null;
+	}
 	if (browserPromise) return browserPromise;
 	// try/finally pattern: on either success OR failure we clear the cached
 	// promise. If we did not, a transient chromium.launch() throw would leave
@@ -94,14 +103,22 @@ export async function getOrCreateBrowser(): Promise<Browser> {
 export async function getOrCreatePreviewContext(): Promise<BrowserContext> {
 	if (shuttingDown) throw new Error("preview subsystem is shutting down");
 	if (currentContext) {
-		// Warm cache path: rotate the preview cookie if we are inside the 2
-		// minute safety margin before the 10 minute TTL expires. Playwright's
-		// addCookies replaces cookies with the same name+domain+path in place,
-		// so this is an O(1) refresh of the cached context (review F6, Codex P1).
-		if (Date.now() - lastCookieMintAt >= COOKIE_ROTATE_AFTER_MS) {
-			await injectFreshPreviewCookie(currentContext);
+		// A cached context dies with its browser: once the underlying process
+		// disconnects (crash, OOM, kill) the context handle is permanently
+		// dead, so drop it and fall through to rebuild a fresh context on a
+		// relaunched browser rather than returning a corpse (#146).
+		const ctxBrowser = currentContext.browser();
+		if (ctxBrowser?.isConnected()) {
+			// Warm cache path: rotate the preview cookie if we are inside the 2
+			// minute safety margin before the 10 minute TTL expires. Playwright's
+			// addCookies replaces cookies with the same name+domain+path in place,
+			// so this is an O(1) refresh of the cached context (review F6, Codex P1).
+			if (Date.now() - lastCookieMintAt >= COOKIE_ROTATE_AFTER_MS) {
+				await injectFreshPreviewCookie(currentContext);
+			}
+			return currentContext;
 		}
-		return currentContext;
+		currentContext = null;
 	}
 	if (currentContextPromise) return currentContextPromise;
 	currentContextPromise = (async () => {
