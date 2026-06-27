@@ -100,6 +100,23 @@ export async function executeJob(job: ScheduledJob, ctx: ExecutorContext): Promi
 		});
 	}
 
+	// handleMessage for an agent task runs for minutes, and pauseJob() can land
+	// during that window. We computed newStatus from the job snapshot taken at
+	// pickup, so an unconditional write-back would silently stomp a concurrent
+	// pause. Re-read the live status and honor an external pause. Only the
+	// 'active' continuation case is at risk: 'completed' and 'failed' are this
+	// run's terminal outcomes and must win. resumeJob() recomputes next_run_at,
+	// so clearing it here is safe.
+	if (newStatus === "active") {
+		const live = ctx.db.query("SELECT status FROM scheduled_jobs WHERE id = ?").get(job.id) as {
+			status: string;
+		} | null;
+		if (live?.status === "paused") {
+			newStatus = "paused";
+			nextRunAt = null;
+		}
+	}
+
 	// Runtime safety net for OOS#4.
 	if (!JOB_STATUS_VALUES.includes(newStatus)) {
 		throw new Error(`refusing to write invalid status '${newStatus}' for job ${job.id}`);

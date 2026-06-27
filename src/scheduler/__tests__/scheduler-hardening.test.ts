@@ -506,6 +506,40 @@ describe("Phase 2.5 scheduler fixes", () => {
 			expect(after?.lastDeliveryStatus).toContain("ECONNREFUSED");
 			expect(after?.lastRunStatus).toBe("ok");
 		});
+
+		test("a pauseJob() that lands mid-run is honored, not stomped by the write-back (#148)", async () => {
+			const runtime = createMockRuntime();
+			const scheduler = new Scheduler({ db, runtime: runtime as never });
+
+			const job = scheduler.createJob({
+				name: "Pause Mid Run",
+				schedule: { kind: "every", intervalMs: 60_000 },
+				task: "x",
+			});
+
+			// Simulate a pauseJob() landing while handleMessage is in flight: the
+			// status flips to 'paused' after executeJob captured its 'active'
+			// snapshot at pickup. Before the fix, the unconditional write-back
+			// stomped this back to 'active' and the next fire ran anyway.
+			runtime.handleMessage.mockImplementation(async () => {
+				db.run("UPDATE scheduled_jobs SET status = 'paused' WHERE id = ?", [job.id]);
+				return {
+					text: "Mock response",
+					sessionId: "mock-session",
+					cost: { totalUsd: 0, inputTokens: 0, outputTokens: 0, modelUsage: {} },
+					durationMs: 10,
+				};
+			});
+
+			await scheduler.runJobNow(job.id);
+
+			const after = scheduler.getJob(job.id);
+			// The concurrent pause must survive: status stays 'paused' and the
+			// recurring job gets no next fire scheduled. resumeJob() recomputes
+			// next_run_at when the operator un-pauses.
+			expect(after?.status).toBe("paused");
+			expect(after?.nextRunAt).toBeNull();
+		});
 	});
 
 	// ---------- M1: non-blocking missed-job recovery ----------
