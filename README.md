@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/ghostwright-phantom-badge.png)](https://mseep.ai/app/ghostwright-phantom)
+
 <p align="center">
   <img src="docs/assets/phantom.svg" alt="Phantom" width="120" height="120" />
 </p>
