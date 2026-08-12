@@ -17,6 +17,7 @@ export const PROVIDER_TYPES = [
 	"anthropic",
 	"openai",
 	"zai",
+	"minimax",
 	"openrouter",
 	"vllm",
 	"ollama",
@@ -86,6 +87,11 @@ export const PROVIDER_PRESETS: Readonly<Record<ProviderType, ProviderPreset>> = 
 		api_key_env: "ZAI_API_KEY",
 		disable_betas: true,
 	},
+	minimax: {
+		base_url: "https://api.minimax.io/anthropic",
+		api_key_env: "MINIMAX_API_KEY",
+		disable_betas: true,
+	},
 	openrouter: {
 		base_url: "https://openrouter.ai/api/v1",
 		api_key_env: "OPENROUTER_API_KEY",
@@ -136,6 +142,7 @@ const MURPH_ROUTE_ENV_KEYS = [
 const MURPH_CREDENTIAL_ENV_KEYS = [
 	"OPENAI_API_KEY",
 	"ZAI_API_KEY",
+	"MINIMAX_API_KEY",
 	"ANTHROPIC_API_KEY",
 	"ANTHROPIC_AUTH_TOKEN",
 	"DASHSCOPE_API_KEY",
@@ -245,6 +252,13 @@ export function buildMurphProviderEnv(
 				env.OPENAI_BASE_URL = provider.base_url;
 			}
 			addSelectedCredential(env, sourceEnvKey, "ZAI_API_KEY");
+			break;
+		}
+		case "minimax": {
+			env.MURPH_PROVIDER = "openai-compat";
+			env.MURPH_PROVIDER_CONFIG = "custom";
+			env.OPENAI_BASE_URL = provider.base_url ?? "https://api.minimax.io/v1";
+			addSelectedCredential(env, sourceEnvKey, "OPENAI_API_KEY");
 			break;
 		}
 		case "openrouter": {

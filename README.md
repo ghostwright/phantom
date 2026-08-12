@@ -77,10 +77,11 @@ This is what happens when you give an AI its own computer.
 
 ## Bring Your Own Model
 
-Phantom is not locked to any single AI backend. It ships with support for seven providers out of the box, configured through a single YAML block:
+Phantom is not locked to any single AI backend. It ships with support for eight providers out of the box, configured through a single YAML block:
 
 - **Anthropic** (default) - Claude Opus, Sonnet, Haiku
 - **Z.AI** - GLM-5.1 and GLM-4.5-Air via [Z.AI's Anthropic-compatible API](https://docs.z.ai/guides/llm/glm-5). Roughly 15x cheaper than Claude Opus for comparable coding quality.
+- **MiniMax** - MiniMax-M3 and MiniMax-M2.7 through Anthropic- and OpenAI-compatible endpoints
 - **OpenRouter** - 100+ models through one key
 - **Ollama** - Any GGUF model on your own GPU, zero API cost
 - **vLLM** - Self-hosted inference with OpenAI-compatible endpoints

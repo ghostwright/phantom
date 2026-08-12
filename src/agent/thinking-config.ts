@@ -20,6 +20,7 @@
 import type { ThinkingConfig } from "@anthropic-ai/claude-agent-sdk";
 
 const ADAPTIVE_PREFIXES: readonly string[] = [
+	"MiniMax-M3",
 	"claude-opus-4-7",
 	"claude-opus-4-6",
 	"claude-sonnet-4-6",
@@ -27,6 +28,7 @@ const ADAPTIVE_PREFIXES: readonly string[] = [
 ];
 
 const MANUAL_ONLY_PREFIXES: readonly string[] = [
+	"MiniMax-M2.7",
 	"claude-haiku-4",
 	"claude-haiku-3",
 	"claude-sonnet-3",

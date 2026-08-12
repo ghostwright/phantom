@@ -460,6 +460,28 @@ provider:
 		}
 	});
 
+	test("loads a MiniMax provider block", async () => {
+		const path = writeYaml(
+			"minimax-provider.yaml",
+			`
+name: test
+provider:
+  type: minimax
+  api_key_env: MINIMAX_API_KEY
+  model_mappings:
+    sonnet: MiniMax-M3
+`,
+		);
+		try {
+			const config = await loadConfig(path);
+			expect(config.provider.type).toBe("minimax");
+			expect(config.provider.api_key_env).toBe("MINIMAX_API_KEY");
+			expect(config.provider.model_mappings?.sonnet).toBe("MiniMax-M3");
+		} finally {
+			cleanup();
+		}
+	});
+
 	test("loads provider.type: openai when Murph runtime is selected", async () => {
 		const path = writeYaml(
 			"openai-provider-murph.yaml",

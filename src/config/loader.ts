@@ -172,10 +172,8 @@ export async function loadConfig(path?: string): Promise<PhantomConfig> {
 	const fetcher = new MetadataSecretFetcher(baseUrl);
 
 	// Resolve the provider token first so process.env is populated before any
-	// downstream code that reads it. Anthropic runtime keeps the existing
-	// ANTHROPIC_API_KEY plus ANTHROPIC_AUTH_TOKEN behavior. Murph runtime
-	// populates only the selected provider key so ambient credentials do not
-	// steer the native route.
+	// downstream code that reads it. Provider-specific presets receive their
+	// selected key, while the default generic credential behavior remains intact.
 	const providerToken = await fetcher.get(config.provider.secret_name);
 	populateMetadataProviderEnv(config, providerToken);
 
@@ -191,14 +189,13 @@ function validateRuntimeProviderCombination(config: PhantomConfig): void {
 }
 
 function populateMetadataProviderEnv(config: PhantomConfig, providerToken: string): void {
-	if (config.agent_runtime !== "murph") {
-		process.env.ANTHROPIC_API_KEY = providerToken;
-		process.env.ANTHROPIC_AUTH_TOKEN = providerToken;
-		return;
-	}
 	const key = selectedProviderSecretEnvKey(config);
 	if (key) {
 		process.env[key] = providerToken;
+	}
+	if (config.agent_runtime !== "murph" && (!key || key === "ANTHROPIC_API_KEY")) {
+		process.env.ANTHROPIC_API_KEY = providerToken;
+		process.env.ANTHROPIC_AUTH_TOKEN = providerToken;
 	}
 }
 

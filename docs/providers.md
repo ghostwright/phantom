@@ -43,6 +43,7 @@ phantom start --agent-runtime murph
 | `anthropic` (default) | `https://api.anthropic.com` | `ANTHROPIC_API_KEY` | Claude Opus, Sonnet, Haiku |
 | `openai` | `https://api.openai.com` | `OPENAI_API_KEY` | Murph runtime only |
 | `zai` | `https://api.z.ai/api/anthropic` | `ZAI_API_KEY` | GLM-5.1 and GLM-4.5-Air, roughly 15x cheaper than Opus |
+| `minimax` | `https://api.minimax.io/anthropic` | `MINIMAX_API_KEY` | MiniMax-M3 and MiniMax-M2.7 |
 | `openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | 100+ models through a single key |
 | `vllm` | `http://localhost:8000` | none | Self-hosted OpenAI-compatible inference |
 | `ollama` | `http://localhost:11434` | none | Local GGUF models, zero API cost |
@@ -129,6 +130,62 @@ ZAI_API_KEY=<your-zai-key>
 ```
 
 Both the main agent and every evolution judge route through Z.AI. The `claude-sonnet-4-6` model name is translated to `glm-5.1` on the wire by the `model_mappings` block.
+
+### MiniMax
+
+The `minimax` preset supports both current models. The default Anthropic runtime uses the Anthropic-compatible endpoint, while Murph uses the OpenAI-compatible endpoint. The listed context window is the combined input and output budget.
+
+| Model | Context window | Input modalities | Thinking |
+|------|----------------|------------------|----------|
+| `MiniMax-M3` | 1,000,000 tokens | text, image, video | adaptive or disabled |
+| `MiniMax-M2.7` | 204,800 tokens | text | always on |
+
+Phantom sends adaptive thinking for MiniMax-M3 by default. MiniMax-M3 also supports disabled thinking at the API level, while MiniMax-M2.7 always keeps thinking enabled.
+
+```yaml
+# phantom.yaml, default Anthropic runtime
+model: claude-sonnet-4-6
+provider:
+  type: minimax
+  api_key_env: MINIMAX_API_KEY
+  model_mappings:
+    opus: MiniMax-M3
+    sonnet: MiniMax-M3
+    haiku: MiniMax-M2.7
+```
+
+```bash
+# .env
+MINIMAX_API_KEY=<your-minimax-key>
+```
+
+Choose the endpoint for the runtime protocol and region:
+
+| Runtime protocol | Global default | China override |
+|------------------|----------------|----------------|
+| Anthropic | `https://api.minimax.io/anthropic` | `https://api.minimaxi.com/anthropic` |
+| Murph OpenAI-compatible | `https://api.minimax.io/v1` | `https://api.minimaxi.com/v1` |
+
+The Anthropic client appends `/v1/messages`, so its base URL must end at `/anthropic`; the resulting global request URL is `https://api.minimax.io/anthropic/v1/messages`. To use the China endpoint, set the matching value from the table as `provider.base_url`.
+
+For the OpenAI-compatible route, select Murph and use the concrete model ID:
+
+```yaml
+# phantom.yaml, Murph runtime
+agent_runtime: murph
+model: MiniMax-M3
+provider:
+  type: minimax
+```
+
+Pay-as-you-go prices are in USD per million tokens.
+
+| Model | Input | Output | Cache read | Cache write |
+|-------|-------|--------|------------|-------------|
+| `MiniMax-M3` | $0.60 | $2.40 | $0.12 | n/a |
+| `MiniMax-M2.7` | $0.30 | $1.20 | $0.06 | $0.375 |
+
+See the [MiniMax Anthropic API documentation](https://platform.minimax.io/docs/api-reference/text-anthropic-api) and [current pricing](https://platform.minimax.io/docs/guides/pricing-paygo) for API details.
 
 ### Ollama (local, free)
 

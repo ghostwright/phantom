@@ -24,7 +24,7 @@ timeout_minutes: 240
 # the chosen provider; authentication happens at the env var named below.
 #
 # provider:
-#   type: anthropic            # anthropic | zai | openrouter | vllm | ollama | litellm | custom
+#   type: anthropic            # anthropic | zai | minimax | openrouter | vllm | ollama | litellm | custom
 #   # api_key_env: ANTHROPIC_API_KEY
 #
 # Example: GLM-5.1 via Z.AI's Anthropic-compatible API (15x cheaper than Opus)
@@ -35,6 +35,15 @@ timeout_minutes: 240
 #     opus: glm-5.1
 #     sonnet: glm-5.1
 #     haiku: glm-4.5-air
+#
+# Example: MiniMax with the two current text models
+# provider:
+#   type: minimax
+#   api_key_env: MINIMAX_API_KEY
+#   model_mappings:
+#     opus: MiniMax-M3
+#     sonnet: MiniMax-M3
+#     haiku: MiniMax-M2.7
 #
 # Example: Murph runtime with OpenAI. Requires @murph/anthropic-sdk-shim to be
 # installed or linked into this Phantom project.
