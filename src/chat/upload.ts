@@ -6,7 +6,7 @@ import type { ChatSessionStore } from "./session-store.ts";
 import { writeAttachmentFile } from "./storage.ts";
 import {
 	MAX_FILES_PER_REQUEST,
-	guessMimeFromName,
+	normalizeMimeType,
 	pickExtension,
 	sanitizeFilename,
 	validateFile,
@@ -109,7 +109,7 @@ async function processFiles(
 
 	for (const item of files) {
 		const { file } = item;
-		const mime = file.type || guessMimeFromName(file.name) || "";
+		const mime = normalizeMimeType(file.type, file.name);
 		const validation = validateFile(mime, file.size, file.name);
 
 		if (!validation.ok) {
@@ -130,7 +130,13 @@ async function processFiles(
 			const buffer = Buffer.from(await file.arrayBuffer());
 			const storagePath = await writeAttachmentFile(sessionId, id, ext, buffer);
 
-			const kind = mime.startsWith("image/") ? "image" : mime === "application/pdf" ? "pdf" : "text";
+			const kind = mime.startsWith("image/")
+				? "image"
+				: mime.startsWith("video/")
+					? "video"
+					: mime === "application/pdf"
+						? "pdf"
+						: "text";
 
 			deps.attachmentStore.create({
 				id,

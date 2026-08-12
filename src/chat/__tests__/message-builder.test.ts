@@ -69,6 +69,33 @@ describe("buildUserMessageParam", () => {
 		expect(textBlock?.text).toBe("describe this");
 	});
 
+	test("text + video attachment produces a base64 video block", async () => {
+		const videoPath = join(tmpDir, "clip.mp4");
+		writeFileSync(videoPath, Buffer.from("fake-video-data"));
+
+		attachmentStore.create({
+			sessionId: "test-session-mb",
+			kind: "video",
+			filename: "clip.mp4",
+			mimeType: "video/mp4",
+			sizeBytes: 15,
+			storagePath: videoPath,
+		});
+		const rows = attachmentStore.getBySession("test-session-mb");
+		const attId = rows[0]?.id ?? "";
+
+		const msg = await buildUserMessageParam("describe this clip", [attId], attachmentStore);
+		const content = msg.content as unknown as Array<Record<string, unknown>>;
+		expect(content.length).toBe(2);
+
+		const videoBlock = content[0];
+		expect(videoBlock?.type).toBe("video");
+		const source = videoBlock?.source as Record<string, unknown>;
+		expect(source?.type).toBe("base64");
+		expect(source?.media_type).toBe("video/mp4");
+		expect(source?.data).toBe(Buffer.from("fake-video-data").toString("base64"));
+	});
+
 	test("text + PDF attachment produces DocumentBlockParam with base64", async () => {
 		const pdfPath = join(tmpDir, "doc.pdf");
 		writeFileSync(pdfPath, Buffer.from("fake-pdf-data"));

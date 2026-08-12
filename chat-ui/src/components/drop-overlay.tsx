@@ -15,7 +15,7 @@ export function DropOverlay({ visible }: { visible: boolean }) {
 				<Upload className="h-10 w-10 text-primary" />
 				<p className="text-lg font-medium text-foreground">Drop files here</p>
 				<p className="text-sm text-muted-foreground">
-					Images, PDFs, and text files are supported
+					Images, videos, PDFs, and text files are supported
 				</p>
 			</div>
 		</div>

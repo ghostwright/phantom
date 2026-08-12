@@ -7,7 +7,10 @@ import { toast } from "sonner";
 const IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 const MAX_FILES = 10;
 
-function getMaxSizeForType(mimeType: string): { limit: number; label: string } {
+function getMaxSizeForType(mimeType: string, filename: string): { limit: number; label: string } {
+	if (mimeType.startsWith("video/") || /\.(mp4|avi|mov|mkv)$/i.test(filename)) {
+		return { limit: 50 * 1024 * 1024, label: "Videos can be up to 50 MB" };
+	}
 	if (mimeType === "application/pdf") return { limit: 32 * 1024 * 1024, label: "PDFs can be up to 32 MB" };
 	if (mimeType.startsWith("image/")) return { limit: 10 * 1024 * 1024, label: "Images can be up to 10 MB" };
 	return { limit: 1 * 1024 * 1024, label: "Text files can be up to 1 MB" };
@@ -73,7 +76,7 @@ export function useAttachments(): {
 						toast.error("iOS HEIC photos are not supported. Please choose JPEG export from the Photos app.");
 						continue;
 					}
-					const sizeInfo = getMaxSizeForType(file.type);
+					const sizeInfo = getMaxSizeForType(file.type, file.name);
 					if (file.size > sizeInfo.limit) {
 						toast.error(`"${file.name}" is too large. ${sizeInfo.label}.`);
 						continue;

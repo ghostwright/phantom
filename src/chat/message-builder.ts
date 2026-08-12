@@ -1,6 +1,6 @@
 // Builds SDK-native MessageParam from user text + attachments.
-// Attachments are converted to ImageBlockParam, DocumentBlockParam, or
-// TextBlockParam depending on type. Text block goes last.
+// Attachments are converted to image, video, or document content blocks.
+// The user's text block goes last.
 
 import type { SDKUserMessage } from "../agent/agent-sdk.ts";
 
@@ -8,7 +8,7 @@ type MessageParam = SDKUserMessage["message"];
 
 import type { ChatAttachment, ChatAttachmentStore } from "./attachment-store.ts";
 import { readAttachmentFileBase64, readAttachmentFileText } from "./storage.ts";
-import { IMAGE_MIMES, PDF_MIME } from "./validators.ts";
+import { IMAGE_MIMES, PDF_MIME, VIDEO_MIMES, normalizeMimeType } from "./validators.ts";
 
 type ContentBlock = {
 	type: string;
@@ -125,10 +125,16 @@ async function buildMessageParamFromAttachments(text: string, attachments: ChatA
 
 	const content: ContentBlock[] = [];
 
-	// Images first, then documents, then text - matches Anthropic's recommended ordering
+	// Media first, then documents, then text.
 	const images = attachments.filter((a) => IMAGE_MIMES.has(a.mime_type ?? ""));
+	const videos = attachments.filter((a) => VIDEO_MIMES.has(normalizeMimeType(a.mime_type ?? "", a.filename ?? "")));
 	const pdfs = attachments.filter((a) => a.mime_type === PDF_MIME);
-	const textFiles = attachments.filter((a) => !IMAGE_MIMES.has(a.mime_type ?? "") && a.mime_type !== PDF_MIME);
+	const textFiles = attachments.filter(
+		(a) =>
+			!IMAGE_MIMES.has(a.mime_type ?? "") &&
+			!VIDEO_MIMES.has(normalizeMimeType(a.mime_type ?? "", a.filename ?? "")) &&
+			a.mime_type !== PDF_MIME,
+	);
 
 	for (const att of images) {
 		const data = await readAttachmentFileBase64(att.storage_path);
@@ -137,6 +143,18 @@ async function buildMessageParamFromAttachments(text: string, attachments: ChatA
 			source: {
 				type: "base64",
 				media_type: att.mime_type ?? "image/png",
+				data,
+			},
+		});
+	}
+
+	for (const att of videos) {
+		const data = await readAttachmentFileBase64(att.storage_path);
+		content.push({
+			type: "video",
+			source: {
+				type: "base64",
+				media_type: normalizeMimeType(att.mime_type ?? "", att.filename ?? ""),
 				data,
 			},
 		});

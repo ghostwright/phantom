@@ -31,6 +31,16 @@ describe("validators", () => {
 			expect(result.ok).toBe(true);
 		});
 
+		test("accepts MP4 video", () => {
+			const result = validateFile("video/mp4", 5 * 1024 * 1024, "clip.mp4");
+			expect(result.ok).toBe(true);
+		});
+
+		test("accepts MOV video with browser MIME type", () => {
+			const result = validateFile("video/quicktime", 5 * 1024 * 1024, "clip.mov");
+			expect(result.ok).toBe(true);
+		});
+
 		test("accepts PDF", () => {
 			const result = validateFile("application/pdf", 5 * 1024 * 1024, "document.pdf");
 			expect(result.ok).toBe(true);
@@ -107,6 +117,14 @@ describe("validators", () => {
 			}
 		});
 
+		test("rejects oversized video (> 50MB)", () => {
+			const result = validateFile("video/mp4", 51 * 1024 * 1024, "huge.mp4");
+			expect(result.ok).toBe(false);
+			if (!result.ok) {
+				expect(result.reason).toBe("video_too_large");
+			}
+		});
+
 		test("rejects oversized PDF (> 32MB)", () => {
 			const result = validateFile("application/pdf", 33 * 1024 * 1024, "huge.pdf");
 			expect(result.ok).toBe(false);
@@ -167,8 +185,8 @@ describe("validators", () => {
 			expect(result.ok).toBe(true);
 		});
 
-		test("rejects oversized request (> 40MB)", () => {
-			const result = validateRequestSize(41 * 1024 * 1024);
+		test("rejects oversized request (> 64MB)", () => {
+			const result = validateRequestSize(65 * 1024 * 1024);
 			expect(result.ok).toBe(false);
 		});
 
@@ -212,6 +230,10 @@ describe("validators", () => {
 			expect(isAllowedMimeType("application/pdf", "doc.pdf")).toBe(true);
 		});
 
+		test("allows video/quicktime for MOV files", () => {
+			expect(isAllowedMimeType("video/quicktime", "clip.mov")).toBe(true);
+		});
+
 		test("allows text/plain", () => {
 			expect(isAllowedMimeType("text/plain", "file.txt")).toBe(true);
 		});
@@ -238,6 +260,13 @@ describe("validators", () => {
 			expect(guessMimeFromName("doc.pdf")).toBe("application/pdf");
 		});
 
+		test("guesses video MIME types", () => {
+			expect(guessMimeFromName("clip.mp4")).toBe("video/mp4");
+			expect(guessMimeFromName("clip.avi")).toBe("video/avi");
+			expect(guessMimeFromName("clip.mov")).toBe("video/mov");
+			expect(guessMimeFromName("clip.mkv")).toBe("video/x-matroska");
+		});
+
 		test("guesses text/plain for .py", () => {
 			expect(guessMimeFromName("script.py")).toBe("text/plain");
 		});
@@ -258,6 +287,10 @@ describe("validators", () => {
 
 		test("falls back to mime for jpeg", () => {
 			expect(pickExtension("image/jpeg", "image")).toBe("jpg");
+		});
+
+		test("falls back to mime for mp4", () => {
+			expect(pickExtension("video/mp4", "video")).toBe("mp4");
 		});
 
 		test("falls back to bin for unknown", () => {

@@ -163,7 +163,7 @@ export function ChatInput({
           multiple
           className="hidden"
           onChange={handleFileSelect}
-          accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/*,.js,.ts,.tsx,.jsx,.py,.go,.rs,.rb,.java,.kt,.swift,.c,.cpp,.h,.hpp,.sh,.bash,.zsh,.toml,.ini,.sql,.json,.md,.csv,.html,.xml,.yaml,.yml"
+          accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/avi,video/x-msvideo,video/mov,video/quicktime,video/x-matroska,.mp4,.avi,.mov,.mkv,application/pdf,text/*,.js,.ts,.tsx,.jsx,.py,.go,.rs,.rb,.java,.kt,.swift,.c,.cpp,.h,.hpp,.sh,.bash,.zsh,.toml,.ini,.sql,.json,.md,.csv,.html,.xml,.yaml,.yml"
         />
       </div>
     </div>

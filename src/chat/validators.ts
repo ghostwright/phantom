@@ -3,6 +3,8 @@
 
 export const IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
+export const VIDEO_MIMES = new Set(["video/mp4", "video/avi", "video/x-msvideo", "video/mov", "video/x-matroska"]);
+
 export const PDF_MIME = "application/pdf";
 
 export const TEXT_MIMES = new Set([
@@ -53,10 +55,11 @@ export const TEXT_EXTENSIONS = new Set([
 ]);
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 const MAX_PDF_BYTES = 32 * 1024 * 1024;
 const MAX_TEXT_BYTES = 1 * 1024 * 1024;
 export const MAX_FILES_PER_REQUEST = 10;
-const MAX_REQUEST_BYTES = 40 * 1024 * 1024;
+const MAX_REQUEST_BYTES = 64 * 1024 * 1024;
 
 export type ValidationResult = { ok: true } | { ok: false; reason: string; message: string };
 
@@ -77,15 +80,27 @@ export function guessMimeFromName(filename: string): string | null {
 	if (ext === ".png") return "image/png";
 	if (ext === ".gif") return "image/gif";
 	if (ext === ".webp") return "image/webp";
+	if (ext === ".mp4") return "video/mp4";
+	if (ext === ".avi") return "video/avi";
+	if (ext === ".mov") return "video/mov";
+	if (ext === ".mkv") return "video/x-matroska";
 	if (ext === ".pdf") return "application/pdf";
 	if (TEXT_EXTENSIONS.has(ext)) return "text/plain";
 	return null;
 }
 
+export function normalizeMimeType(mimeType: string, filename: string): string {
+	const mime = mimeType || guessMimeFromName(filename) || "";
+	if (mime === "video/quicktime" && getExtension(filename) === ".mov") return "video/mov";
+	return mime;
+}
+
 export function isAllowedMimeType(mimeType: string, filename: string): boolean {
-	if (IMAGE_MIMES.has(mimeType)) return true;
-	if (mimeType === PDF_MIME) return true;
-	if (TEXT_MIMES.has(mimeType)) return true;
+	const mime = normalizeMimeType(mimeType, filename);
+	if (IMAGE_MIMES.has(mime)) return true;
+	if (VIDEO_MIMES.has(mime)) return true;
+	if (mime === PDF_MIME) return true;
+	if (TEXT_MIMES.has(mime)) return true;
 	if (hasTextExtension(filename)) return true;
 	return false;
 }
@@ -93,7 +108,7 @@ export function isAllowedMimeType(mimeType: string, filename: string): boolean {
 export function validateFile(mimeType: string, sizeBytes: number, filename: string): ValidationResult {
 	if (sizeBytes === 0) return { ok: false, reason: "empty", message: "File is empty." };
 
-	const mime = mimeType || guessMimeFromName(filename);
+	const mime = normalizeMimeType(mimeType, filename);
 	if (!mime) return { ok: false, reason: "unknown_type", message: "Unknown file type." };
 
 	if (mime === "image/heic" || mime === "image/heif") {
@@ -118,6 +133,20 @@ export function validateFile(mimeType: string, sizeBytes: number, filename: stri
 		return { ok: true };
 	}
 
+	if (mime.startsWith("video/")) {
+		if (!VIDEO_MIMES.has(mime)) {
+			return {
+				ok: false,
+				reason: "unsupported_video_format",
+				message: "This video format is not supported. Convert to MP4, AVI, MOV, or MKV.",
+			};
+		}
+		if (sizeBytes > MAX_VIDEO_BYTES) {
+			return { ok: false, reason: "video_too_large", message: "Video is too large. Max 50 MB." };
+		}
+		return { ok: true };
+	}
+
 	if (mime === PDF_MIME) {
 		if (sizeBytes > MAX_PDF_BYTES) {
 			return { ok: false, reason: "pdf_too_large", message: "PDF is too large. Max 32 MB." };
@@ -137,7 +166,7 @@ export function validateFile(mimeType: string, sizeBytes: number, filename: stri
 
 export function validateRequestSize(contentLength: number | null): ValidationResult {
 	if (contentLength !== null && contentLength > MAX_REQUEST_BYTES) {
-		return { ok: false, reason: "request_too_large", message: "Total upload too large. Max 40 MB." };
+		return { ok: false, reason: "request_too_large", message: "Total upload too large. Max 64 MB." };
 	}
 	return { ok: true };
 }
@@ -156,6 +185,10 @@ export function pickExtension(mimeType: string, filename: string): string {
 	if (mimeType === "image/png") return "png";
 	if (mimeType === "image/gif") return "gif";
 	if (mimeType === "image/webp") return "webp";
+	if (mimeType === "video/mp4") return "mp4";
+	if (mimeType === "video/avi" || mimeType === "video/x-msvideo") return "avi";
+	if (mimeType === "video/mov" || mimeType === "video/quicktime") return "mov";
+	if (mimeType === "video/x-matroska") return "mkv";
 	if (mimeType === "application/pdf") return "pdf";
 	return "bin";
 }
